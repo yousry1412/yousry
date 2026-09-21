@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>لوحة تحكم المطعم</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-icon">🍽️</span>
+        <div>
+          <h1>لوحة تحكم المطعم</h1>
+          <p class="subtitle">مدير أعمالك الرقمي: بيانات، قرارات، عروض، ونتائج في مكان واحد</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="btn-seed" class="btn btn-ghost">تحميل بيانات تجريبية</button>
+        <button id="btn-reset" class="btn btn-ghost btn-danger">تصفير البيانات</button>
+      </div>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="dashboard">لوحة القيادة</button>
+      <button class="tab" data-tab="sales">المبيعات</button>
+      <button class="tab" data-tab="expenses">المصروفات</button>
+      <button class="tab" data-tab="offers">العروض</button>
+      <button class="tab" data-tab="decisions">القرارات</button>
+    </nav>
+
+    <main>
+      <section id="tab-dashboard" class="tab-panel active">
+        <div class="kpi-grid" id="kpi-grid"></div>
+
+        <div class="charts-grid">
+          <div class="card">
+            <h2>اتجاه المبيعات اليومية</h2>
+            <div id="revenue-chart" class="chart-host"></div>
+          </div>
+          <div class="card">
+            <h2>توزيع المصروفات حسب البند</h2>
+            <div id="expense-chart" class="chart-host"></div>
+          </div>
+        </div>
+
+        <div class="card report-card">
+          <h2>تقرير مدير الأعمال</h2>
+          <p class="muted small">تحليل تلقائي مبني على بياناتك: يقيّم كل قرار وعرض بمقارنة المبيعات قبل وبعد، ويطلع توصيات عملية.</p>
+          <ul id="recommendations" class="recommendations"></ul>
+        </div>
+      </section>
+
+      <section id="tab-sales" class="tab-panel">
+        <div class="card">
+          <h2>تسجيل مبيعات يوم</h2>
+          <form id="form-sales" class="grid-form">
+            <label>التاريخ<input type="date" name="date" required /></label>
+            <label>الإيرادات (جنيه)<input type="number" name="revenue" min="0" step="0.01" required /></label>
+            <label>عدد الطلبات<input type="number" name="ordersCount" min="0" step="1" /></label>
+            <label class="full">ملاحظات<input type="text" name="notes" placeholder="مثال: يوم مطر، حدث محلي..." /></label>
+            <button type="submit" class="btn btn-primary">إضافة</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>سجل المبيعات</h2>
+          <div class="table-wrap"><table id="table-sales"><thead><tr><th>التاريخ</th><th>الإيرادات</th><th>عدد الطلبات</th><th>ملاحظات</th><th></th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="tab-expenses" class="tab-panel">
+        <div class="card">
+          <h2>تسجيل مصروف</h2>
+          <form id="form-expenses" class="grid-form">
+            <label>التاريخ<input type="date" name="date" required /></label>
+            <label>البند
+              <select name="category" required>
+                <option value="ingredients">المستلزمات والمواد الخام</option>
+                <option value="salaries">الرواتب والأجور</option>
+                <option value="rent">الإيجار</option>
+                <option value="utilities">المرافق (كهرباء / مياه / غاز)</option>
+                <option value="marketing">التسويق والإعلانات</option>
+                <option value="other">مصروفات أخرى</option>
+              </select>
+            </label>
+            <label>المبلغ (جنيه)<input type="number" name="amount" min="0" step="0.01" required /></label>
+            <label class="full">ملاحظات<input type="text" name="notes" /></label>
+            <button type="submit" class="btn btn-primary">إضافة</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>سجل المصروفات</h2>
+          <div class="table-wrap"><table id="table-expenses"><thead><tr><th>التاريخ</th><th>البند</th><th>المبلغ</th><th>ملاحظات</th><th></th></tr></thead><tbody></tbody></table></div>
+        </div>
+      </section>
+
+      <section id="tab-offers" class="tab-panel">
+        <div class="card">
+          <h2>إضافة عرض جديد</h2>
+          <form id="form-offers" class="grid-form">
+            <label>اسم العرض<input type="text" name="name" required /></label>
+            <label>نسبة الخصم %<input type="number" name="discountPercent" min="0" max="100" step="1" /></label>
+            <label>تاريخ البداية<input type="date" name="startDate" required /></label>
+            <label>تاريخ النهاية<input type="date" name="endDate" /></label>
+            <label class="full">الفئة المستهدفة<input type="text" name="target" placeholder="مثال: عملاء الغدا، طلبات التوصيل..." /></label>
+            <label class="full">الوصف<input type="text" name="description" /></label>
+            <button type="submit" class="btn btn-primary">إضافة العرض</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>العروض ونتائجها</h2>
+          <div id="offers-list" class="entity-list"></div>
+        </div>
+      </section>
+
+      <section id="tab-decisions" class="tab-panel">
+        <div class="card">
+          <h2>تسجيل قرار إداري</h2>
+          <form id="form-decisions" class="grid-form">
+            <label>عنوان القرار<input type="text" name="title" required /></label>
+            <label>التصنيف
+              <select name="category">
+                <option value="pricing">تسعير</option>
+                <option value="menu">قائمة الطعام</option>
+                <option value="staffing">العمالة والتوظيف</option>
+                <option value="marketing">تسويق</option>
+                <option value="operations">تشغيل</option>
+                <option value="other">أخرى</option>
+              </select>
+            </label>
+            <label>التاريخ<input type="date" name="date" required /></label>
+            <label class="full">سبب القرار<input type="text" name="reason" /></label>
+            <label class="full">النتيجة المتوقعة<input type="text" name="expectedOutcome" /></label>
+            <button type="submit" class="btn btn-primary">إضافة القرار</button>
+          </form>
+        </div>
+        <div class="card">
+          <h2>القرارات ونتائجها الفعلية</h2>
+          <div id="decisions-list" class="entity-list"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
