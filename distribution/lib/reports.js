@@ -487,6 +487,35 @@ function inventoryValuation(companyId, branchId) {
   return { rows: withValue, totalValue };
 }
 
+/**
+ * مطابقة المخزون: qty_on_hand في product_stock رقم متراكم بيتحدّث تلقائيًا مع كل حركة،
+ * ومفيش أي تحقق مستقل منه - الدالة دي بتعيد حساب الكمية من مجموع stock_movements نفسه
+ * (مصدر الحقيقة التفصيلي) وتقارنها بالرقم المخزّن، عشان تكشف أي انحراف مستقبلي (باج،
+ * تعديل يدوي في القاعدة، إلخ) قبل ما يأثر على تقييم المخزون أو حسابات الشركاء.
+ */
+function inventoryReconciliation(companyId, branchId) {
+  const branchFilter = branchId ? 'AND ps.branch_id = ?' : '';
+  const rows = db
+    .prepare(
+      `SELECT ps.product_id, ps.branch_id, ps.qty_on_hand AS stored_qty, ps.cost_price,
+              p.name AS product_name, p.unit AS product_unit, b.name AS branch_name,
+              COALESCE((SELECT SUM(sm.qty) FROM stock_movements sm
+                        WHERE sm.product_id = ps.product_id AND sm.branch_id = ps.branch_id), 0) AS computed_qty
+       FROM product_stock ps
+       JOIN products p ON p.id = ps.product_id
+       JOIN branches b ON b.id = ps.branch_id
+       WHERE p.company_id = ? ${branchFilter}
+       ORDER BY p.name`
+    )
+    .all(...(branchId ? [companyId, branchId] : [companyId]));
+
+  const mismatches = rows
+    .map((r) => ({ ...r, diff: round2(r.stored_qty - r.computed_qty) }))
+    .filter((r) => Math.abs(r.diff) > 0.01);
+
+  return { checkedCount: rows.length, mismatches };
+}
+
 // ---------------------------------------------------------------------------
 // تسوية الرحلة
 // ---------------------------------------------------------------------------
@@ -980,6 +1009,7 @@ module.exports = {
   salesRepAccountabilityReport,
   invoiceLocationsReport,
   inventoryValuation,
+  inventoryReconciliation,
   tripSettlementReport,
   productProfitability,
   customerProfitability,

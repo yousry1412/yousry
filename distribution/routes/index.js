@@ -994,6 +994,11 @@ router.get(
   handle((req) => reports.inventoryValuation(ctx(req, { needBranch: false }).company_id, reportBranch(req)))
 );
 router.get(
+  '/reports/inventory-reconciliation',
+  allow(...WH_G),
+  handle((req) => reports.inventoryReconciliation(ctx(req, { needBranch: false }).company_id, reportBranch(req)))
+);
+router.get(
   '/reports/profitability/products',
   allow(...FIN),
   handle((req) =>

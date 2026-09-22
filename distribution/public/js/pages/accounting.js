@@ -5,6 +5,7 @@ const ACCT_TABS = [
   { key: 'income', label: 'قائمة الدخل' },
   { key: 'balance', label: 'المركز المالي' },
   { key: 'aging', label: 'أعمار الديون' },
+  { key: 'inventoryCheck', label: 'مطابقة المخزون' },
   { key: 'salesAccountability', label: 'مسؤولية التحصيل' },
   { key: 'profitability', label: 'الربحية' },
   { key: 'partners', label: 'حقوق الشركاء' },
@@ -247,6 +248,37 @@ async function renderSalesAccountability(container) {
   `;
 }
 
+async function renderInventoryReconciliation(container) {
+  const r = await Api.get('/reports/inventory-reconciliation');
+  container.innerHTML = `
+    <p class="muted" style="font-size:13px; margin-bottom:12px">
+      رصيد المخزون المعروض في كل الشاشات رقم متراكم بيتحدّث مع كل عملية. الفحص ده بيعيد حساب الكمية من سجل كل
+      حركة مخزنية على حدة (شراء/بيع/تحويل/تصنيع/تلف...) ويقارنها بالرقم المخزّن، عشان يكتشف أي فرق قبل ما يأثر
+      على تقييم المخزون أو حسابات الشركاء. تم فحص ${r.checkedCount} صنف/فرع.
+    </p>
+    ${
+      r.mismatches.length === 0
+        ? '<div class="empty-state" style="color:var(--success)">✔ كل أرصدة المخزون مطابقة تمامًا لسجل الحركات - مفيش أي انحراف</div>'
+        : `<div class="table-wrap"><table><thead><tr>
+            <th>الصنف</th><th>الفرع</th><th>الرصيد المسجّل</th><th>الرصيد المحسوب من الحركات</th><th>الفرق</th>
+          </tr></thead><tbody>
+            ${r.mismatches
+              .map(
+                (m) => `<tr>
+                <td>${UI.escapeHtml(m.product_name)}</td>
+                <td>${UI.escapeHtml(m.branch_name)}</td>
+                <td>${UI.num(m.stored_qty)} ${UI.escapeHtml(m.product_unit)}</td>
+                <td>${UI.num(m.computed_qty)} ${UI.escapeHtml(m.product_unit)}</td>
+                <td style="color:var(--danger)"><strong>${m.diff > 0 ? '+' : ''}${UI.num(m.diff)}</strong></td>
+              </tr>`
+              )
+              .join('')}
+          </tbody></table></div>
+          <p class="muted" style="font-size:13px; margin-top:10px">فرق موجب = الرصيد المسجّل أكبر من الحركات الفعلية. راجع حركة الصنف ده من صفحة تفاصيله لتحديد سبب الفرق.</p>`
+    }
+  `;
+}
+
 async function renderPartnersEquity(container) {
   const rows = await Api.get('/reports/partners-equity');
   if (rows.length === 0) {
@@ -407,6 +439,7 @@ const TAB_RENDERERS = {
   income: renderIncomeStatement,
   balance: renderBalanceSheet,
   aging: renderAging,
+  inventoryCheck: renderInventoryReconciliation,
   salesAccountability: renderSalesAccountability,
   profitability: renderProfitability,
   partners: renderPartnersEquity,
