@@ -40,6 +40,7 @@ ensureColumn('companies', 'geofence_radius_m', 'geofence_radius_m REAL NOT NULL 
 ensureColumn('suppliers', 'latitude', 'latitude REAL');
 ensureColumn('suppliers', 'longitude', 'longitude REAL');
 ensureColumn('suppliers', 'geofence_radius_m', 'geofence_radius_m REAL');
+ensureColumn('trips', 'responsible_employee_id', 'responsible_employee_id INTEGER REFERENCES employees(id)');
 
 // بعض القيود القديمة (CHECK على party_type/voucher_type) كانت بتمنع قيم جديدة زي 'employee' -
 // SQLite مسمحش بتعديل CHECK مباشرة، فلو لقينا الجدول لسه شايل القيد القديم، بنعيد إنشاءه بنفس البيانات
@@ -48,9 +49,13 @@ function dropCheckConstraintIfPresent(table, oldCheckSnippet, recreateSql) {
   if (!row || !row.sql.includes(oldCheckSnippet)) return;
   db.exec('BEGIN');
   try {
+    const oldCols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
     db.exec(`ALTER TABLE ${table} RENAME TO ${table}_old_migration`);
     db.exec(recreateSql);
-    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+    const newCols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+    // بنستخدم بس الأعمدة المشتركة بين الجدول القديم والجديد - لو recreateSql ضاف عمود جديد
+    // (زي trip_id) ماكانش موجود في الجدول القديم، هيتسيب NULL افتراضيًا بدل ما نكسر النسخ
+    const cols = newCols.filter((c) => oldCols.includes(c));
     db.exec(`INSERT INTO ${table} (${cols.join(',')}) SELECT ${cols.join(',')} FROM ${table}_old_migration`);
     db.exec(`DROP TABLE ${table}_old_migration`);
     db.exec('COMMIT');
@@ -90,6 +95,21 @@ dropCheckConstraintIfPresent(
     amount REAL NOT NULL,
     method TEXT NOT NULL DEFAULT 'cash' CHECK(method IN ('cash','bank')),
     voucher_date TEXT NOT NULL,
+    trip_id INTEGER REFERENCES trips(id),
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`
+);
+ensureColumn('vouchers', 'trip_id', 'trip_id INTEGER REFERENCES trips(id)');
+dropCheckConstraintIfPresent(
+  'trip_expenses',
+  "paid_from IN ('cash','bank')",
+  `CREATE TABLE trip_expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    category TEXT NOT NULL CHECK(category IN ('fuel','rent','maintenance','toll','other')),
+    amount REAL NOT NULL,
+    paid_from TEXT NOT NULL DEFAULT 'cash',
     notes TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`
@@ -138,17 +158,27 @@ function accountIdByCode(companyId, code) {
   return row.id;
 }
 
+// بعض العمليات (زي تسوية الرحلة) بتنادي عمليات تانية بتفتح معاملة بنفسها (زي تسجيل توالف) -
+// عداد العمق ده بيخلي بس أقدم نداء هو اللي بيفتح/يقفل المعاملة الفعلية، والنداءات المتداخلة
+// بتشارك في نفس المعاملة بدل ما تحاول تفتح معاملة جوه معاملة (SQLite مش بيسمح بده)
+let transactionDepth = 0;
 function inTransaction(fn) {
-  db.exec('BEGIN');
+  const isOutermost = transactionDepth === 0;
+  if (isOutermost) db.exec('BEGIN');
+  transactionDepth++;
   try {
     const result = fn();
-    db.exec('COMMIT');
+    transactionDepth--;
+    if (isOutermost) db.exec('COMMIT');
     return result;
   } catch (err) {
-    try {
-      db.exec('ROLLBACK');
-    } catch (_) {
-      /* ignore rollback failure */
+    transactionDepth--;
+    if (isOutermost) {
+      try {
+        db.exec('ROLLBACK');
+      } catch (_) {
+        /* ignore rollback failure */
+      }
     }
     throw err;
   }

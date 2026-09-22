@@ -624,14 +624,19 @@ function createVehicle({ company_id, branch_id, name, ownership, driver_name, mo
   return db.prepare('SELECT * FROM vehicles WHERE id = ?').get(info.lastInsertRowid);
 }
 
-function createTrip({ company_id, branch_id, vehicle_id, trip_date, notes }) {
+function createTrip({ company_id, branch_id, vehicle_id, responsible_employee_id, trip_date, notes }) {
   const vehicle = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicle_id);
   if (!vehicle || vehicle.company_id !== company_id) throw new Error('سيارة غير موجودة');
   if (vehicle.branch_id !== branch_id) throw new Error('السيارة دي مش تابعة للفرع الحالي');
+  if (!responsible_employee_id) throw new Error('لازم تحدد الموظف/السائق المسؤول عن السيارة والبضاعة قبل بدء الرحلة');
+  assertBelongs('employees', responsible_employee_id, company_id, 'الموظف المسؤول');
   const trip_no = nextNumber('trips', 'TRIP');
   const info = db
-    .prepare('INSERT INTO trips (company_id, branch_id, trip_no, vehicle_id, trip_date, notes) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(company_id, branch_id, trip_no, vehicle_id, trip_date, notes || null);
+    .prepare(
+      `INSERT INTO trips (company_id, branch_id, trip_no, vehicle_id, responsible_employee_id, trip_date, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(company_id, branch_id, trip_no, vehicle_id, responsible_employee_id, trip_date, notes || null);
   return db.prepare('SELECT * FROM trips WHERE id = ?').get(info.lastInsertRowid);
 }
 
@@ -731,7 +736,9 @@ function addTripLoad({ trip_id, items }) {
     }
 
     if (totalValue > 0) {
-      const jLines = [{ account_code: ACC.CUSTODY, debit: totalValue }];
+      const jLines = [
+        { account_code: ACC.CUSTODY, debit: totalValue, party_type: 'employee', party_id: trip.responsible_employee_id },
+      ];
       for (const [account_code, amount] of Object.entries(invAccTotals)) {
         jLines.push({ account_code, credit: amount });
       }
@@ -785,11 +792,22 @@ function addTripExpense({ trip_id, category, amount, paid_from, notes }) {
     const trip = requireOpenTrip(trip_id);
     const amt = round2(Number(amount));
     if (!(amt > 0)) throw new Error('المبلغ لازم يكون أكبر من صفر');
+    const from = paid_from || 'cash';
+    if (from === 'driver_custody' && !trip.responsible_employee_id) {
+      throw new Error('الرحلة دي مالهاش موظف مسؤول محدد، مينفعش يتصرف من عهدته');
+    }
     const info = db
       .prepare(
         `INSERT INTO trip_expenses (trip_id, category, amount, paid_from, notes) VALUES (?, ?, ?, ?, ?)`
       )
-      .run(trip_id, category, amt, paid_from || 'cash', notes || null);
+      .run(trip_id, category, amt, from, notes || null);
+
+    // 'driver_custody' = المصروف اتدفع من الكاش اللي في إيد السائق (تحصيلات ميدانية)، فبنقلل عهدته
+    // النقدية بدل ما نلمس خزنة/بنك المنشأة اللي أصلًا محصلش منها حاجة.
+    const creditLine =
+      from === 'driver_custody'
+        ? { account_code: ACC.PETTY_CUSTODY, credit: amt, party_type: 'employee', party_id: trip.responsible_employee_id }
+        : { account_code: cashOrBank(from), credit: amt };
 
     postEntry({
       company_id: trip.company_id,
@@ -800,7 +818,7 @@ function addTripExpense({ trip_id, category, amount, paid_from, notes }) {
       description: `مصروف رحلة ${trip.trip_no} - ${category}`,
       lines: [
         { account_code: TRIP_EXPENSE_CATEGORY_TO_ACC[category] || ACC.MISC_EXP, debit: amt },
-        { account_code: cashOrBank(paid_from), credit: amt },
+        creditLine,
       ],
     });
     return getTrip(trip_id);
@@ -844,7 +862,9 @@ function addTripReturn({ trip_id, items }) {
     }
 
     if (totalValue > 0) {
-      const jLines = [{ account_code: ACC.CUSTODY, credit: totalValue }];
+      const jLines = [
+        { account_code: ACC.CUSTODY, credit: totalValue, party_type: 'employee', party_id: trip.responsible_employee_id },
+      ];
       for (const [account_code, amount] of Object.entries(invAccTotals)) {
         jLines.push({ account_code, debit: amount });
       }
@@ -901,8 +921,11 @@ function settleTrip({ trip_id, write_off_discrepancy }) {
 function getTrip(id) {
   const trip = db
     .prepare(
-      `SELECT t.*, v.name AS vehicle_name, v.ownership FROM trips t
-       JOIN vehicles v ON v.id = t.vehicle_id WHERE t.id = ?`
+      `SELECT t.*, v.name AS vehicle_name, v.ownership, e.name AS responsible_employee_name
+       FROM trips t
+       JOIN vehicles v ON v.id = t.vehicle_id
+       LEFT JOIN employees e ON e.id = t.responsible_employee_id
+       WHERE t.id = ?`
     )
     .get(id);
   if (!trip) return null;
@@ -951,8 +974,9 @@ function createSalesInvoice({
   return inTransaction(() => {
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف بنود للفاتورة');
 
+    let trip = null;
     if (trip_id) {
-      const trip = requireOpenTrip(trip_id);
+      trip = requireOpenTrip(trip_id);
       company_id = trip.company_id;
       branch_id = trip.branch_id;
     }
@@ -1050,7 +1074,15 @@ function createSalesInvoice({
 
     const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customer_id);
     const jLines = [];
-    if (paid > 0) jLines.push({ account_code: cashOrBank(paid_to), debit: paid });
+    if (paid > 0) {
+      // تحصيل نقدي أثناء رحلة توزيع = كاش في إيد السائق (عهدة)، لحد ما يورّده لخزنة المنشأة.
+      // تحصيل بنكي (تحويل مباشر للعميل) بيروح لحساب البنك على طول حتى لو الفاتورة مربوطة برحلة.
+      if (trip_id && (paid_to || 'cash') === 'cash') {
+        jLines.push({ account_code: ACC.PETTY_CUSTODY, debit: paid, party_type: 'employee', party_id: trip.responsible_employee_id });
+      } else {
+        jLines.push({ account_code: cashOrBank(paid_to), debit: paid });
+      }
+    }
     const remaining = round2(total - paid);
     if (remaining > 0) {
       jLines.push({ account_code: ACC.AR, debit: remaining, party_type: 'customer', party_id: customer_id });
@@ -1060,7 +1092,12 @@ function createSalesInvoice({
     if (totalCost > 0) {
       jLines.push({ account_code: ACC.COGS, debit: totalCost });
       for (const [account_code, amount] of Object.entries(cogsAccTotals)) {
-        jLines.push({ account_code, credit: amount });
+        const line = { account_code, credit: amount };
+        if (trip_id && account_code === ACC.CUSTODY) {
+          line.party_type = 'employee';
+          line.party_id = trip.responsible_employee_id;
+        }
+        jLines.push(line);
       }
     }
 
@@ -1231,13 +1268,16 @@ function createDamage({ company_id, branch_id, product_id, qty, damage_date, rea
     const product = getProduct(product_id, company_id);
     let unit_cost;
     let creditAcc;
+    let creditParty = {};
     if (trip_id) {
+      const trip = requireTrip(trip_id);
       const remaining = tripRemainingQty(trip_id, product_id);
       if (qtyNum > remaining) {
         throw new Error(`الكمية أكبر من المتاح في عهدة الرحلة لـ "${product.name}" (المتاح ${remaining})`);
       }
       unit_cost = tripLoadUnitCost(trip_id, product_id);
       creditAcc = ACC.CUSTODY;
+      creditParty = { party_type: 'employee', party_id: trip.responsible_employee_id };
     } else {
       const stock = getProductWithStock(product_id, branch_id, company_id);
       if (stock.qty_on_hand < qtyNum) {
@@ -1277,7 +1317,7 @@ function createDamage({ company_id, branch_id, product_id, qty, damage_date, rea
         description: `توالف ${damage_no} - ${product.name}${reason ? ' (' + reason + ')' : ''}`,
         lines: [
           { account_code: ACC.DAMAGE_EXP, debit: amount },
-          { account_code: creditAcc, credit: amount },
+          { account_code: creditAcc, credit: amount, ...creditParty },
         ],
       });
     }
@@ -1508,7 +1548,7 @@ function createEmployeeVoucher({ company_id, branch_id, voucher_type, party_id, 
   return db.prepare('SELECT * FROM vouchers WHERE id = ?').get(info.lastInsertRowid);
 }
 
-function createVoucher({ company_id, branch_id, voucher_type, party_type, party_id, party_name, other_account_code, amount, method, voucher_date, notes }) {
+function createVoucher({ company_id, branch_id, voucher_type, party_type, party_id, party_name, other_account_code, amount, method, voucher_date, notes, trip_id }) {
   return inTransaction(() => {
     const amt = round2(Number(amount));
     if (!(amt > 0)) throw new Error('المبلغ لازم يكون أكبر من صفر');
@@ -1537,12 +1577,24 @@ function createVoucher({ company_id, branch_id, voucher_type, party_type, party_
       return createEmployeeVoucher({ company_id, branch_id, voucher_type, party_id, amt, method, voucher_date, notes });
     }
 
+    // تحصيل ميداني من عميل أثناء رحلة توزيع مفتوحة: الكاش بيدخل عهدة المسؤول عن الرحلة
+    // (لسه في إيده) بدل ما يدخل خزنة المنشأة على طول، لحد ما يورّده فعليًا.
+    let trip = null;
+    if (trip_id) {
+      if (voucher_type !== 'receipt' || party_type !== 'customer') {
+        throw new Error('ربط السند برحلة متاح بس لسند قبض من عميل');
+      }
+      trip = requireOpenTrip(trip_id);
+      if (trip.company_id !== company_id) throw new Error('رحلة غير موجودة أو لا تنتمي لهذه المنشأة');
+      if (!trip.responsible_employee_id) throw new Error('الرحلة دي مالهاش موظف مسؤول محدد');
+    }
+
     const prefix = voucher_type === 'receipt' ? 'RCV' : 'PAY';
     const voucher_no = nextNumber('vouchers', prefix);
     const info = db
       .prepare(
-        `INSERT INTO vouchers (company_id, branch_id, voucher_no, voucher_type, party_type, party_id, party_name, other_account_code, amount, method, voucher_date, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO vouchers (company_id, branch_id, voucher_no, voucher_type, party_type, party_id, party_name, other_account_code, amount, method, voucher_date, trip_id, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         company_id,
@@ -1556,6 +1608,7 @@ function createVoucher({ company_id, branch_id, voucher_type, party_type, party_
         amt,
         method || 'cash',
         voucher_date,
+        trip_id || null,
         notes || null
       );
 
@@ -1573,8 +1626,12 @@ function createVoucher({ company_id, branch_id, voucher_type, party_type, party_
       } else {
         const row = db.prepare(`SELECT * FROM ${partyTableByType[party_type]} WHERE id = ?`).get(party_id);
         partyName = row ? row.name : partyName;
+        const debitLine =
+          trip && (method || 'cash') === 'cash'
+            ? { account_code: ACC.PETTY_CUSTODY, debit: amt, party_type: 'employee', party_id: trip.responsible_employee_id }
+            : { account_code: cashOrBank(method), debit: amt, branch_id };
         jLines = [
-          { account_code: cashOrBank(method), debit: amt, branch_id },
+          debitLine,
           { account_code: partyAccountByType[party_type], credit: amt, party_type, party_id },
         ];
       }

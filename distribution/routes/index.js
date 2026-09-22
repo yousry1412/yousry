@@ -242,6 +242,16 @@ router.get(
   handle((req) => reports.allEmployeeBalances(ctx(req, { needBranch: false }).company_id))
 );
 router.get(
+  '/employees/basic',
+  allow(...ALL_ROLES),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    return db
+      .prepare('SELECT id, name, job_title FROM employees WHERE company_id = ? AND is_active = 1 ORDER BY name')
+      .all(company_id);
+  })
+);
+router.get(
   '/employees/:id/statement',
   allow(...FIN),
   handle((req) => reports.employeeStatement(ctx(req, { needBranch: false }).company_id, Number(req.params.id)))
@@ -535,8 +545,9 @@ router.get(
     const { company_id, branch_id } = ctx(req);
     return db
       .prepare(
-        `SELECT t.*, v.name AS vehicle_name FROM trips t
+        `SELECT t.*, v.name AS vehicle_name, e.name AS responsible_employee_name FROM trips t
          JOIN vehicles v ON v.id = t.vehicle_id
+         LEFT JOIN employees e ON e.id = t.responsible_employee_id
          WHERE t.company_id = ? AND t.branch_id = ? ORDER BY t.id DESC LIMIT 500`
       )
       .all(company_id, branch_id);
@@ -813,8 +824,15 @@ router.get(
 );
 router.post(
   '/vouchers',
-  allow(...FIN),
+  allow(...ALL_ROLES),
   handle((req) => {
+    // المستخدمين الميدانيين (مبيعات/مخزن) مسموح لهم بس بسند قبض من عميل (تحصيل ميداني أثناء رحلة)،
+    // أي نوع سند تاني (صرف، سلف، عهدة موظفين...) لازم يكون من محاسب أو مالك
+    if (!FIN.includes(req.user.role) && (req.body.voucher_type !== 'receipt' || req.body.party_type !== 'customer')) {
+      const err = new Error('الحساب ده مالوش صلاحية إنشاء هذا النوع من السندات');
+      err.statusCode = 403;
+      throw err;
+    }
     const { company_id, branch_id } = ctx(req, { needBranch: false });
     return services.createVoucher({ ...req.body, company_id, branch_id });
   })

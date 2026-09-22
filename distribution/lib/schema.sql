@@ -262,6 +262,7 @@ CREATE TABLE IF NOT EXISTS trips (
   branch_id INTEGER NOT NULL REFERENCES branches(id),
   trip_no TEXT UNIQUE NOT NULL,
   vehicle_id INTEGER NOT NULL REFERENCES vehicles(id),
+  responsible_employee_id INTEGER REFERENCES employees(id),
   trip_date TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','settled')),
   notes TEXT,
@@ -290,7 +291,8 @@ CREATE TABLE IF NOT EXISTS trip_expenses (
   trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
   category TEXT NOT NULL CHECK(category IN ('fuel','rent','maintenance','toll','other')),
   amount REAL NOT NULL,
-  paid_from TEXT NOT NULL DEFAULT 'cash' CHECK(paid_from IN ('cash','bank')),
+  -- 'cash'/'bank' = من خزنة المنشأة، 'driver_custody' = من الكاش اللي في عهدة المسؤول عن الرحلة (تحصيلات ميدانية)
+  paid_from TEXT NOT NULL DEFAULT 'cash',
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -436,6 +438,7 @@ CREATE TABLE IF NOT EXISTS vouchers (
   amount REAL NOT NULL,
   method TEXT NOT NULL DEFAULT 'cash' CHECK(method IN ('cash','bank')),
   voucher_date TEXT NOT NULL,
+  trip_id INTEGER REFERENCES trips(id), -- لو السند ده تحصيل ميداني أثناء رحلة توزيع مفتوحة
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

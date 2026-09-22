@@ -184,14 +184,16 @@ function supplierStatement(companyId, supplierId) {
   return { supplier, rows, balance };
 }
 
-/** كشف حساب موظف: سلف وعهدات (رصيد موجب = مستحق على الموظف للمنشأة) */
+/** كشف حساب موظف: سلف وعهدات نقدية وعهدة بضاعة سيارة (رصيد موجب = مستحق على الموظف للمنشأة) */
 function employeeStatement(companyId, employeeId) {
   const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND company_id = ?').get(employeeId, companyId);
   if (!employee) throw new Error('موظف غير موجود');
   const accountIds = db
-    .prepare('SELECT id, code FROM accounts WHERE company_id = ? AND code IN (?, ?)')
-    .all(companyId, ACC.EMP_ADVANCES, ACC.PETTY_CUSTODY);
-  if (accountIds.length === 0) return { employee, rows: [], advancesBalance: 0, custodyBalance: 0, balance: 0 };
+    .prepare('SELECT id, code FROM accounts WHERE company_id = ? AND code IN (?, ?, ?)')
+    .all(companyId, ACC.EMP_ADVANCES, ACC.PETTY_CUSTODY, ACC.CUSTODY);
+  if (accountIds.length === 0) {
+    return { employee, rows: [], advancesBalance: 0, custodyBalance: 0, vehicleGoodsBalance: 0, balance: 0 };
+  }
   const idsPlaceholder = accountIds.map(() => '?').join(',');
   const lines = db
     .prepare(
@@ -205,20 +207,22 @@ function employeeStatement(companyId, employeeId) {
   let balance = 0;
   let advancesBalance = 0;
   let custodyBalance = 0;
+  let vehicleGoodsBalance = 0;
   const rows = lines.map((l) => {
     balance = round2(balance + l.debit - l.credit);
     if (l.account_code === ACC.EMP_ADVANCES) advancesBalance = round2(advancesBalance + l.debit - l.credit);
+    else if (l.account_code === ACC.CUSTODY) vehicleGoodsBalance = round2(vehicleGoodsBalance + l.debit - l.credit);
     else custodyBalance = round2(custodyBalance + l.debit - l.credit);
     return { ...l, balance };
   });
-  return { employee, rows, advancesBalance, custodyBalance, balance };
+  return { employee, rows, advancesBalance, custodyBalance, vehicleGoodsBalance, balance };
 }
 
 function allEmployeeBalances(companyId) {
   const employees = db.prepare('SELECT * FROM employees WHERE company_id = ? AND is_active = 1 ORDER BY name').all(companyId);
   const accountIds = db
-    .prepare('SELECT id FROM accounts WHERE company_id = ? AND code IN (?, ?)')
-    .all(companyId, ACC.EMP_ADVANCES, ACC.PETTY_CUSTODY)
+    .prepare('SELECT id FROM accounts WHERE company_id = ? AND code IN (?, ?, ?)')
+    .all(companyId, ACC.EMP_ADVANCES, ACC.PETTY_CUSTODY, ACC.CUSTODY)
     .map((a) => a.id);
   if (accountIds.length === 0) return employees.map((e) => ({ ...e, balance: 0 }));
   const idsPlaceholder = accountIds.map(() => '?').join(',');

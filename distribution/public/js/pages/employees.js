@@ -91,9 +91,10 @@ Pages.employeeStatement = async function (id) {
         <a class="btn secondary small" href="#/employees">رجوع للموظفين</a>
       </div>
       <p class="muted">الوظيفة: ${UI.escapeHtml(e.job_title || '-')} · الراتب: ${UI.money(e.salary)}</p>
-      <div class="grid cols-3" style="margin-bottom:14px">
+      <div class="grid cols-4" style="margin-bottom:14px">
         <div class="stat-card"><div class="label">رصيد السلف</div><div class="value">${UI.money(data.advancesBalance)}</div></div>
-        <div class="stat-card"><div class="label">رصيد العهدة</div><div class="value">${UI.money(data.custodyBalance)}</div></div>
+        <div class="stat-card"><div class="label">رصيد العهدة النقدية</div><div class="value">${UI.money(data.custodyBalance)}</div></div>
+        <div class="stat-card"><div class="label">بضاعة تحت عهدته (سيارة)</div><div class="value">${UI.money(data.vehicleGoodsBalance)}</div></div>
         <div class="stat-card ${data.balance > 0 ? 'neg' : ''}"><div class="label">الإجمالي المستحق عليه</div><div class="value">${UI.money(data.balance)}</div></div>
       </div>
       ${
@@ -105,7 +106,7 @@ Pages.employeeStatement = async function (id) {
                   (r) => `<tr>
                   <td>${UI.escapeHtml(r.entry_date)}</td>
                   <td>${UI.escapeHtml(r.description || '')}</td>
-                  <td class="muted">${r.account_code === '1040' ? 'سلفة' : 'عهدة'}</td>
+                  <td class="muted">${r.account_code === '1040' ? 'سلفة' : r.account_code === '1400' ? 'بضاعة سيارة' : 'عهدة نقدية'}</td>
                   <td>${r.debit ? UI.money(r.debit) : '-'}</td>
                   <td>${r.credit ? UI.money(r.credit) : '-'}</td>
                   <td><strong>${UI.money(r.balance)}</strong></td>

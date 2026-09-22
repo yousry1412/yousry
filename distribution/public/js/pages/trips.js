@@ -40,7 +40,7 @@ Pages.tripsList = async function () {
         trips.length === 0
           ? '<div class="empty-state">لا توجد رحلات بعد</div>'
           : `<div class="table-wrap"><table><thead><tr>
-              <th>رقم الرحلة</th><th>السيارة</th><th>التاريخ</th><th>الحالة</th><th></th>
+              <th>رقم الرحلة</th><th>السيارة</th><th>المسؤول</th><th>التاريخ</th><th>الحالة</th><th></th>
             </tr></thead><tbody>
               ${trips
                 .map((t) => {
@@ -48,6 +48,7 @@ Pages.tripsList = async function () {
                   return `<tr>
                     <td>${UI.escapeHtml(t.trip_no)}</td>
                     <td>${UI.escapeHtml(t.vehicle_name)}</td>
+                    <td>${UI.escapeHtml(t.responsible_employee_name || '-')}</td>
                     <td>${UI.escapeHtml(t.trip_date)}</td>
                     <td>${UI.badge(label, color)}</td>
                     <td><a class="link-btn" href="#/trips/${t.id}">فتح</a></td>
@@ -61,9 +62,13 @@ Pages.tripsList = async function () {
 };
 
 Pages.tripNew = async function () {
-  const vehicles = await Api.get('/vehicles');
+  const [vehicles, employees] = await Promise.all([Api.get('/vehicles'), Api.get('/employees/basic').catch(() => [])]);
   if (vehicles.length === 0) {
     UI.setContent('<div class="card"><div class="empty-state">لازم تضيف سيارة واحدة على الأقل أولاً من صفحة السيارات</div></div>');
+    return;
+  }
+  if (employees.length === 0) {
+    UI.setContent('<div class="card"><div class="empty-state">لازم تضيف موظف واحد على الأقل (سائق أو غيره) من صفحة الموظفين، عشان تكون البضاعة عهدة عليه قبل ما تتحرك السيارة</div></div>');
     return;
   }
   UI.setContent(`
@@ -72,9 +77,11 @@ Pages.tripNew = async function () {
       <form id="tripForm">
         <div class="form-grid">
           <div class="field"><label>السيارة *</label><select name="vehicle_id" required>${UI.optionsHtml(vehicles, 'id', 'name')}</select></div>
+          <div class="field"><label>المسؤول عن السيارة والبضاعة (سائق/موظف) *</label><select name="responsible_employee_id" required>${UI.optionsHtml(employees, 'id', 'name')}</select></div>
           <div class="field"><label>التاريخ *</label><input name="trip_date" type="date" value="${UI.todayStr()}" required /></div>
           <div class="field span-2"><label>ملاحظات</label><input name="notes" /></div>
         </div>
+        <p class="muted" style="font-size:13px">هيتم تسجيل قيمة أي بضاعة تتحمّل على السيارة كعهدة على هذا الشخص لحد ما تتباع أو ترجع أو تتسوى.</p>
         <div class="modal-actions">
           <button type="submit" class="btn">إنشاء الرحلة</button>
           <a class="btn secondary" href="#/trips">إلغاء</a>
@@ -200,7 +207,11 @@ function openExpenseModal(tripId, onDone) {
           <option value="other">أخرى</option>
         </select></div>
         <div class="field"><label>المبلغ *</label><input name="amount" type="number" step="0.01" required /></div>
-        <div class="field"><label>مدفوع من</label><select name="paid_from"><option value="cash">نقدية</option><option value="bank">بنك</option></select></div>
+        <div class="field"><label>مدفوع من</label><select name="paid_from">
+          <option value="cash">نقدية (خزنة المنشأة)</option>
+          <option value="bank">بنك</option>
+          <option value="driver_custody">من كاش المسؤول عن الرحلة (تحصيلات ميدانية)</option>
+        </select></div>
         <div class="field span-2"><label>ملاحظات</label><input name="notes" /></div>
       </div>
       <div class="modal-actions">
@@ -262,6 +273,7 @@ function openCollectModal(tripId, customers, onDone) {
     payload.voucher_type = 'receipt';
     payload.party_type = 'customer';
     payload.voucher_date = UI.todayStr();
+    payload.trip_id = tripId;
     try {
       await Api.post('/vouchers', payload);
       UI.closeModal();
@@ -446,7 +458,7 @@ Pages.tripDetail = async function (id) {
         <h2>رحلة ${UI.escapeHtml(trip.trip_no)} ${UI.badge(statusLabel, statusColor)}</h2>
         <a class="btn secondary small" href="#/trips">رجوع</a>
       </div>
-      <p class="muted">السيارة: <strong>${UI.escapeHtml(trip.vehicle_name)}</strong> (${trip.ownership === 'owned' ? 'ملك خاص' : 'مأجورة'}) · التاريخ: ${UI.escapeHtml(trip.trip_date)}</p>
+      <p class="muted">السيارة: <strong>${UI.escapeHtml(trip.vehicle_name)}</strong> (${trip.ownership === 'owned' ? 'ملك خاص' : 'مأجورة'}) · المسؤول: <strong>${UI.escapeHtml(trip.responsible_employee_name || '-')}</strong> · التاريخ: ${UI.escapeHtml(trip.trip_date)}</p>
 
       ${
         isOpen
