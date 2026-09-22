@@ -1,3 +1,21 @@
+// حماية من الضغط المزدوج على "حفظ": بتعطّل زرار الإرسال فورًا وقت الضغط عليه (بيترجع
+// يشتغل تلقائيًا بعد ثوانٍ لو فضل الفورم مفتوح - يعني مش هيتعطّل للأبد لو حصل خطأ)،
+// دفاع أول قبل الحماية الأقوى في السيرفر (dedupe-guard) اللي بتغطي أي حالة تانية.
+document.addEventListener(
+  'submit',
+  (e) => {
+    const form = e.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const btn = form.querySelector('button[type="submit"]');
+    if (!btn || btn.disabled) return;
+    btn.disabled = true;
+    setTimeout(() => {
+      btn.disabled = false;
+    }, 4500);
+  },
+  true
+);
+
 const UI = (() => {
   function toast(message, type = 'info') {
     const container = document.getElementById('toastContainer');
