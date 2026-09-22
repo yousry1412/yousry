@@ -12,7 +12,19 @@ function supplierFormHtml(s = {}) {
             : `<div class="field"><label>رصيد افتتاحي (مستحق له)</label><input name="opening_balance" type="number" step="0.01" value="0" /></div>`
         }
         <div class="field span-2"><label>العنوان</label><input name="address" value="${UI.escapeHtml(s.address || '')}" /></div>
+        <div class="field"><label>نطاق الرقابة الجغرافية (متر)</label><input name="geofence_radius_m" type="number" step="1" placeholder="افتراضي المنشأة" value="${s.geofence_radius_m ?? ''}" /></div>
         <div class="field span-2"><label>ملاحظات</label><textarea name="notes" rows="2">${UI.escapeHtml(s.notes || '')}</textarea></div>
+      </div>
+      <div class="field span-2" style="margin-top:6px">
+        <label>موقع المورد (لرقابة فواتير الشراء)</label>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+          <button type="button" class="btn secondary small" id="captureSupplierLoc">📍 تحديد موقعي الحالي كموقع المورد</button>
+          <span id="supplierLocStatus" class="muted" style="font-size:13px">${
+            s.latitude ? `مسجّل حاليًا · <a href="${UI.googleMapsLink(s.latitude, s.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>` : 'لسه متسجلش'
+          }</span>
+        </div>
+        <input type="hidden" name="latitude" id="supplierLat" value="${s.latitude ?? ''}" />
+        <input type="hidden" name="longitude" id="supplierLng" value="${s.longitude ?? ''}" />
       </div>
       <div class="modal-actions">
         <button type="submit" class="btn">${s.id ? 'حفظ التعديلات' : 'إضافة المورد'}</button>
@@ -24,6 +36,18 @@ function supplierFormHtml(s = {}) {
 
 function openSupplierModal(existing) {
   UI.openModal(existing ? 'تعديل بيانات مورد' : 'مورد جديد', supplierFormHtml(existing || {}));
+  document.getElementById('captureSupplierLoc').addEventListener('click', async () => {
+    const status = document.getElementById('supplierLocStatus');
+    status.textContent = 'جارِ تحديد الموقع...';
+    const pos = await UI.getCurrentPosition();
+    if (!pos) {
+      status.textContent = 'تعذّر تحديد الموقع - تأكد من السماح للمتصفح بالوصول لموقعك';
+      return;
+    }
+    document.getElementById('supplierLat').value = pos.latitude;
+    document.getElementById('supplierLng').value = pos.longitude;
+    status.innerHTML = `تم التحديد الآن · <a href="${UI.googleMapsLink(pos.latitude, pos.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>`;
+  });
   document.getElementById('supplierForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);

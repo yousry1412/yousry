@@ -114,10 +114,24 @@ router.put(
     if (!req.companyId || Number(req.params.id) !== req.companyId) {
       throw new Error('لازم تختار المنشأة دي كسياق العمل الحالي قبل تعديل بياناتها');
     }
-    const { name, legal_name, tax_number, phone, address, public_url, is_active } = req.body;
+    const { name, legal_name, tax_number, phone, address, public_url, is_active, country, vat_enabled, vat_rate, geofence_radius_m } = req.body;
     db.prepare(
-      `UPDATE companies SET name=?, legal_name=?, tax_number=?, phone=?, address=?, public_url=?, is_active=? WHERE id=?`
-    ).run(name, legal_name || null, tax_number || null, phone || null, address || null, public_url || null, is_active ? 1 : 0, req.params.id);
+      `UPDATE companies SET name=?, legal_name=?, tax_number=?, phone=?, address=?, public_url=?, is_active=?,
+       country=?, vat_enabled=?, vat_rate=?, geofence_radius_m=? WHERE id=?`
+    ).run(
+      name,
+      legal_name || null,
+      tax_number || null,
+      phone || null,
+      address || null,
+      public_url || null,
+      is_active ? 1 : 0,
+      country || 'مصر',
+      services.toBool(vat_enabled) ? 1 : 0,
+      Number(vat_rate) || 0,
+      Number(geofence_radius_m) || 300,
+      req.params.id
+    );
     return db.prepare('SELECT * FROM companies WHERE id=?').get(req.params.id);
   })
 );
@@ -219,6 +233,31 @@ router.put(
 );
 
 // ---------------------------------------------------------------------------
+// الموظفون (HR) - سلف وعهدات
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/employees',
+  allow(...FIN),
+  handle((req) => reports.allEmployeeBalances(ctx(req, { needBranch: false }).company_id))
+);
+router.get(
+  '/employees/:id/statement',
+  allow(...FIN),
+  handle((req) => reports.employeeStatement(ctx(req, { needBranch: false }).company_id, Number(req.params.id)))
+);
+router.post(
+  '/employees',
+  allow(...OWNER),
+  handle((req) => services.createEmployee({ ...req.body, company_id: ctx(req, { needBranch: false }).company_id }))
+);
+router.put(
+  '/employees/:id',
+  allow(...OWNER),
+  handle((req) => services.updateEmployee(Number(req.params.id), ctx(req, { needBranch: false }).company_id, req.body))
+);
+
+// ---------------------------------------------------------------------------
 // الموردون
 // ---------------------------------------------------------------------------
 
@@ -243,13 +282,19 @@ router.put(
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     assertOwned(db.prepare('SELECT * FROM suppliers WHERE id = ?').get(req.params.id), company_id, 'مورد غير موجود');
-    const { name, phone, address, notes, is_active } = req.body;
-    db.prepare('UPDATE suppliers SET name=?, phone=?, address=?, notes=?, is_active=? WHERE id=?').run(
+    const { name, phone, address, notes, is_active, latitude, longitude, geofence_radius_m } = req.body;
+    const coord = services.sanitizeCoord(latitude, longitude);
+    db.prepare(
+      `UPDATE suppliers SET name=?, phone=?, address=?, notes=?, is_active=?, latitude=?, longitude=?, geofence_radius_m=? WHERE id=?`
+    ).run(
       name,
       phone || null,
       address || null,
       notes || null,
       is_active ? 1 : 0,
+      coord.latitude,
+      coord.longitude,
+      geofence_radius_m === undefined || geofence_radius_m === '' || geofence_radius_m === null ? null : Number(geofence_radius_m),
       req.params.id
     );
     return db.prepare('SELECT * FROM suppliers WHERE id=?').get(req.params.id);
@@ -388,7 +433,7 @@ router.get(
 router.post(
   '/purchases',
   allow(...WH_G),
-  handle((req) => services.createPurchaseInvoice({ ...req.body, ...ctx(req) }))
+  handle((req) => services.createPurchaseInvoice({ ...req.body, ...ctx(req), created_by_user_id: req.user.id }))
 );
 
 router.get(
@@ -613,7 +658,7 @@ router.get(
 router.post(
   '/sales',
   allow(...SALES_G),
-  handle((req) => services.createSalesInvoice({ ...req.body, ...ctx(req, { needBranch: !req.body.trip_id }) }))
+  handle((req) => services.createSalesInvoice({ ...req.body, ...ctx(req, { needBranch: !req.body.trip_id }), created_by_user_id: req.user.id }))
 );
 router.post(
   '/sales/:id/send-whatsapp',
@@ -890,6 +935,16 @@ router.get(
     reports.invoiceLocationsReport(ctx(req, { needBranch: false }).company_id, {
       from: req.query.from,
       to: req.query.to,
+      branchId: reportBranch(req),
+    })
+  )
+);
+router.get(
+  '/reports/sales-accountability',
+  allow(...FIN),
+  handle((req) =>
+    reports.salesRepAccountabilityReport(ctx(req, { needBranch: false }).company_id, {
+      asOf: req.query.asOf,
       branchId: reportBranch(req),
     })
   )

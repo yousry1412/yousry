@@ -19,6 +19,7 @@ const NAV = [
   { hash: '#/damages', label: 'التوالف والهالك', icon: '⚠️', roles: ROLE_GROUPS.ALL },
   { hash: '#/expenses', label: 'المصروفات العامة', icon: '💸', roles: ROLE_GROUPS.FIN },
   { hash: '#/vouchers', label: 'سندات القبض والصرف', icon: '🧮', roles: ROLE_GROUPS.FIN },
+  { hash: '#/employees', label: 'الموظفون (سلف وعهدات)', icon: '🧑‍💼', roles: ROLE_GROUPS.FIN },
   { hash: '#/stock-ops', label: 'تحويل وجرد المخزون', icon: '🔄', roles: ROLE_GROUPS.WH_G },
   { hash: '#/accounting', label: 'الحسابات والتقارير', icon: '📚', roles: ROLE_GROUPS.FIN },
   { hash: '#/maps', label: 'الخريطة', icon: '🗺️', roles: ROLE_GROUPS.FIN },
@@ -70,6 +71,8 @@ const ROUTES = [
   { re: /^#\/damages$/, title: 'التوالف والهالك', render: () => Pages.damagesList() },
   { re: /^#\/expenses$/, title: 'المصروفات العامة', render: () => Pages.expensesList() },
   { re: /^#\/vouchers$/, title: 'سندات القبض والصرف', render: () => Pages.vouchersList() },
+  { re: /^#\/employees$/, title: 'الموظفون', render: () => Pages.employeesList() },
+  { re: /^#\/employees\/(\d+)$/, title: 'كشف حساب موظف', render: (m) => Pages.employeeStatement(m[1]) },
 
   { re: /^#\/accounting$/, title: 'الحسابات والتقارير', render: () => Pages.accountingHome() },
   { re: /^#\/maps$/, title: 'الخريطة', render: () => Pages.mapsHome() },

@@ -25,6 +25,88 @@ function ensureColumn(table, column, ddl) {
 }
 ensureColumn('sales_invoices', 'latitude', 'latitude REAL');
 ensureColumn('sales_invoices', 'longitude', 'longitude REAL');
+ensureColumn('sales_invoices', 'subtotal', 'subtotal REAL NOT NULL DEFAULT 0');
+ensureColumn('sales_invoices', 'vat_amount', 'vat_amount REAL NOT NULL DEFAULT 0');
+ensureColumn('sales_invoices', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('purchase_invoices', 'subtotal', 'subtotal REAL NOT NULL DEFAULT 0');
+ensureColumn('purchase_invoices', 'vat_amount', 'vat_amount REAL NOT NULL DEFAULT 0');
+ensureColumn('purchase_invoices', 'latitude', 'latitude REAL');
+ensureColumn('purchase_invoices', 'longitude', 'longitude REAL');
+ensureColumn('purchase_invoices', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('companies', 'country', "country TEXT NOT NULL DEFAULT 'مصر'");
+ensureColumn('companies', 'vat_enabled', 'vat_enabled INTEGER NOT NULL DEFAULT 0');
+ensureColumn('companies', 'vat_rate', 'vat_rate REAL NOT NULL DEFAULT 0');
+ensureColumn('companies', 'geofence_radius_m', 'geofence_radius_m REAL NOT NULL DEFAULT 300');
+ensureColumn('suppliers', 'latitude', 'latitude REAL');
+ensureColumn('suppliers', 'longitude', 'longitude REAL');
+ensureColumn('suppliers', 'geofence_radius_m', 'geofence_radius_m REAL');
+
+// بعض القيود القديمة (CHECK على party_type/voucher_type) كانت بتمنع قيم جديدة زي 'employee' -
+// SQLite مسمحش بتعديل CHECK مباشرة، فلو لقينا الجدول لسه شايل القيد القديم، بنعيد إنشاءه بنفس البيانات
+function dropCheckConstraintIfPresent(table, oldCheckSnippet, recreateSql) {
+  const row = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name = ?`).get(table);
+  if (!row || !row.sql.includes(oldCheckSnippet)) return;
+  db.exec('BEGIN');
+  try {
+    db.exec(`ALTER TABLE ${table} RENAME TO ${table}_old_migration`);
+    db.exec(recreateSql);
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+    db.exec(`INSERT INTO ${table} (${cols.join(',')}) SELECT ${cols.join(',')} FROM ${table}_old_migration`);
+    db.exec(`DROP TABLE ${table}_old_migration`);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+dropCheckConstraintIfPresent(
+  'journal_lines',
+  "party_type IN ('customer','supplier','partner')",
+  `CREATE TABLE journal_lines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id INTEGER NOT NULL REFERENCES journal_entries(id) ON DELETE CASCADE,
+    account_id INTEGER NOT NULL REFERENCES accounts(id),
+    branch_id INTEGER REFERENCES branches(id),
+    debit REAL NOT NULL DEFAULT 0,
+    credit REAL NOT NULL DEFAULT 0,
+    party_type TEXT,
+    party_id INTEGER,
+    memo TEXT
+  )`
+);
+dropCheckConstraintIfPresent(
+  'vouchers',
+  "party_type IN ('customer','supplier','partner','other')",
+  `CREATE TABLE vouchers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER NOT NULL REFERENCES companies(id),
+    branch_id INTEGER REFERENCES branches(id),
+    voucher_no TEXT UNIQUE NOT NULL,
+    voucher_type TEXT NOT NULL,
+    party_type TEXT NOT NULL,
+    party_id INTEGER,
+    party_name TEXT,
+    other_account_code TEXT,
+    amount REAL NOT NULL,
+    method TEXT NOT NULL DEFAULT 'cash' CHECK(method IN ('cash','bank')),
+    voucher_date TEXT NOT NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`
+);
+
+function ensureAccountsUpToDate() {
+  const companies = db.prepare('SELECT id FROM companies').all();
+  const insert = db.prepare(
+    'INSERT INTO accounts (company_id, code, name, type, parent_code, is_postable, is_system) VALUES (?, ?, ?, ?, ?, ?, 1)'
+  );
+  for (const { id: companyId } of companies) {
+    const existingCodes = new Set(db.prepare('SELECT code FROM accounts WHERE company_id = ?').all(companyId).map((r) => r.code));
+    for (const acc of CHART_OF_ACCOUNTS) {
+      if (!existingCodes.has(acc.code)) insert.run(companyId, acc.code, acc.name, acc.type, acc.parent_code, acc.is_postable);
+    }
+  }
+}
 
 function seedChartForCompany(companyId) {
   const count = db.prepare('SELECT COUNT(*) AS c FROM accounts WHERE company_id = ?').get(companyId).c;
@@ -48,6 +130,7 @@ function ensureDefaultCompany() {
   seedChartForCompany(companyId);
 }
 ensureDefaultCompany();
+ensureAccountsUpToDate();
 
 function accountIdByCode(companyId, code) {
   const row = db.prepare('SELECT id FROM accounts WHERE company_id = ? AND code = ?').get(companyId, code);

@@ -103,6 +103,8 @@ Pages.salesNew = async function () {
         </div>
 
         <div class="totals-box"><div class="totals-inner">
+          <div class="totals-row"><span>الإجمالي قبل الضريبة</span><span id="subTotal">0.00 ج.م</span></div>
+          <div class="totals-row" id="vatRow" style="display:none"><span>ضريبة القيمة المضافة (<span id="vatRateLabel"></span>%)</span><span id="vatTotal">0.00 ج.م</span></div>
           <div class="totals-row grand"><span>إجمالي الفاتورة</span><span id="grandTotal">0.00 ج.م</span></div>
         </div></div>
 
@@ -133,16 +135,25 @@ Pages.salesNew = async function () {
     applyDefaultPrice();
   }
 
+  const company = Context.getCompany();
   function recalc() {
-    let total = 0;
+    let subtotal = 0;
     tbody.querySelectorAll('tr').forEach((tr) => {
       const qty = Number(tr.querySelector('.it-qty').value) || 0;
       const price = Number(tr.querySelector('.it-price').value) || 0;
       const lt = qty * price;
       tr.querySelector('.it-total').textContent = lt.toFixed(2);
-      total += lt;
+      subtotal += lt;
     });
-    document.getElementById('grandTotal').textContent = UI.money(total);
+    document.getElementById('subTotal').textContent = UI.money(subtotal);
+    const vatEnabled = company && company.vat_enabled;
+    const vat = vatEnabled ? subtotal * (company.vat_rate / 100) : 0;
+    document.getElementById('vatRow').style.display = vatEnabled ? 'flex' : 'none';
+    if (vatEnabled) {
+      document.getElementById('vatRateLabel').textContent = company.vat_rate;
+      document.getElementById('vatTotal').textContent = UI.money(vat);
+    }
+    document.getElementById('grandTotal').textContent = UI.money(subtotal + vat);
   }
 
   tbody.querySelectorAll('tr').forEach(bindRow);
@@ -267,6 +278,8 @@ Pages.salesDetail = async function (id) {
           .join('')}
       </tbody></table></div>
       <div class="totals-box"><div class="totals-inner">
+        <div class="totals-row"><span>الإجمالي قبل الضريبة</span><span>${UI.money(inv.subtotal ?? inv.total)}</span></div>
+        ${inv.vat_amount ? `<div class="totals-row"><span>ضريبة القيمة المضافة</span><span>${UI.money(inv.vat_amount)}</span></div>` : ''}
         <div class="totals-row"><span>الإجمالي</span><span>${UI.money(inv.total)}</span></div>
         <div class="totals-row"><span>المدفوع</span><span>${UI.money(inv.paid_amount)}</span></div>
         <div class="totals-row grand"><span>المتبقي (على العميل)</span><span>${UI.money(inv.total - inv.paid_amount)}</span></div>

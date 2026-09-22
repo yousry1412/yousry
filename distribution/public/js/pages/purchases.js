@@ -86,6 +86,7 @@ Pages.purchaseNew = async function () {
           <div class="field"><label>المورد *</label><select name="supplier_id" required>${UI.optionsHtml(suppliers, 'id', 'name')}</select></div>
           <div class="field"><label>التاريخ *</label><input name="invoice_date" type="date" value="${UI.todayStr()}" required /></div>
         </div>
+        <p class="muted" id="geofenceHint" style="font-size:12.5px; display:none">📍 هذا المورد عليه رقابة موقع - لازم تكون فعليًا عنده وتسمح للمتصفح بموقعك عشان تقدر تسجل الفاتورة.</p>
 
         <table class="items-table" style="margin-top:16px" id="itemsTable">
           <thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th></th></tr></thead>
@@ -100,6 +101,8 @@ Pages.purchaseNew = async function () {
         </div>
 
         <div class="totals-box"><div class="totals-inner">
+          <div class="totals-row"><span>الإجمالي قبل الضريبة</span><span id="subTotal">0.00 ج.م</span></div>
+          <div class="totals-row" id="vatRow" style="display:none"><span>ضريبة القيمة المضافة (<span id="vatRateLabel"></span>%)</span><span id="vatTotal">0.00 ج.م</span></div>
           <div class="totals-row grand"><span>إجمالي الفاتورة</span><span id="grandTotal">0.00 ج.م</span></div>
         </div></div>
 
@@ -112,20 +115,37 @@ Pages.purchaseNew = async function () {
   `);
 
   const tbody = document.querySelector('#itemsTable tbody');
+  const company = Context.getCompany();
   function recalc() {
-    let total = 0;
+    let subtotal = 0;
     tbody.querySelectorAll('tr').forEach((tr) => {
       const qty = Number(tr.querySelector('.it-qty').value) || 0;
       const cost = Number(tr.querySelector('.it-cost').value) || 0;
       const lt = qty * cost;
       tr.querySelector('.it-total').textContent = lt.toFixed(2);
-      total += lt;
+      subtotal += lt;
     });
-    document.getElementById('grandTotal').textContent = UI.money(total);
+    document.getElementById('subTotal').textContent = UI.money(subtotal);
+    const vatEnabled = company && company.vat_enabled;
+    const vat = vatEnabled ? subtotal * (company.vat_rate / 100) : 0;
+    document.getElementById('vatRow').style.display = vatEnabled ? 'flex' : 'none';
+    if (vatEnabled) {
+      document.getElementById('vatRateLabel').textContent = company.vat_rate;
+      document.getElementById('vatTotal').textContent = UI.money(vat);
+    }
+    document.getElementById('grandTotal').textContent = UI.money(subtotal + vat);
   }
   const ctl = wireItemsTable(tbody, products, recalc);
   recalc();
   document.getElementById('addRowBtn').addEventListener('click', () => ctl.addRow());
+
+  const supplierSelect = document.querySelector('select[name="supplier_id"]');
+  function updateGeofenceHint() {
+    const supplier = suppliers.find((s) => String(s.id) === supplierSelect.value);
+    document.getElementById('geofenceHint').style.display = supplier && supplier.latitude ? 'block' : 'none';
+  }
+  supplierSelect.addEventListener('change', updateGeofenceHint);
+  updateGeofenceHint();
 
   document.getElementById('purchaseForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -135,6 +155,11 @@ Pages.purchaseNew = async function () {
     if (payload.items.length === 0) {
       UI.toast('لازم تضيف صنف واحد على الأقل', 'error');
       return;
+    }
+    const pos = await UI.getCurrentPosition();
+    if (pos) {
+      payload.latitude = pos.latitude;
+      payload.longitude = pos.longitude;
     }
     try {
       const inv = await Api.post('/purchases', payload);
@@ -224,11 +249,14 @@ Pages.purchaseDetail = async function (id) {
           .join('')}
       </tbody></table></div>
       <div class="totals-box"><div class="totals-inner">
+        <div class="totals-row"><span>الإجمالي قبل الضريبة</span><span>${UI.money(inv.subtotal ?? inv.total)}</span></div>
+        ${inv.vat_amount ? `<div class="totals-row"><span>ضريبة القيمة المضافة</span><span>${UI.money(inv.vat_amount)}</span></div>` : ''}
         <div class="totals-row"><span>الإجمالي</span><span>${UI.money(inv.total)}</span></div>
         <div class="totals-row"><span>المدفوع</span><span>${UI.money(inv.paid_amount)}</span></div>
         <div class="totals-row grand"><span>المتبقي (للمورد)</span><span>${UI.money(inv.total - inv.paid_amount)}</span></div>
       </div></div>
       ${inv.notes ? `<p class="muted">ملاحظات: ${UI.escapeHtml(inv.notes)}</p>` : ''}
+      ${inv.latitude ? `<p class="muted">📍 <a href="${UI.googleMapsLink(inv.latitude, inv.longitude)}" target="_blank" rel="noopener">موقع تسجيل الفاتورة</a></p>` : ''}
     </div>
   `);
 

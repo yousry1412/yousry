@@ -184,6 +184,55 @@ function supplierStatement(companyId, supplierId) {
   return { supplier, rows, balance };
 }
 
+/** كشف حساب موظف: سلف وعهدات (رصيد موجب = مستحق على الموظف للمنشأة) */
+function employeeStatement(companyId, employeeId) {
+  const employee = db.prepare('SELECT * FROM employees WHERE id = ? AND company_id = ?').get(employeeId, companyId);
+  if (!employee) throw new Error('موظف غير موجود');
+  const accountIds = db
+    .prepare('SELECT id, code FROM accounts WHERE company_id = ? AND code IN (?, ?)')
+    .all(companyId, ACC.EMP_ADVANCES, ACC.PETTY_CUSTODY);
+  if (accountIds.length === 0) return { employee, rows: [], advancesBalance: 0, custodyBalance: 0, balance: 0 };
+  const idsPlaceholder = accountIds.map(() => '?').join(',');
+  const lines = db
+    .prepare(
+      `SELECT je.entry_date, je.description, jl.debit, jl.credit, a.code AS account_code
+       FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+       JOIN accounts a ON a.id = jl.account_id
+       WHERE jl.account_id IN (${idsPlaceholder}) AND jl.party_type = 'employee' AND jl.party_id = ?
+       ORDER BY je.entry_date, je.id`
+    )
+    .all(...accountIds.map((a) => a.id), employeeId);
+  let balance = 0;
+  let advancesBalance = 0;
+  let custodyBalance = 0;
+  const rows = lines.map((l) => {
+    balance = round2(balance + l.debit - l.credit);
+    if (l.account_code === ACC.EMP_ADVANCES) advancesBalance = round2(advancesBalance + l.debit - l.credit);
+    else custodyBalance = round2(custodyBalance + l.debit - l.credit);
+    return { ...l, balance };
+  });
+  return { employee, rows, advancesBalance, custodyBalance, balance };
+}
+
+function allEmployeeBalances(companyId) {
+  const employees = db.prepare('SELECT * FROM employees WHERE company_id = ? AND is_active = 1 ORDER BY name').all(companyId);
+  const accountIds = db
+    .prepare('SELECT id FROM accounts WHERE company_id = ? AND code IN (?, ?)')
+    .all(companyId, ACC.EMP_ADVANCES, ACC.PETTY_CUSTODY)
+    .map((a) => a.id);
+  if (accountIds.length === 0) return employees.map((e) => ({ ...e, balance: 0 }));
+  const idsPlaceholder = accountIds.map(() => '?').join(',');
+  return employees.map((e) => {
+    const sums = db
+      .prepare(
+        `SELECT COALESCE(SUM(debit),0) AS d, COALESCE(SUM(credit),0) AS c
+         FROM journal_lines WHERE account_id IN (${idsPlaceholder}) AND party_type='employee' AND party_id = ?`
+      )
+      .get(...accountIds, e.id);
+    return { ...e, balance: round2(sums.d - sums.c) };
+  });
+}
+
 function allCustomerBalances(companyId) {
   const customers = db.prepare('SELECT * FROM customers WHERE company_id = ? AND is_active = 1 ORDER BY name').all(companyId);
   const accountId = db.prepare('SELECT id FROM accounts WHERE company_id = ? AND code = ?').get(companyId, ACC.AR).id;
@@ -288,6 +337,78 @@ function partyAgingReport(companyId, { asOf, branchId, table, accountCode, party
   );
 
   return { asOf: asOfDate, rows, totals };
+}
+
+/**
+ * مسؤولية التحصيل حسب البائع: كل فاتورة بيع بتحمل هوية اللي أصدرها (created_by_user_id)،
+ * وهنا بنجمع المبلغ المفتوح (المتبقي) على كل عميل ونحدد نصيب كل بائع منه بنفس منطق FIFO
+ * المستخدم في أعمار الديون - البائع اللي أصدر الفاتورة هو المسؤول عن تحصيلها لحد ما تتقفل،
+ * حتى لو السند اللي قفلها اتسجل من حد تاني.
+ */
+function salesRepAccountabilityReport(companyId, { asOf, branchId } = {}) {
+  const asOfDate = asOf || today();
+  const arAccount = db.prepare('SELECT id FROM accounts WHERE company_id = ? AND code = ?').get(companyId, ACC.AR);
+  if (!arAccount) return { asOf: asOfDate, rows: [], total: 0 };
+
+  const customers = db.prepare('SELECT id FROM customers WHERE company_id = ?').all(companyId);
+  const branchFilter = branchId ? 'AND jl.branch_id = ?' : '';
+  const bySalesperson = {};
+
+  customers.forEach((customer) => {
+    const params = branchId
+      ? [arAccount.id, customer.id, asOfDate, branchId]
+      : [arAccount.id, customer.id, asOfDate];
+    const lines = db
+      .prepare(
+        `SELECT je.entry_date, jl.debit, jl.credit, je.ref_type, je.ref_id
+         FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+         WHERE jl.account_id = ? AND jl.party_type = 'customer' AND jl.party_id = ? AND je.entry_date <= ? ${branchFilter}
+         ORDER BY je.entry_date, je.id`
+      )
+      .all(...params);
+
+    const openBuckets = [];
+    lines.forEach((l) => {
+      if (l.debit > 0) {
+        let createdBy = null;
+        if (l.ref_type === 'sale') {
+          const inv = db.prepare('SELECT created_by_user_id FROM sales_invoices WHERE id = ?').get(l.ref_id);
+          createdBy = inv ? inv.created_by_user_id : null;
+        }
+        openBuckets.push({ amount: l.debit, created_by_user_id: createdBy });
+      }
+      if (l.credit > 0) {
+        let remaining = l.credit;
+        for (const bucket of openBuckets) {
+          if (remaining <= 0) break;
+          const take = Math.min(bucket.amount, remaining);
+          bucket.amount = round2(bucket.amount - take);
+          remaining = round2(remaining - take);
+        }
+      }
+    });
+
+    openBuckets
+      .filter((b) => b.amount > 0.004)
+      .forEach((b) => {
+        const key = b.created_by_user_id || 'unknown';
+        if (!bySalesperson[key]) bySalesperson[key] = { user_id: b.created_by_user_id, outstanding: 0 };
+        bySalesperson[key].outstanding = round2(bySalesperson[key].outstanding + b.amount);
+      });
+  });
+
+  const rows = Object.values(bySalesperson)
+    .map((r) => {
+      const user = r.user_id ? db.prepare('SELECT username FROM users WHERE id = ?').get(r.user_id) : null;
+      return {
+        user_id: r.user_id,
+        username: user ? user.username : 'فواتير قديمة بدون بائع محدد',
+        outstanding: r.outstanding,
+      };
+    })
+    .sort((a, b) => b.outstanding - a.outstanding);
+
+  return { asOf: asOfDate, rows, total: round2(rows.reduce((s, r) => s + r.outstanding, 0)) };
 }
 
 function arAgingReport(companyId, { asOf, branchId } = {}) {
@@ -789,8 +910,11 @@ module.exports = {
   supplierStatement,
   allCustomerBalances,
   allSupplierBalances,
+  employeeStatement,
+  allEmployeeBalances,
   arAgingReport,
   apAgingReport,
+  salesRepAccountabilityReport,
   invoiceLocationsReport,
   inventoryValuation,
   tripSettlementReport,

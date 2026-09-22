@@ -28,6 +28,15 @@ function companyFormHtml(c = {}) {
         <div class="field"><label>رابط الموقع العام (لإرسال روابط الفواتير)</label><input name="public_url" placeholder="https://example.com" value="${UI.escapeHtml(c.public_url || '')}" /></div>
         <div class="field span-2"><label>العنوان</label><input name="address" value="${UI.escapeHtml(c.address || '')}" /></div>
       </div>
+      <div class="card-header" style="margin:14px 0 6px"><h3 style="font-size:14px">الضرائب - حسب دولة تشغيل المنشأة</h3></div>
+      <p class="muted" style="font-size:12.5px">قواعد الضريبة بتختلف من بلد لبلد - حدد الدولة ونسبة الضريبة الصحيحة لبلدك، أو سيّب الضريبة "غير مفعّلة" لو منشأتك مش خاضعة للضريبة أصلاً.</p>
+      <div class="form-grid">
+        <div class="field"><label>الدولة</label><input name="country" placeholder="مصر" value="${UI.escapeHtml(c.country || 'مصر')}" /></div>
+        <div class="field"><label>خاضعة لضريبة القيمة المضافة؟</label><select name="vat_enabled"><option value="0" ${!c.vat_enabled ? 'selected' : ''}>لا</option><option value="1" ${c.vat_enabled ? 'selected' : ''}>نعم</option></select></div>
+        <div class="field"><label>نسبة الضريبة %</label><input name="vat_rate" type="number" step="0.01" value="${c.vat_rate ?? 0}" /></div>
+        <div class="field"><label>نطاق الرقابة الجغرافية الافتراضي (متر)</label><input name="geofence_radius_m" type="number" step="1" value="${c.geofence_radius_m ?? 300}" /></div>
+      </div>
+      <p class="muted" style="font-size:12px">نطاق الرقابة الجغرافية: أقصى مسافة (بالمتر) مسموح بيها بين موقع تسجيل فاتورة الشراء وموقع المورد المسجّل، عشان تتأكد إن الفاتورة اتسجلت فعليًا عند المورد. تقدر تخصص نطاق مختلف لكل مورد من صفحة الموردين.</p>
       <div class="modal-actions">
         <button type="submit" class="btn">${c.id ? 'حفظ التعديلات' : 'إضافة المنشأة'}</button>
         <button type="button" class="btn secondary" onclick="UI.closeModal()">إلغاء</button>

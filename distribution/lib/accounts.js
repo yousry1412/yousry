@@ -4,6 +4,8 @@ const ACC = {
   CASH: '1010',
   BANK: '1020',
   PETTY_CUSTODY: '1030', // عهدة نقدية (موظفين/مناديب)
+  EMP_ADVANCES: '1040', // سلف الموظفين (تُخصم من الراتب لاحقًا)
+  VAT_INPUT: '1045', // ضريبة القيمة المضافة على المشتريات (قابلة للخصم)
   AR: '1100', // عملاء
   INV_RAW: '1210', // مخزون مواد خام
   INV_FG: '1220', // مخزون إنتاج تام (منتجات مصنعة)
@@ -13,6 +15,7 @@ const ACC = {
   AP: '2100', // موردون
   ACCRUED: '2200', // مصروفات مستحقة
   TAXES_PAYABLE: '2300', // ضرائب ومستحقات حكومية
+  VAT_OUTPUT: '2310', // ضريبة القيمة المضافة على المبيعات (مستحقة لمصلحة الضرائب)
   CAPITAL: '3100', // رأس مال الشركاء
   OPENING_EQUITY: '3200', // أرصدة افتتاحية / أرباح مرحلة
   DRAWINGS: '3300', // مسحوبات الشركاء الشخصية
@@ -35,6 +38,8 @@ const CHART_OF_ACCOUNTS = [
   { code: ACC.CASH, name: 'الصندوق (نقدية)', type: 'asset', parent_code: '1000', is_postable: 1 },
   { code: ACC.BANK, name: 'البنك', type: 'asset', parent_code: '1000', is_postable: 1 },
   { code: ACC.PETTY_CUSTODY, name: 'عهدة نقدية (موظفين/مناديب)', type: 'asset', parent_code: '1000', is_postable: 1 },
+  { code: ACC.EMP_ADVANCES, name: 'سلف الموظفين', type: 'asset', parent_code: '1000', is_postable: 1 },
+  { code: ACC.VAT_INPUT, name: 'ضريبة القيمة المضافة على المشتريات (قابلة للخصم)', type: 'asset', parent_code: '1000', is_postable: 1 },
   { code: ACC.AR, name: 'عملاء - حسابات مدينة', type: 'asset', parent_code: '1000', is_postable: 1 },
   { code: ACC.INV_RAW, name: 'مخزون المواد الخام', type: 'asset', parent_code: '1000', is_postable: 1 },
   { code: ACC.INV_FG, name: 'مخزون الإنتاج التام', type: 'asset', parent_code: '1000', is_postable: 1 },
@@ -46,6 +51,7 @@ const CHART_OF_ACCOUNTS = [
   { code: ACC.AP, name: 'موردون - حسابات دائنة', type: 'liability', parent_code: '2000', is_postable: 1 },
   { code: ACC.ACCRUED, name: 'مصروفات مستحقة', type: 'liability', parent_code: '2000', is_postable: 1 },
   { code: ACC.TAXES_PAYABLE, name: 'ضرائب ومستحقات حكومية', type: 'liability', parent_code: '2000', is_postable: 1 },
+  { code: ACC.VAT_OUTPUT, name: 'ضريبة القيمة المضافة على المبيعات (مستحقة للمصلحة)', type: 'liability', parent_code: '2000', is_postable: 1 },
 
   { code: '3000', name: 'حقوق الملكية', type: 'equity', parent_code: null, is_postable: 0 },
   { code: ACC.CAPITAL, name: 'رأس مال الشركاء', type: 'equity', parent_code: '3000', is_postable: 1 },

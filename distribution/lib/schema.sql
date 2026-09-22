@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS companies (
   phone TEXT,
   address TEXT,
   public_url TEXT,
+  country TEXT NOT NULL DEFAULT 'مصر',
+  vat_enabled INTEGER NOT NULL DEFAULT 0,
+  vat_rate REAL NOT NULL DEFAULT 0,
+  geofence_radius_m REAL NOT NULL DEFAULT 300,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -73,7 +77,7 @@ CREATE TABLE IF NOT EXISTS journal_lines (
   branch_id INTEGER REFERENCES branches(id),
   debit REAL NOT NULL DEFAULT 0,
   credit REAL NOT NULL DEFAULT 0,
-  party_type TEXT CHECK(party_type IN ('customer','supplier','partner') OR party_type IS NULL),
+  party_type TEXT, -- customer/supplier/partner/employee (يتم التحقق من القيمة في كود الخدمة مش في القاعدة، لتفادي ترحيل القيد كل ما نضيف نوع طرف جديد)
   party_id INTEGER,
   memo TEXT
 );
@@ -94,6 +98,9 @@ CREATE TABLE IF NOT EXISTS suppliers (
   address TEXT,
   notes TEXT,
   opening_balance REAL NOT NULL DEFAULT 0,
+  latitude REAL,
+  longitude REAL,
+  geofence_radius_m REAL,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -167,7 +174,12 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
   invoice_date TEXT NOT NULL,
   paid_amount REAL NOT NULL DEFAULT 0,
   paid_from TEXT NOT NULL DEFAULT 'cash' CHECK(paid_from IN ('cash','bank')),
+  subtotal REAL NOT NULL DEFAULT 0,
+  vat_amount REAL NOT NULL DEFAULT 0,
   total REAL NOT NULL DEFAULT 0,
+  latitude REAL,
+  longitude REAL,
+  created_by_user_id INTEGER REFERENCES users(id),
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -295,10 +307,13 @@ CREATE TABLE IF NOT EXISTS sales_invoices (
   invoice_date TEXT NOT NULL,
   paid_amount REAL NOT NULL DEFAULT 0,
   paid_to TEXT NOT NULL DEFAULT 'cash' CHECK(paid_to IN ('cash','bank')),
+  subtotal REAL NOT NULL DEFAULT 0,
+  vat_amount REAL NOT NULL DEFAULT 0,
   total REAL NOT NULL DEFAULT 0,
   notes TEXT,
   latitude REAL,
   longitude REAL,
+  created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -413,8 +428,8 @@ CREATE TABLE IF NOT EXISTS vouchers (
   company_id INTEGER NOT NULL REFERENCES companies(id),
   branch_id INTEGER REFERENCES branches(id),
   voucher_no TEXT UNIQUE NOT NULL,
-  voucher_type TEXT NOT NULL CHECK(voucher_type IN ('receipt','payment')),
-  party_type TEXT NOT NULL CHECK(party_type IN ('customer','supplier','partner','other')),
+  voucher_type TEXT NOT NULL, -- receipt/payment/advance/advance_settlement/custody_out/custody_return
+  party_type TEXT NOT NULL, -- customer/supplier/partner/employee/other
   party_id INTEGER,
   party_name TEXT,
   other_account_code TEXT,
@@ -422,6 +437,21 @@ CREATE TABLE IF NOT EXISTS vouchers (
   method TEXT NOT NULL DEFAULT 'cash' CHECK(method IN ('cash','bank')),
   voucher_date TEXT NOT NULL,
   notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ---------- الموظفون (HR) ----------
+
+CREATE TABLE IF NOT EXISTS employees (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  branch_id INTEGER REFERENCES branches(id),
+  name TEXT NOT NULL,
+  phone TEXT,
+  job_title TEXT,
+  salary REAL NOT NULL DEFAULT 0,
+  hire_date TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

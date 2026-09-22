@@ -5,6 +5,7 @@ const ACCT_TABS = [
   { key: 'income', label: 'قائمة الدخل' },
   { key: 'balance', label: 'المركز المالي' },
   { key: 'aging', label: 'أعمار الديون' },
+  { key: 'salesAccountability', label: 'مسؤولية التحصيل' },
   { key: 'profitability', label: 'الربحية' },
   { key: 'partners', label: 'حقوق الشركاء' },
   { key: 'cashflow', label: 'التدفقات النقدية' },
@@ -228,6 +229,24 @@ async function renderAging(container) {
   bindFilter();
 }
 
+async function renderSalesAccountability(container) {
+  const r = await Api.get('/reports/sales-accountability');
+  container.innerHTML = `
+    <p class="muted" style="font-size:13px; margin-bottom:12px">
+      كل فاتورة بيع مسجّلة باسم الموظف اللي أنشأها، وهو المسؤول عن تحصيلها لحد ما تتقفل بالكامل - حتى لو السداد
+      وصل بسند سجّله موظف تاني. الجدول ده بيوريك المتبقي لسه على كل بائع.
+    </p>
+    ${profitabilityTableHtml(
+      ['البائع', 'المبلغ المطلوب تحصيله'],
+      r.rows,
+      (row) => `<tr><td>${UI.escapeHtml(row.username)}</td><td class="num" style="color:${row.outstanding > 0 ? 'var(--warn)' : 'var(--success)'}"><strong>${UI.money(row.outstanding)}</strong></td></tr>`
+    )}
+    <div class="totals-box"><div class="totals-inner">
+      <div class="totals-row grand"><span>إجمالي المستحق تحصيله على كل البائعين</span><span>${UI.money(r.total)}</span></div>
+    </div></div>
+  `;
+}
+
 async function renderPartnersEquity(container) {
   const rows = await Api.get('/reports/partners-equity');
   if (rows.length === 0) {
@@ -384,6 +403,7 @@ const TAB_RENDERERS = {
   income: renderIncomeStatement,
   balance: renderBalanceSheet,
   aging: renderAging,
+  salesAccountability: renderSalesAccountability,
   profitability: renderProfitability,
   partners: renderPartnersEquity,
   cashflow: renderCashFlow,

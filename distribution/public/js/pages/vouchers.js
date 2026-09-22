@@ -1,22 +1,42 @@
 var Pages = window.Pages || {};
 
+const VOUCHER_TYPE_OPTIONS_BY_PARTY = {
+  customer: [['receipt', 'سند قبض (استلام فلوس)']],
+  supplier: [['payment', 'سند صرف (دفع فلوس)']],
+  partner: [
+    ['receipt', 'رأس مال إضافي من الشريك'],
+    ['payment', 'مسحوبات شخصية للشريك'],
+  ],
+  employee: [
+    ['advance', 'صرف سلفة لموظف'],
+    ['advance_settlement', 'تسوية/استرجاع سلفة موظف'],
+    ['custody_out', 'صرف عهدة لموظف'],
+    ['custody_return', 'استرجاع عهدة من موظف'],
+    ['salary', 'صرف راتب'],
+  ],
+  other: [
+    ['receipt', 'سند قبض (استلام فلوس)'],
+    ['payment', 'سند صرف (دفع فلوس)'],
+  ],
+};
+
 function voucherFormHtml(customers, suppliers, accounts) {
   return `
     <form id="voucherForm">
       <div class="form-grid">
         <div class="field">
-          <label>نوع السند *</label>
-          <select name="voucher_type" id="voucherType" required>
-            <option value="receipt">سند قبض (استلام فلوس)</option>
-            <option value="payment">سند صرف (دفع فلوس)</option>
+          <label>الطرف *</label>
+          <select name="party_type" id="partyType" required>
+            <option value="customer">عميل</option>
+            <option value="supplier">مورد</option>
+            <option value="partner">شريك</option>
+            <option value="employee">موظف</option>
+            <option value="other">طرف آخر</option>
           </select>
         </div>
         <div class="field">
-          <label>الطرف *</label>
-          <select name="party_type" id="partyType" required>
-            <option value="customer">من عميل</option>
-            <option value="other">طرف آخر</option>
-          </select>
+          <label>نوع السند *</label>
+          <select name="voucher_type" id="voucherType" required></select>
         </div>
 
         <div class="field span-2" id="partySelectWrap">
@@ -44,7 +64,7 @@ function voucherFormHtml(customers, suppliers, accounts) {
   `;
 }
 
-function wireVoucherForm(customers, suppliers, partners) {
+function wireVoucherForm(customers, suppliers, partners, employees) {
   const voucherType = document.getElementById('voucherType');
   const partyType = document.getElementById('partyType');
   const partySelectWrap = document.getElementById('partySelectWrap');
@@ -52,27 +72,21 @@ function wireVoucherForm(customers, suppliers, partners) {
   const otherWrap = document.getElementById('otherWrap');
   const partyLabel = partySelectWrap.querySelector('label');
 
-  function refreshPartyOptions() {
-    const isReceipt = voucherType.value === 'receipt';
-    partyType.innerHTML = isReceipt
-      ? '<option value="customer">من عميل</option><option value="partner">من شريك (رأس مال)</option><option value="other">طرف آخر</option>'
-      : '<option value="supplier">لمورد</option><option value="partner">لشريك (مسحوبات)</option><option value="other">طرف آخر</option>';
-    updateFields();
-  }
-
   function updateFields() {
     const isOther = partyType.value === 'other';
     otherWrap.style.display = isOther ? '' : 'none';
     partySelectWrap.style.display = isOther ? 'none' : '';
+    voucherType.innerHTML = VOUCHER_TYPE_OPTIONS_BY_PARTY[partyType.value]
+      .map(([v, l]) => `<option value="${v}">${l}</option>`)
+      .join('');
     if (!isOther) {
-      const labels = { customer: 'العميل *', supplier: 'المورد *', partner: 'الشريك *' };
-      const lists = { customer: customers, supplier: suppliers, partner: partners };
+      const labels = { customer: 'العميل *', supplier: 'المورد *', partner: 'الشريك *', employee: 'الموظف *' };
+      const lists = { customer: customers, supplier: suppliers, partner: partners, employee: employees };
       partyLabel.textContent = labels[partyType.value];
       partyIdSelect.innerHTML = UI.optionsHtml(lists[partyType.value] || [], 'id', 'name');
     }
   }
 
-  voucherType.addEventListener('change', refreshPartyOptions);
   partyType.addEventListener('change', updateFields);
   updateFields();
 }
@@ -109,15 +123,16 @@ Pages.vouchersList = async function () {
   `);
 
   document.getElementById('addVoucherBtn').addEventListener('click', async () => {
-    const [customers, suppliers, partners, accounts] = await Promise.all([
+    const [customers, suppliers, partners, employees, accounts] = await Promise.all([
       Api.get('/customers'),
       Api.get('/suppliers'),
       Api.get('/partners'),
+      Api.get('/employees').catch(() => []),
       Api.get('/accounts'),
     ]);
     const postable = accounts.filter((a) => a.is_postable);
     UI.openModal('سند قبض / صرف جديد', voucherFormHtml(customers, suppliers, postable), { wide: true });
-    wireVoucherForm(customers, suppliers, partners);
+    wireVoucherForm(customers, suppliers, partners, employees);
 
     document.getElementById('voucherForm').addEventListener('submit', async (e) => {
       e.preventDefault();
