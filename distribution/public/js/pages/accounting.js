@@ -4,6 +4,7 @@ const ACCT_TABS = [
   { key: 'trial', label: 'ميزان المراجعة' },
   { key: 'income', label: 'قائمة الدخل' },
   { key: 'balance', label: 'المركز المالي' },
+  { key: 'profitability', label: 'الربحية' },
   { key: 'partners', label: 'حقوق الشركاء' },
   { key: 'cashflow', label: 'التدفقات النقدية' },
   { key: 'closing', label: 'الإقفال المالي' },
@@ -87,6 +88,83 @@ async function renderBalanceSheet(container) {
     </div>
     <p style="margin-top:14px">${bs.balanced ? UI.badge('الميزانية متوازنة ✓', 'green') : UI.badge('الميزانية غير متوازنة!', 'red')}</p>
   `;
+}
+
+function profitabilityTableHtml(headers, rows, rowFn) {
+  if (rows.length === 0) return '<div class="empty-state">لا توجد بيانات في هذه الفترة</div>';
+  return `<div class="table-wrap"><table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>
+    ${rows.map(rowFn).join('')}
+  </tbody></table></div>`;
+}
+
+async function renderProfitability(container) {
+  async function load(from, to) {
+    const qs = from && to ? `?from=${from}&to=${to}` : '';
+    const [products, customers, trips] = await Promise.all([
+      Api.get('/reports/profitability/products' + qs),
+      Api.get('/reports/profitability/customers' + qs),
+      Api.get('/reports/profitability/trips' + qs),
+    ]);
+
+    return `
+      ${dateRangeBarHtml('profit')}
+
+      <h4>أعلى المنتجات ربحًا</h4>
+      ${profitabilityTableHtml(
+        ['المنتج', 'الكمية المباعة', 'الإيراد', 'التكلفة', 'الربح', 'الهامش %'],
+        products,
+        (r) => `<tr>
+          <td>${UI.escapeHtml(r.product_name)}</td>
+          <td>${UI.num(r.qty)} ${UI.escapeHtml(r.unit)}</td>
+          <td>${UI.money(r.revenue)}</td>
+          <td>${UI.money(r.cost)}</td>
+          <td style="color:${r.profit >= 0 ? 'var(--success)' : 'var(--danger)'}"><strong>${UI.money(r.profit)}</strong></td>
+          <td>${r.margin}%</td>
+        </tr>`
+      )}
+
+      <h4 style="margin-top:22px">أعلى العملاء ربحًا</h4>
+      ${profitabilityTableHtml(
+        ['العميل', 'عدد الفواتير', 'الإيراد', 'التكلفة', 'الربح', 'الهامش %'],
+        customers,
+        (r) => `<tr>
+          <td><a href="#/customers/${r.customer_id}">${UI.escapeHtml(r.customer_name)}</a></td>
+          <td>${r.invoice_count}</td>
+          <td>${UI.money(r.revenue)}</td>
+          <td>${UI.money(r.cost)}</td>
+          <td style="color:${r.profit >= 0 ? 'var(--success)' : 'var(--danger)'}"><strong>${UI.money(r.profit)}</strong></td>
+          <td>${r.margin}%</td>
+        </tr>`
+      )}
+
+      <h4 style="margin-top:22px">أعلى رحلات التوزيع ربحًا</h4>
+      ${profitabilityTableHtml(
+        ['الرحلة', 'السيارة', 'التاريخ', 'المبيعات', 'تكلفة البضاعة', 'المصروفات', 'التوالف', 'صافي النتيجة'],
+        trips,
+        (r) => `<tr>
+          <td><a href="#/trips/${r.trip_id}">${UI.escapeHtml(r.trip_no)}</a></td>
+          <td>${UI.escapeHtml(r.vehicle_name)}</td>
+          <td>${UI.escapeHtml(r.trip_date)}</td>
+          <td>${UI.money(r.sales)}</td>
+          <td>${UI.money(r.cogs)}</td>
+          <td>${UI.money(r.expenses)}</td>
+          <td>${UI.money(r.damages)}</td>
+          <td style="color:${r.netResult >= 0 ? 'var(--success)' : 'var(--danger)'}"><strong>${UI.money(r.netResult)}</strong></td>
+        </tr>`
+      )}
+    `;
+  }
+
+  async function bindFilter() {
+    document.getElementById('profitFilter').addEventListener('click', async () => {
+      const from = document.getElementById('profitFrom').value;
+      const to = document.getElementById('profitTo').value;
+      container.innerHTML = await load(from, to);
+      bindFilter();
+    });
+  }
+  container.innerHTML = await load();
+  bindFilter();
 }
 
 async function renderPartnersEquity(container) {
@@ -244,6 +322,7 @@ const TAB_RENDERERS = {
   trial: renderTrialBalance,
   income: renderIncomeStatement,
   balance: renderBalanceSheet,
+  profitability: renderProfitability,
   partners: renderPartnersEquity,
   cashflow: renderCashFlow,
   closing: renderClosing,

@@ -328,6 +328,183 @@ function tripSettlementReport(tripId) {
 }
 
 // ---------------------------------------------------------------------------
+// تقرير الربحية (أعلى المنتجات/العملاء/الرحلات عائدًا)
+// ---------------------------------------------------------------------------
+
+/** ربحية كل منتج اتباع خلال فترة معينة، بعد خصم أي مرتجعات مبيعات عليه */
+function productProfitability(companyId, { from, to, branchId } = {}) {
+  const conditions = ['sv.company_id = ?'];
+  const params = [companyId];
+  if (branchId) {
+    conditions.push('sv.branch_id = ?');
+    params.push(branchId);
+  }
+  if (from && to) {
+    conditions.push('sv.invoice_date BETWEEN ? AND ?');
+    params.push(from, to);
+  }
+  const where = conditions.join(' AND ');
+
+  const soldRows = db
+    .prepare(
+      `SELECT p.id AS product_id, p.name AS product_name, p.unit,
+              COALESCE(SUM(si.qty),0) AS qty_sold,
+              COALESCE(SUM(si.line_total),0) AS revenue,
+              COALESCE(SUM(si.qty * si.unit_cost),0) AS cost
+       FROM sales_items si
+       JOIN sales_invoices sv ON sv.id = si.invoice_id
+       JOIN products p ON p.id = si.product_id
+       WHERE ${where}
+       GROUP BY p.id`
+    )
+    .all(...params);
+
+  const returnConditions = ['sr.company_id = ?'];
+  const returnParams = [companyId];
+  if (branchId) {
+    returnConditions.push('sr.branch_id = ?');
+    returnParams.push(branchId);
+  }
+  if (from && to) {
+    returnConditions.push('sr.return_date BETWEEN ? AND ?');
+    returnParams.push(from, to);
+  }
+  const returnsByProduct = {};
+  db.prepare(
+    `SELECT ri.product_id, COALESCE(SUM(ri.qty),0) AS qty, COALESCE(SUM(ri.line_total),0) AS revenue,
+            COALESCE(SUM(ri.qty * ri.unit_cost),0) AS cost
+     FROM sales_return_items ri JOIN sales_returns sr ON sr.id = ri.return_id
+     WHERE ${returnConditions.join(' AND ')} GROUP BY ri.product_id`
+  )
+    .all(...returnParams)
+    .forEach((r) => {
+      returnsByProduct[r.product_id] = r;
+    });
+
+  return soldRows
+    .map((r) => {
+      const ret = returnsByProduct[r.product_id] || { qty: 0, revenue: 0, cost: 0 };
+      const qty = round2(r.qty_sold - ret.qty);
+      const revenue = round2(r.revenue - ret.revenue);
+      const cost = round2(r.cost - ret.cost);
+      const profit = round2(revenue - cost);
+      const margin = revenue !== 0 ? round2((profit / revenue) * 100) : 0;
+      return { product_id: r.product_id, product_name: r.product_name, unit: r.unit, qty, revenue, cost, profit, margin };
+    })
+    .sort((a, b) => b.profit - a.profit);
+}
+
+/** ربحية كل عميل خلال فترة معينة (إجمالي مبيعاته وهامش الربح اللي جابه)، بعد خصم مرتجعاته */
+function customerProfitability(companyId, { from, to, branchId } = {}) {
+  const conditions = ['sv.company_id = ?'];
+  const params = [companyId];
+  if (branchId) {
+    conditions.push('sv.branch_id = ?');
+    params.push(branchId);
+  }
+  if (from && to) {
+    conditions.push('sv.invoice_date BETWEEN ? AND ?');
+    params.push(from, to);
+  }
+  const where = conditions.join(' AND ');
+
+  const soldRows = db
+    .prepare(
+      `SELECT c.id AS customer_id, c.name AS customer_name,
+              COALESCE(SUM(si.line_total),0) AS revenue,
+              COALESCE(SUM(si.qty * si.unit_cost),0) AS cost,
+              COUNT(DISTINCT sv.id) AS invoice_count
+       FROM sales_items si
+       JOIN sales_invoices sv ON sv.id = si.invoice_id
+       JOIN customers c ON c.id = sv.customer_id
+       WHERE ${where}
+       GROUP BY c.id`
+    )
+    .all(...params);
+
+  const returnConditions = ['sr.company_id = ?'];
+  const returnParams = [companyId];
+  if (branchId) {
+    returnConditions.push('sr.branch_id = ?');
+    returnParams.push(branchId);
+  }
+  if (from && to) {
+    returnConditions.push('sr.return_date BETWEEN ? AND ?');
+    returnParams.push(from, to);
+  }
+  const returnsByCustomer = {};
+  db.prepare(
+    `SELECT sr.customer_id, COALESCE(SUM(ri.line_total),0) AS revenue, COALESCE(SUM(ri.qty * ri.unit_cost),0) AS cost
+     FROM sales_return_items ri JOIN sales_returns sr ON sr.id = ri.return_id
+     WHERE ${returnConditions.join(' AND ')} GROUP BY sr.customer_id`
+  )
+    .all(...returnParams)
+    .forEach((r) => {
+      returnsByCustomer[r.customer_id] = r;
+    });
+
+  return soldRows
+    .map((r) => {
+      const ret = returnsByCustomer[r.customer_id] || { revenue: 0, cost: 0 };
+      const revenue = round2(r.revenue - ret.revenue);
+      const cost = round2(r.cost - ret.cost);
+      const profit = round2(revenue - cost);
+      const margin = revenue !== 0 ? round2((profit / revenue) * 100) : 0;
+      return { customer_id: r.customer_id, customer_name: r.customer_name, invoice_count: r.invoice_count, revenue, cost, profit, margin };
+    })
+    .sort((a, b) => b.profit - a.profit);
+}
+
+/** نتيجة كل رحلة توزيع (مبيعات - تكلفة بضاعة - مصروفات - توالف) عشان تعرف أكتر الرحلات/السيارات ربحًا */
+function tripProfitability(companyId, { from, to, branchId } = {}) {
+  const conditions = ['t.company_id = ?'];
+  const params = [companyId];
+  if (branchId) {
+    conditions.push('t.branch_id = ?');
+    params.push(branchId);
+  }
+  if (from && to) {
+    conditions.push('t.trip_date BETWEEN ? AND ?');
+    params.push(from, to);
+  }
+  const trips = db
+    .prepare(
+      `SELECT t.id, t.trip_no, t.trip_date, t.status, v.name AS vehicle_name
+       FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+       WHERE ${conditions.join(' AND ')} ORDER BY t.trip_date DESC`
+    )
+    .all(...params);
+
+  return trips
+    .map((t) => {
+      const sales = db.prepare('SELECT COALESCE(SUM(total),0) AS s FROM sales_invoices WHERE trip_id = ?').get(t.id).s;
+      const cogs = db
+        .prepare(
+          `SELECT COALESCE(SUM(si.qty * si.unit_cost),0) AS s FROM sales_items si
+           JOIN sales_invoices sv ON sv.id = si.invoice_id WHERE sv.trip_id = ?`
+        )
+        .get(t.id).s;
+      const expenses = db.prepare('SELECT COALESCE(SUM(amount),0) AS s FROM trip_expenses WHERE trip_id = ?').get(t.id).s;
+      const damages = db.prepare('SELECT COALESCE(SUM(qty * unit_cost),0) AS s FROM damages WHERE trip_id = ?').get(t.id).s;
+      const grossProfit = round2(sales - cogs);
+      const netResult = round2(grossProfit - expenses - damages);
+      return {
+        trip_id: t.id,
+        trip_no: t.trip_no,
+        trip_date: t.trip_date,
+        status: t.status,
+        vehicle_name: t.vehicle_name,
+        sales: round2(sales),
+        cogs: round2(cogs),
+        expenses: round2(expenses),
+        damages: round2(damages),
+        netResult,
+      };
+    })
+    .sort((a, b) => b.netResult - a.netResult);
+}
+
+// ---------------------------------------------------------------------------
 // حقوق الشركاء والتدفقات النقدية والإقفالات
 // ---------------------------------------------------------------------------
 
@@ -499,6 +676,9 @@ module.exports = {
   allSupplierBalances,
   inventoryValuation,
   tripSettlementReport,
+  productProfitability,
+  customerProfitability,
+  tripProfitability,
   partnersEquityStatement,
   cashFlowStatement,
   listFiscalClosings,

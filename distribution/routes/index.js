@@ -684,6 +684,36 @@ router.get(
   handle((req) => reports.inventoryValuation(ctx(req, { needBranch: false }).company_id, reportBranch(req)))
 );
 router.get(
+  '/reports/profitability/products',
+  handle((req) =>
+    reports.productProfitability(ctx(req, { needBranch: false }).company_id, {
+      from: req.query.from,
+      to: req.query.to,
+      branchId: reportBranch(req),
+    })
+  )
+);
+router.get(
+  '/reports/profitability/customers',
+  handle((req) =>
+    reports.customerProfitability(ctx(req, { needBranch: false }).company_id, {
+      from: req.query.from,
+      to: req.query.to,
+      branchId: reportBranch(req),
+    })
+  )
+);
+router.get(
+  '/reports/profitability/trips',
+  handle((req) =>
+    reports.tripProfitability(ctx(req, { needBranch: false }).company_id, {
+      from: req.query.from,
+      to: req.query.to,
+      branchId: reportBranch(req),
+    })
+  )
+);
+router.get(
   '/reports/partners-equity',
   handle((req) =>
     reports.partnersEquityStatement(ctx(req, { needBranch: false }).company_id, { from: req.query.from, to: req.query.to })

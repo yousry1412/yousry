@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: distribution-erp
+    runtime: node
+    plan: starter
+    region: frankfurt
+    rootDir: distribution
+    buildCommand: npm install
+    startCommand: npm start
+    disk:
+      name: distribution-data
+      mountPath: /opt/render/project/src/distribution/data
+      sizeGB: 1
