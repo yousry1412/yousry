@@ -4,9 +4,17 @@ const SETTINGS_TABS = [
   { key: 'companies', label: 'المنشآت' },
   { key: 'branches', label: 'الفروع' },
   { key: 'partners', label: 'الشركاء' },
+  { key: 'users', label: 'المستخدمون' },
   { key: 'accounts', label: 'شجرة الحسابات' },
   { key: 'whatsapp', label: 'واتساب' },
 ];
+
+const USER_ROLE_LABELS = {
+  owner: 'مالك (صلاحية كاملة على كل المنشآت)',
+  accountant: 'محاسب (كل حاجة ماعدا المستخدمين والإعدادات)',
+  sales: 'مندوب مبيعات (عملاء، فواتير بيع، رحلات)',
+  warehouse: 'أمين مخزن (موردين، مشتريات، مخزون، تصنيع)',
+};
 
 function companyFormHtml(c = {}) {
   return `
@@ -244,6 +252,102 @@ function accountFormHtml(accounts) {
   `;
 }
 
+function userFormHtml(u = {}, branches = []) {
+  return `
+    <form id="userForm">
+      <div class="form-grid">
+        <div class="field span-2"><label>اسم المستخدم (للدخول به) *</label><input name="username" required minlength="3" value="${UI.escapeHtml(u.username || '')}" ${u.id ? 'disabled' : ''} /></div>
+        <div class="field"><label>${u.id ? 'كلمة سر جديدة (سيبها فاضية لو مش هتغيّرها)' : 'كلمة السر *'}</label><input name="password" type="password" minlength="6" ${u.id ? '' : 'required'} /></div>
+        <div class="field">
+          <label>الصلاحية *</label>
+          <select name="role" id="userRoleSelect" required>
+            ${Object.entries(USER_ROLE_LABELS).map(([v, l]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field span-2" id="userBranchWrap"><label>الفرع (اختياري - سيبه فاضي لو محتاج يشتغل على كل الفروع)</label>
+          <select name="branch_id"><option value="">- كل الفروع -</option>${UI.optionsHtml(branches, 'id', 'name', u.branch_id)}</select>
+        </div>
+        ${
+          u.id
+            ? `<div class="field"><label>الحالة</label>
+                <select name="is_active"><option value="1" ${u.is_active ? 'selected' : ''}>نشط</option><option value="0" ${!u.is_active ? 'selected' : ''}>موقوف</option></select>
+              </div>`
+            : ''
+        }
+      </div>
+      <p class="muted" style="font-size:12.5px">المستخدم (غير المالك) بيتقفل على المنشأة الحالية إجباريًا، وعلى الفرع لو حددته، بغض النظر عن أي اختيار في الواجهة.</p>
+      <div class="modal-actions">
+        <button type="submit" class="btn">${u.id ? 'حفظ التعديلات' : 'إضافة المستخدم'}</button>
+        <button type="button" class="btn secondary" onclick="UI.closeModal()">إلغاء</button>
+      </div>
+    </form>
+  `;
+}
+
+function openUserModal(existing, branches, onDone) {
+  UI.openModal(existing ? `تعديل مستخدم: ${UI.escapeHtml(existing.username)}` : 'مستخدم جديد', userFormHtml(existing || {}, branches));
+
+  const roleSelect = document.getElementById('userRoleSelect');
+  const branchWrap = document.getElementById('userBranchWrap');
+  function updateBranchVisibility() {
+    branchWrap.style.display = roleSelect.value === 'owner' ? 'none' : '';
+  }
+  roleSelect.addEventListener('change', updateBranchVisibility);
+  updateBranchVisibility();
+
+  document.getElementById('userForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = Object.fromEntries(fd.entries());
+    if (!payload.password) delete payload.password;
+    if (!payload.branch_id) delete payload.branch_id;
+    payload.is_active = existing ? payload.is_active === '1' : 1;
+    try {
+      if (existing) await Api.put(`/users/${existing.id}`, payload);
+      else await Api.post('/users', payload);
+      UI.closeModal();
+      UI.toast(existing ? 'تم حفظ التعديلات' : 'تم إضافة المستخدم', 'success');
+      onDone();
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    }
+  });
+}
+
+async function renderUsersTab() {
+  const [users, branches] = await Promise.all([Api.get('/users'), Api.get('/branches')]);
+  const container = document.getElementById('settingsTabContent');
+  container.innerHTML = `
+    <div class="card-header"><h3>مستخدمو "${UI.escapeHtml(Context.getCompany() ? Context.getCompany().name : '')}"</h3><button class="btn small" id="addUserBtn">+ مستخدم جديد</button></div>
+    <p class="muted" style="font-size:13px">كل مستخدم (ماعدا المالك) بيشتغل بس على المنشأة الحالية، وعلى الفرع اللي تحدده له لو حبيت.</p>
+    ${
+      users.length === 0
+        ? '<div class="empty-state">لا يوجد مستخدمين بعد</div>'
+        : `<div class="table-wrap"><table><thead><tr><th>اسم المستخدم</th><th>الصلاحية</th><th>الفرع</th><th>الحالة</th><th></th></tr></thead><tbody>
+            ${users
+              .map((u) => {
+                const branch = branches.find((b) => b.id === u.branch_id);
+                return `<tr>
+                <td>${UI.escapeHtml(u.username)}</td>
+                <td>${USER_ROLE_LABELS[u.role] ? USER_ROLE_LABELS[u.role].split(' (')[0] : u.role}</td>
+                <td>${u.role === 'owner' ? '- كل المنشآت -' : branch ? UI.escapeHtml(branch.name) : 'كل الفروع'}</td>
+                <td>${u.is_active ? UI.badge('نشط', 'green') : UI.badge('موقوف', 'red')}</td>
+                <td><button class="link-btn" data-edit="${u.id}">تعديل</button></td>
+              </tr>`;
+              })
+              .join('')}
+          </tbody></table></div>`
+    }
+  `;
+  document.getElementById('addUserBtn').addEventListener('click', () => openUserModal(null, branches, renderUsersTab));
+  document.querySelectorAll('[data-edit]').forEach((btn) =>
+    btn.addEventListener('click', () => {
+      const u = users.find((x) => x.id === Number(btn.dataset.edit));
+      openUserModal(u, branches, renderUsersTab);
+    })
+  );
+}
+
 async function renderAccountsTab() {
   const accounts = await Api.get('/accounts');
   const typeLabel = { asset: 'أصول', liability: 'خصوم', equity: 'حقوق ملكية', revenue: 'إيرادات', expense: 'مصروفات' };
@@ -362,6 +466,7 @@ const SETTINGS_RENDERERS = {
   companies: renderCompaniesTab,
   branches: renderBranchesTab,
   partners: renderPartnersTab,
+  users: renderUsersTab,
   accounts: renderAccountsTab,
   whatsapp: renderWhatsappTab,
 };

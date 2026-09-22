@@ -1,20 +1,39 @@
+const ROLE_GROUPS = {
+  FIN: ['owner', 'accountant'],
+  SALES_G: ['owner', 'accountant', 'sales'],
+  WH_G: ['owner', 'accountant', 'warehouse'],
+  ALL: ['owner', 'accountant', 'sales', 'warehouse'],
+  OWNER: ['owner'],
+};
+
 const NAV = [
-  { hash: '#/dashboard', label: 'لوحة التحكم', icon: '📊' },
-  { hash: '#/sales', label: 'فواتير المبيعات', icon: '🧾' },
-  { hash: '#/trips', label: 'رحلات التوزيع', icon: '🚚' },
-  { hash: '#/purchases', label: 'فواتير الشراء', icon: '🛒' },
-  { hash: '#/production', label: 'أوامر التصنيع', icon: '🏭' },
-  { hash: '#/products', label: 'المنتجات والمخزون', icon: '📦' },
-  { hash: '#/customers', label: 'العملاء', icon: '👥' },
-  { hash: '#/suppliers', label: 'الموردين', icon: '🏢' },
-  { hash: '#/vehicles', label: 'السيارات', icon: '🚙' },
-  { hash: '#/damages', label: 'التوالف والهالك', icon: '⚠️' },
-  { hash: '#/expenses', label: 'المصروفات العامة', icon: '💸' },
-  { hash: '#/vouchers', label: 'سندات القبض والصرف', icon: '🧮' },
-  { hash: '#/stock-ops', label: 'تحويل وجرد المخزون', icon: '🔄' },
-  { hash: '#/accounting', label: 'الحسابات والتقارير', icon: '📚' },
-  { hash: '#/settings', label: 'المنشآت والفروع والشركاء', icon: '⚙️' },
+  { hash: '#/dashboard', label: 'لوحة التحكم', icon: '📊', roles: ROLE_GROUPS.FIN },
+  { hash: '#/sales', label: 'فواتير المبيعات', icon: '🧾', roles: ROLE_GROUPS.SALES_G },
+  { hash: '#/trips', label: 'رحلات التوزيع', icon: '🚚', roles: ROLE_GROUPS.ALL },
+  { hash: '#/purchases', label: 'فواتير الشراء', icon: '🛒', roles: ROLE_GROUPS.WH_G },
+  { hash: '#/production', label: 'أوامر التصنيع', icon: '🏭', roles: ROLE_GROUPS.WH_G },
+  { hash: '#/products', label: 'المنتجات والمخزون', icon: '📦', roles: ROLE_GROUPS.ALL },
+  { hash: '#/customers', label: 'العملاء', icon: '👥', roles: ROLE_GROUPS.SALES_G },
+  { hash: '#/suppliers', label: 'الموردين', icon: '🏢', roles: ROLE_GROUPS.WH_G },
+  { hash: '#/vehicles', label: 'السيارات', icon: '🚙', roles: ROLE_GROUPS.ALL },
+  { hash: '#/damages', label: 'التوالف والهالك', icon: '⚠️', roles: ROLE_GROUPS.ALL },
+  { hash: '#/expenses', label: 'المصروفات العامة', icon: '💸', roles: ROLE_GROUPS.FIN },
+  { hash: '#/vouchers', label: 'سندات القبض والصرف', icon: '🧮', roles: ROLE_GROUPS.FIN },
+  { hash: '#/stock-ops', label: 'تحويل وجرد المخزون', icon: '🔄', roles: ROLE_GROUPS.WH_G },
+  { hash: '#/accounting', label: 'الحسابات والتقارير', icon: '📚', roles: ROLE_GROUPS.FIN },
+  { hash: '#/settings', label: 'المنشآت والفروع والشركاء', icon: '⚙️', roles: ROLE_GROUPS.OWNER },
 ];
+
+function currentRole() {
+  const user = Auth.getUser();
+  return user ? user.role : null;
+}
+
+function firstAllowedHash() {
+  const role = currentRole();
+  const item = NAV.find((n) => n.roles.includes(role));
+  return item ? item.hash : '#/dashboard';
+}
 
 const ROUTES = [
   { re: /^#\/dashboard$/, title: 'لوحة التحكم', render: () => Pages.dashboard() },
@@ -60,12 +79,15 @@ const ROUTES = [
 ];
 
 function renderNav() {
+  const role = currentRole();
   const nav = document.getElementById('nav');
-  nav.innerHTML = NAV.map(
-    (item) => `<a class="nav-item" data-hash="${item.hash}" href="${item.hash}">
+  nav.innerHTML = NAV.filter((item) => item.roles.includes(role))
+    .map(
+      (item) => `<a class="nav-item" data-hash="${item.hash}" href="${item.hash}">
       <span class="nav-icon">${item.icon}</span><span>${item.label}</span>
     </a>`
-  ).join('');
+    )
+    .join('');
 }
 
 function updateActiveNav(hash) {
@@ -76,14 +98,18 @@ function updateActiveNav(hash) {
 }
 
 async function router() {
-  let hash = location.hash || '#/dashboard';
+  if (!location.hash) {
+    location.hash = firstAllowedHash();
+    return router();
+  }
+  let hash = location.hash;
   const content = document.getElementById('content');
   const match = ROUTES.find((r) => r.re.test(hash));
 
   document.getElementById('sidebar').classList.remove('open');
 
   if (!match) {
-    location.hash = '#/dashboard';
+    location.hash = firstAllowedHash();
     return;
   }
 
@@ -100,6 +126,14 @@ async function router() {
   }
 }
 
+const ROLE_LABELS = { owner: 'مالك', accountant: 'محاسب', sales: 'مندوب مبيعات', warehouse: 'أمين مخزن' };
+
+function renderTopUser() {
+  const user = Auth.getUser();
+  if (!user) return;
+  document.getElementById('topUser').textContent = `${user.username} (${ROLE_LABELS[user.role] || user.role})`;
+}
+
 function initClock() {
   const el = document.getElementById('topDate');
   const opts = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
@@ -107,10 +141,13 @@ function initClock() {
 }
 
 function renderContextSwitcher() {
+  const user = Auth.getUser();
   const companySelect = document.getElementById('companySelect');
   const branchSelect = document.getElementById('branchSelect');
   companySelect.innerHTML = UI.optionsHtml(Context.getCompanies(), 'id', 'name', Context.getCompanyId());
   branchSelect.innerHTML = UI.optionsHtml(Context.getBranches(), 'id', 'name', Context.getBranchId());
+  companySelect.disabled = !!(user && user.company_id);
+  branchSelect.disabled = !!(user && user.branch_id);
 }
 
 function wireContextSwitcher() {
@@ -131,6 +168,7 @@ async function startApp() {
   await Context.init();
   renderNav();
   renderContextSwitcher();
+  renderTopUser();
   initClock();
   router();
 

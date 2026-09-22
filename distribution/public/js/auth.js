@@ -1,5 +1,6 @@
 const Auth = (() => {
   let onReadyCallback = null;
+  let currentUser = null;
 
   function authScreenHtml(mode, errorMsg) {
     const isSetup = mode === 'setup';
@@ -9,12 +10,16 @@ const Auth = (() => {
           <div style="text-align:center; margin-bottom:16px;">
             <div style="font-size:34px;">🚚</div>
             <h2 style="margin:6px 0 0">إدارة التوزيع</h2>
-            <p class="muted" style="font-size:13px">${isSetup ? 'أول استخدام - اضبط كلمة سر لحماية بياناتك' : 'سجّل دخولك للمتابعة'}</p>
+            <p class="muted" style="font-size:13px">${isSetup ? 'أول استخدام - اعمل حساب المالك' : 'سجّل دخولك للمتابعة'}</p>
           </div>
           <form id="authForm">
             <div class="field" style="margin-bottom:12px">
+              <label>اسم المستخدم</label>
+              <input type="text" name="username" required minlength="3" autofocus autocomplete="username" />
+            </div>
+            <div class="field" style="margin-bottom:12px">
               <label>كلمة السر</label>
-              <input type="password" name="password" required minlength="6" autofocus />
+              <input type="password" name="password" required minlength="6" autocomplete="${isSetup ? 'new-password' : 'current-password'}" />
             </div>
             ${
               isSetup
@@ -25,7 +30,7 @@ const Auth = (() => {
                 : ''
             }
             ${errorMsg ? `<p style="color:var(--danger); font-size:13px; margin:0 0 12px">${UI.escapeHtml(errorMsg)}</p>` : ''}
-            <button type="submit" class="btn" style="width:100%">${isSetup ? 'إنشاء كلمة السر والدخول' : 'دخول'}</button>
+            <button type="submit" class="btn" style="width:100%">${isSetup ? 'إنشاء الحساب والدخول' : 'دخول'}</button>
           </form>
         </div>
       </div>
@@ -40,6 +45,7 @@ const Auth = (() => {
     document.getElementById('authForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
+      const username = fd.get('username');
       const password = fd.get('password');
       if (mode === 'setup' && password !== fd.get('confirm')) {
         showAuthScreen('setup', 'كلمتا السر مش متطابقتين');
@@ -49,13 +55,14 @@ const Auth = (() => {
         const res = await fetch(`/api/auth/${mode === 'setup' ? 'setup' : 'login'}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password }),
+          body: JSON.stringify({ username, password }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
           showAuthScreen(mode, data.error || 'حدث خطأ');
           return;
         }
+        currentUser = data.user;
         proceedToApp();
       } catch (err) {
         showAuthScreen(mode, 'تعذّر الاتصال بالسيرفر');
@@ -79,6 +86,7 @@ const Auth = (() => {
       } else if (!data.authenticated) {
         showAuthScreen('login');
       } else {
+        currentUser = data.user;
         proceedToApp();
       }
     } catch (err) {
@@ -87,6 +95,7 @@ const Auth = (() => {
   }
 
   function handleUnauthenticated() {
+    currentUser = null;
     showAuthScreen('login', 'انتهت الجلسة، سجّل دخولك تاني');
   }
 
@@ -96,10 +105,15 @@ const Auth = (() => {
     } catch (_) {
       /* ignore */
     }
+    currentUser = null;
     showAuthScreen('login');
   }
 
-  return { init, handleUnauthenticated, logout };
+  function getUser() {
+    return currentUser;
+  }
+
+  return { init, handleUnauthenticated, logout, getUser };
 })();
 
 window.Auth = Auth;

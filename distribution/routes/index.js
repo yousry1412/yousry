@@ -3,24 +3,34 @@ const { db } = require('../lib/db');
 const services = require('../lib/services');
 const reports = require('../lib/reports');
 const whatsapp = require('../lib/whatsapp');
+const auth = require('../lib/auth');
 
 const router = express.Router();
 
 // ---------------------------------------------------------------------------
-// سياق المنشأة والفرع (Company / Branch context) - عن طريق الهيدرز
+// سياق المنشأة والفرع (Company / Branch context)
 // ---------------------------------------------------------------------------
+//
+// المالك (owner) بيختار المنشأة والفرع بنفسه من الهيدرز (X-Company-Id/X-Branch-Id)
+// زي أي سويتشر في الواجهة. أي مستخدم تاني (محاسب/مندوب/أمين مخزن) لو متقفل
+// على منشأة أو فرع معين، بيتفرض عليه إجباريًا هنا بغض النظر عن أي هيدر باعته -
+// ده اللي بيمنعه يشوف أو يلمس بيانات منشأة/فرع تاني حتى لو عدّل الهيدر يدويًا.
 
 router.use((req, res, next) => {
-  const companyId = Number(req.header('X-Company-Id')) || null;
-  const branchId = Number(req.header('X-Branch-Id')) || null;
+  const headerCompanyId = Number(req.header('X-Company-Id')) || null;
+  const headerBranchId = Number(req.header('X-Branch-Id')) || null;
+  const user = req.user;
 
+  const companyId = user && user.company_id ? user.company_id : headerCompanyId;
   if (companyId) {
     const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(companyId);
     if (!company) return res.status(400).json({ error: 'منشأة غير موجودة' });
     req.companyId = companyId;
   }
-  if (companyId && branchId) {
-    const branch = db.prepare('SELECT * FROM branches WHERE id = ? AND company_id = ?').get(branchId, companyId);
+
+  const branchId = user && user.branch_id ? user.branch_id : headerBranchId;
+  if (req.companyId && branchId) {
+    const branch = db.prepare('SELECT * FROM branches WHERE id = ? AND company_id = ?').get(branchId, req.companyId);
     if (!branch) return res.status(400).json({ error: 'فرع غير موجود لهذه المنشأة' });
     req.branchId = branchId;
   }
@@ -63,13 +73,42 @@ function assertOwned(row, companyId, notFoundMsg) {
 }
 
 // ---------------------------------------------------------------------------
+// صلاحيات الأدوار
+// ---------------------------------------------------------------------------
+
+const OWNER = ['owner'];
+const FIN = ['owner', 'accountant']; // محاسبة وتقارير وسندات وإقفال
+const SALES_G = ['owner', 'accountant', 'sales']; // عملاء ومبيعات
+const WH_G = ['owner', 'accountant', 'warehouse']; // موردين ومشتريات ومخزون
+const ALL_ROLES = ['owner', 'accountant', 'sales', 'warehouse'];
+
+function allow(...roles) {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'الحساب ده مالوش صلاحية الوصول للجزء ده' });
+    }
+    next();
+  };
+}
+
+// ---------------------------------------------------------------------------
 // المنشآت والفروع والشركاء
 // ---------------------------------------------------------------------------
 
-router.get('/companies', handle(() => db.prepare('SELECT * FROM companies ORDER BY id').all()));
-router.post('/companies', handle((req) => services.createCompany(req.body)));
+router.get(
+  '/companies',
+  allow(...ALL_ROLES),
+  handle((req) => {
+    if (req.user.company_id) {
+      return db.prepare('SELECT * FROM companies WHERE id = ?').all(req.user.company_id);
+    }
+    return db.prepare('SELECT * FROM companies ORDER BY id').all();
+  })
+);
+router.post('/companies', allow(...OWNER), handle((req) => services.createCompany(req.body)));
 router.put(
   '/companies/:id',
+  allow(...OWNER),
   handle((req) => {
     if (!req.companyId || Number(req.params.id) !== req.companyId) {
       throw new Error('لازم تختار المنشأة دي كسياق العمل الحالي قبل تعديل بياناتها');
@@ -84,6 +123,7 @@ router.put(
 
 router.get(
   '/branches',
+  allow(...ALL_ROLES),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return db.prepare('SELECT * FROM branches WHERE company_id = ? ORDER BY is_main DESC, id').all(company_id);
@@ -91,6 +131,7 @@ router.get(
 );
 router.post(
   '/branches',
+  allow(...OWNER),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return services.createBranch({ ...req.body, company_id });
@@ -98,6 +139,7 @@ router.post(
 );
 router.put(
   '/branches/:id',
+  allow(...OWNER),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     const branch = assertOwned(db.prepare('SELECT * FROM branches WHERE id = ?').get(req.params.id), company_id, 'فرع غير موجود');
@@ -117,6 +159,7 @@ router.put(
 
 router.get(
   '/partners',
+  allow(...FIN),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return db.prepare('SELECT * FROM partners WHERE company_id = ? ORDER BY name').all(company_id);
@@ -124,6 +167,7 @@ router.get(
 );
 router.post(
   '/partners',
+  allow(...OWNER),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return services.createPartner({ ...req.body, company_id });
@@ -131,6 +175,7 @@ router.post(
 );
 router.put(
   '/partners/:id',
+  allow(...OWNER),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     assertOwned(db.prepare('SELECT * FROM partners WHERE id = ?').get(req.params.id), company_id, 'شريك غير موجود');
@@ -150,23 +195,50 @@ router.put(
 );
 
 // ---------------------------------------------------------------------------
+// المستخدمون (owner بس)
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/users',
+  allow(...OWNER),
+  handle((req) => auth.listUsers(req.companyId))
+);
+router.post(
+  '/users',
+  allow(...OWNER),
+  handle((req) => {
+    const company_id = req.body.role === 'owner' ? null : req.body.company_id || req.companyId;
+    return auth.createUser({ ...req.body, company_id });
+  })
+);
+router.put(
+  '/users/:id',
+  allow(...OWNER),
+  handle((req) => auth.updateUser(Number(req.params.id), req.body))
+);
+
+// ---------------------------------------------------------------------------
 // الموردون
 // ---------------------------------------------------------------------------
 
 router.get(
   '/suppliers',
+  allow(...WH_G),
   handle((req) => reports.allSupplierBalances(ctx(req, { needBranch: false }).company_id))
 );
 router.get(
   '/suppliers/:id/statement',
+  allow(...WH_G),
   handle((req) => reports.supplierStatement(ctx(req, { needBranch: false }).company_id, Number(req.params.id)))
 );
 router.post(
   '/suppliers',
+  allow(...WH_G),
   handle((req) => services.createSupplier({ ...req.body, company_id: ctx(req, { needBranch: false }).company_id }))
 );
 router.put(
   '/suppliers/:id',
+  allow(...WH_G),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     assertOwned(db.prepare('SELECT * FROM suppliers WHERE id = ?').get(req.params.id), company_id, 'مورد غير موجود');
@@ -189,18 +261,22 @@ router.put(
 
 router.get(
   '/customers',
+  allow(...SALES_G),
   handle((req) => reports.allCustomerBalances(ctx(req, { needBranch: false }).company_id))
 );
 router.get(
   '/customers/:id/statement',
+  allow(...SALES_G),
   handle((req) => reports.customerStatement(ctx(req, { needBranch: false }).company_id, Number(req.params.id)))
 );
 router.post(
   '/customers',
+  allow(...SALES_G),
   handle((req) => services.createCustomer({ ...req.body, company_id: ctx(req, { needBranch: false }).company_id }))
 );
 router.put(
   '/customers/:id',
+  allow(...SALES_G),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     assertOwned(db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id), company_id, 'عميل غير موجود');
@@ -218,6 +294,7 @@ router.put(
 
 router.get(
   '/products',
+  allow(...ALL_ROLES),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return db
@@ -231,6 +308,7 @@ router.get(
 );
 router.get(
   '/products/:id',
+  allow(...ALL_ROLES),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     const product = assertOwned(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id), company_id, 'منتج غير موجود');
@@ -251,6 +329,7 @@ router.get(
 );
 router.post(
   '/products',
+  allow(...WH_G),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return services.createProduct({ ...req.body, company_id, branch_id });
@@ -258,6 +337,7 @@ router.post(
 );
 router.put(
   '/products/:id',
+  allow(...WH_G),
   handle((req) => {
     const { company_id } = ctx(req);
     assertOwned(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id), company_id, 'منتج غير موجود');
@@ -270,6 +350,7 @@ router.put(
 );
 router.put(
   '/products/:id/bom',
+  allow(...WH_G),
   handle((req) => {
     const { company_id } = ctx(req);
     return services.setBom(Number(req.params.id), req.body.items || [], company_id);
@@ -282,6 +363,7 @@ router.put(
 
 router.get(
   '/purchases',
+  allow(...WH_G),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return db
@@ -295,6 +377,7 @@ router.get(
 );
 router.get(
   '/purchases/:id',
+  allow(...WH_G),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     const inv = assertOwned(services.getPurchaseInvoice(Number(req.params.id)), company_id, 'فاتورة غير موجودة');
@@ -303,11 +386,13 @@ router.get(
 );
 router.post(
   '/purchases',
+  allow(...WH_G),
   handle((req) => services.createPurchaseInvoice({ ...req.body, ...ctx(req) }))
 );
 
 router.get(
   '/purchase-returns',
+  allow(...WH_G),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return db
@@ -321,6 +406,7 @@ router.get(
 );
 router.post(
   '/purchase-returns',
+  allow(...WH_G),
   handle((req) => services.createPurchaseReturn({ ...req.body, ...ctx(req) }))
 );
 
@@ -330,6 +416,7 @@ router.post(
 
 router.get(
   '/production',
+  allow(...WH_G),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return db
@@ -343,6 +430,7 @@ router.get(
 );
 router.get(
   '/production/:id',
+  allow(...WH_G),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return assertOwned(services.getProductionOrder(Number(req.params.id)), company_id, 'أمر تصنيع غير موجود');
@@ -350,6 +438,7 @@ router.get(
 );
 router.post(
   '/production',
+  allow(...WH_G),
   handle((req) => services.createProductionOrder({ ...req.body, ...ctx(req) }))
 );
 
@@ -359,6 +448,7 @@ router.post(
 
 router.get(
   '/vehicles',
+  allow(...ALL_ROLES),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return db.prepare('SELECT * FROM vehicles WHERE company_id = ? AND branch_id = ? ORDER BY id DESC').all(company_id, branch_id);
@@ -366,10 +456,12 @@ router.get(
 );
 router.post(
   '/vehicles',
+  allow(...WH_G),
   handle((req) => services.createVehicle({ ...req.body, ...ctx(req) }))
 );
 router.put(
   '/vehicles/:id',
+  allow(...WH_G),
   handle((req) => {
     const { company_id } = ctx(req);
     assertOwned(db.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id), company_id, 'سيارة غير موجودة');
@@ -392,6 +484,7 @@ function ownedTrip(req, { needBranch = false } = {}) {
 
 router.get(
   '/trips',
+  allow(...ALL_ROLES),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return db
@@ -405,6 +498,7 @@ router.get(
 );
 router.get(
   '/trips/:id',
+  allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
     return services.getTrip(Number(req.params.id));
@@ -412,6 +506,7 @@ router.get(
 );
 router.get(
   '/trips/:id/settlement',
+  allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
     return reports.tripSettlementReport(Number(req.params.id));
@@ -419,10 +514,12 @@ router.get(
 );
 router.post(
   '/trips',
+  allow(...ALL_ROLES),
   handle((req) => services.createTrip({ ...req.body, ...ctx(req) }))
 );
 router.post(
   '/trips/:id/load',
+  allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
     return services.addTripLoad({ trip_id: Number(req.params.id), items: req.body.items });
@@ -430,6 +527,7 @@ router.post(
 );
 router.post(
   '/trips/:id/expense',
+  allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
     return services.addTripExpense({ ...req.body, trip_id: Number(req.params.id) });
@@ -437,6 +535,7 @@ router.post(
 );
 router.post(
   '/trips/:id/return',
+  allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
     return services.addTripReturn({ trip_id: Number(req.params.id), items: req.body.items });
@@ -444,6 +543,7 @@ router.post(
 );
 router.post(
   '/trips/:id/settle',
+  allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
     return services.settleTrip({ trip_id: Number(req.params.id), write_off_discrepancy: !!req.body.write_off_discrepancy });
@@ -456,6 +556,7 @@ router.post(
 
 router.get(
   '/sales',
+  allow(...SALES_G),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return db
@@ -470,6 +571,7 @@ router.get(
 );
 router.get(
   '/sales/:id',
+  allow(...SALES_G),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return assertOwned(services.getSalesInvoice(Number(req.params.id)), company_id, 'فاتورة غير موجودة');
@@ -477,10 +579,12 @@ router.get(
 );
 router.post(
   '/sales',
+  allow(...SALES_G),
   handle((req) => services.createSalesInvoice({ ...req.body, ...ctx(req, { needBranch: !req.body.trip_id }) }))
 );
 router.post(
   '/sales/:id/send-whatsapp',
+  allow(...SALES_G),
   handle(async (req) => {
     const { company_id } = ctx(req, { needBranch: false });
     const invoice = assertOwned(services.getSalesInvoice(Number(req.params.id)), company_id, 'فاتورة غير موجودة');
@@ -494,6 +598,7 @@ router.post(
 
 router.get(
   '/sales-returns',
+  allow(...SALES_G),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return db
@@ -507,6 +612,7 @@ router.get(
 );
 router.post(
   '/sales-returns',
+  allow(...SALES_G),
   handle((req) => services.createSalesReturn({ ...req.body, ...ctx(req) }))
 );
 
@@ -516,6 +622,7 @@ router.post(
 
 router.get(
   '/damages',
+  allow(...ALL_ROLES),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return db
@@ -529,6 +636,7 @@ router.get(
 );
 router.post(
   '/damages',
+  allow(...ALL_ROLES),
   handle((req) => services.createDamage({ ...req.body, ...ctx(req, { needBranch: !req.body.trip_id }) }))
 );
 
@@ -538,6 +646,7 @@ router.post(
 
 router.get(
   '/stock-transfers',
+  allow(...WH_G),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return db
@@ -552,6 +661,7 @@ router.get(
 );
 router.get(
   '/stock-transfers/:id',
+  allow(...WH_G),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     const transfer = assertOwned(db.prepare('SELECT * FROM stock_transfers WHERE id=?').get(req.params.id), company_id, 'تحويل غير موجود');
@@ -566,6 +676,7 @@ router.get(
 );
 router.post(
   '/stock-transfers',
+  allow(...WH_G),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return services.createStockTransfer({ ...req.body, company_id, from_branch_id: branch_id });
@@ -574,6 +685,7 @@ router.post(
 
 router.get(
   '/stock-adjustments',
+  allow(...WH_G),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return db
@@ -587,6 +699,7 @@ router.get(
 );
 router.post(
   '/stock-adjustments',
+  allow(...WH_G),
   handle((req) => services.createStockAdjustment({ ...req.body, ...ctx(req) }))
 );
 
@@ -596,6 +709,7 @@ router.post(
 
 router.get(
   '/expenses',
+  allow(...FIN),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
     return db.prepare('SELECT * FROM expenses WHERE company_id = ? AND branch_id = ? ORDER BY id DESC LIMIT 500').all(company_id, branch_id);
@@ -603,6 +717,7 @@ router.get(
 );
 router.post(
   '/expenses',
+  allow(...FIN),
   handle((req) => services.createExpense({ ...req.body, ...ctx(req) }))
 );
 
@@ -612,6 +727,7 @@ router.post(
 
 router.get(
   '/vouchers',
+  allow(...FIN),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return db.prepare('SELECT * FROM vouchers WHERE company_id = ? ORDER BY id DESC LIMIT 500').all(company_id);
@@ -619,6 +735,7 @@ router.get(
 );
 router.post(
   '/vouchers',
+  allow(...FIN),
   handle((req) => {
     const { company_id, branch_id } = ctx(req, { needBranch: false });
     return services.createVoucher({ ...req.body, company_id, branch_id });
@@ -631,6 +748,7 @@ router.post(
 
 router.get(
   '/accounts',
+  allow(...FIN),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return db.prepare('SELECT * FROM accounts WHERE company_id = ? ORDER BY code').all(company_id);
@@ -638,11 +756,13 @@ router.get(
 );
 router.post(
   '/accounts',
+  allow(...OWNER),
   handle((req) => services.createCustomAccount({ ...req.body, company_id: ctx(req, { needBranch: false }).company_id }))
 );
 
 router.get(
   '/journal',
+  allow(...FIN),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     const limit = Math.min(Number(req.query.limit) || 200, 1000);
@@ -661,10 +781,12 @@ router.get(
 
 router.get(
   '/reports/trial-balance',
+  allow(...FIN),
   handle((req) => reports.trialBalance(ctx(req, { needBranch: false }).company_id, reportBranch(req)))
 );
 router.get(
   '/reports/income-statement',
+  allow(...FIN),
   handle((req) =>
     reports.incomeStatement(ctx(req, { needBranch: false }).company_id, {
       from: req.query.from,
@@ -675,16 +797,19 @@ router.get(
 );
 router.get(
   '/reports/balance-sheet',
+  allow(...FIN),
   handle((req) =>
     reports.balanceSheet(ctx(req, { needBranch: false }).company_id, { asOf: req.query.asOf, branchId: reportBranch(req) })
   )
 );
 router.get(
   '/reports/inventory-valuation',
+  allow(...WH_G),
   handle((req) => reports.inventoryValuation(ctx(req, { needBranch: false }).company_id, reportBranch(req)))
 );
 router.get(
   '/reports/profitability/products',
+  allow(...FIN),
   handle((req) =>
     reports.productProfitability(ctx(req, { needBranch: false }).company_id, {
       from: req.query.from,
@@ -695,6 +820,7 @@ router.get(
 );
 router.get(
   '/reports/profitability/customers',
+  allow(...FIN),
   handle((req) =>
     reports.customerProfitability(ctx(req, { needBranch: false }).company_id, {
       from: req.query.from,
@@ -705,6 +831,7 @@ router.get(
 );
 router.get(
   '/reports/profitability/trips',
+  allow(...FIN),
   handle((req) =>
     reports.tripProfitability(ctx(req, { needBranch: false }).company_id, {
       from: req.query.from,
@@ -715,12 +842,14 @@ router.get(
 );
 router.get(
   '/reports/partners-equity',
+  allow(...FIN),
   handle((req) =>
     reports.partnersEquityStatement(ctx(req, { needBranch: false }).company_id, { from: req.query.from, to: req.query.to })
   )
 );
 router.get(
   '/reports/cash-flow',
+  allow(...FIN),
   handle((req) =>
     reports.cashFlowStatement(ctx(req, { needBranch: false }).company_id, {
       from: req.query.from,
@@ -732,10 +861,12 @@ router.get(
 
 router.get(
   '/fiscal-closings',
+  allow(...FIN),
   handle((req) => reports.listFiscalClosings(ctx(req, { needBranch: false }).company_id))
 );
 router.get(
   '/fiscal-closings/:id',
+  allow(...FIN),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return assertOwned(services.getFiscalClosing(Number(req.params.id)), company_id, 'إقفال غير موجود');
@@ -743,10 +874,15 @@ router.get(
 );
 router.post(
   '/fiscal-closings',
+  allow(...FIN),
   handle((req) => services.closeFiscalPeriod({ ...req.body, company_id: ctx(req, { needBranch: false }).company_id }))
 );
 
-router.get('/dashboard', handle((req) => reports.dashboardSummary(ctx(req, { needBranch: false }).company_id, reportBranch(req))));
+router.get(
+  '/dashboard',
+  allow(...FIN),
+  handle((req) => reports.dashboardSummary(ctx(req, { needBranch: false }).company_id, reportBranch(req)))
+);
 
 // ---------------------------------------------------------------------------
 // واتساب
@@ -754,6 +890,7 @@ router.get('/dashboard', handle((req) => reports.dashboardSummary(ctx(req, { nee
 
 router.get(
   '/whatsapp/config',
+  allow(...OWNER),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     const config = whatsapp.getConfig(company_id);
@@ -763,6 +900,7 @@ router.get(
 );
 router.put(
   '/whatsapp/config',
+  allow(...OWNER),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return whatsapp.saveConfig(company_id, req.body);
@@ -770,6 +908,7 @@ router.put(
 );
 router.post(
   '/whatsapp/test',
+  allow(...OWNER),
   handle(async (req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return whatsapp.sendTestMessage({ companyId: company_id, phone: req.body.phone, text: req.body.text });
@@ -777,6 +916,7 @@ router.post(
 );
 router.get(
   '/whatsapp/log',
+  allow(...OWNER),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return db.prepare('SELECT * FROM whatsapp_log WHERE company_id = ? ORDER BY id DESC LIMIT 200').all(company_id);

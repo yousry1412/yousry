@@ -83,6 +83,7 @@ body {
 }
 .topbar-title { font-size: 19px; font-weight: 700; }
 .topbar-date { margin-right: auto; color: var(--muted); font-size: 13px; }
+.topbar-user { font-size: 13px; color: var(--text); font-weight: 600; }
 .menu-toggle { display: none; background: none; border: none; font-size: 20px; cursor: pointer; }
 
 .context-switcher { display: flex; gap: 8px; margin-right: 16px; }

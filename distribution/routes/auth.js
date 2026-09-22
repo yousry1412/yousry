@@ -36,40 +36,40 @@ function clearAttempts(key) {
 
 router.get('/status', (req, res) => {
   const cookies = parseCookies(req);
+  const user = auth.userFromSession(cookies[COOKIE_NAME]);
   res.json({
     needsSetup: !auth.isSetup(),
-    authenticated: auth.validateSession(cookies[COOKIE_NAME]),
+    authenticated: !!user,
+    user: user ? auth.publicUser(user) : null,
   });
 });
 
 router.post('/setup', (req, res) => {
   try {
-    if (auth.isSetup()) {
-      return res.status(400).json({ error: 'كلمة السر متضبطة بالفعل - استخدم تسجيل الدخول' });
-    }
-    auth.setPassword(req.body.password);
-    const { token } = auth.createSession();
+    const user = auth.setupOwner({ username: req.body.username, password: req.body.password });
+    const { token } = auth.createSession(user.id);
     setCookie(res, COOKIE_NAME, token, { maxAgeSeconds: auth.SESSION_DAYS * 86400, secure: req.secure });
-    res.json({ ok: true });
+    res.json({ ok: true, user });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
 router.post('/login', (req, res) => {
-  if (!auth.isSetup()) return res.status(400).json({ error: 'لازم تضبط كلمة السر الأول', needsSetup: true });
+  if (!auth.isSetup()) return res.status(400).json({ error: 'لازم تعمل حساب المالك الأول', needsSetup: true });
   const key = req.ip;
   if (isLocked(key)) {
     return res.status(429).json({ error: 'محاولات كتير غلط. استنى دقيقة وحاول تاني' });
   }
-  if (!auth.checkPassword(req.body.password)) {
+  const user = auth.authenticate(req.body.username, req.body.password);
+  if (!user) {
     recordFailure(key);
-    return res.status(401).json({ error: 'كلمة السر غير صحيحة' });
+    return res.status(401).json({ error: 'اسم المستخدم أو كلمة السر غير صحيحة' });
   }
   clearAttempts(key);
-  const { token } = auth.createSession();
+  const { token } = auth.createSession(user.id);
   setCookie(res, COOKIE_NAME, token, { maxAgeSeconds: auth.SESSION_DAYS * 86400, secure: req.secure });
-  res.json({ ok: true });
+  res.json({ ok: true, user: auth.publicUser(user) });
 });
 
 router.post('/logout', (req, res) => {
@@ -81,9 +81,11 @@ router.post('/logout', (req, res) => {
 
 function requireAuth(req, res, next) {
   const cookies = parseCookies(req);
-  if (!auth.validateSession(cookies[COOKIE_NAME])) {
+  const user = auth.userFromSession(cookies[COOKIE_NAME]);
+  if (!user) {
     return res.status(401).json({ error: 'يجب تسجيل الدخول', needsAuth: true });
   }
+  req.user = user;
   next();
 }
 

@@ -475,10 +475,25 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT
 );
 
--- ---------- تسجيل الدخول ----------
+-- ---------- المستخدمون وتسجيل الدخول ----------
+
+-- company_id/branch_id = NULL يعني المستخدم مش مقفول على منشأة/فرع معين
+-- (بيقدر يبدّل بينهم من أعلى الصفحة زي المالك). لو محدد، المستخدم بيتقفل
+-- عليه إجباريًا بغض النظر عن أي اختيار في الواجهة.
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER REFERENCES companies(id),
+  branch_id INTEGER REFERENCES branches(id),
+  username TEXT UNIQUE NOT NULL,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('owner','accountant','sales','warehouse')),
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 CREATE TABLE IF NOT EXISTS auth_sessions (
   token TEXT PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   expires_at TEXT NOT NULL
 );
