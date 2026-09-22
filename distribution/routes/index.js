@@ -648,6 +648,31 @@ router.post(
   })
 );
 router.post(
+  '/trips/:id/load/approve',
+  allow(...ALL_ROLES),
+  handle((req) => {
+    ownedTrip(req);
+    return services.approveTripLoads({
+      trip_id: Number(req.params.id),
+      odometer_start: req.body.odometer_start,
+      approved_by_user_id: req.user.id,
+    });
+  })
+);
+router.post(
+  '/trips/:id/load/:loadId/reject',
+  allow(...ALL_ROLES),
+  handle((req) => {
+    ownedTrip(req);
+    return services.rejectTripLoad({
+      trip_id: Number(req.params.id),
+      load_id: Number(req.params.loadId),
+      reason: req.body.reason,
+      rejected_by_user_id: req.user.id,
+    });
+  })
+);
+router.post(
   '/trips/:id/expense',
   allow(...ALL_ROLES),
   handle((req) => {
@@ -668,7 +693,11 @@ router.post(
   allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
-    return services.settleTrip({ trip_id: Number(req.params.id), write_off_discrepancy: !!req.body.write_off_discrepancy });
+    return services.settleTrip({
+      trip_id: Number(req.params.id),
+      write_off_discrepancy: !!req.body.write_off_discrepancy,
+      odometer_end: req.body.odometer_end,
+    });
   })
 );
 router.post(

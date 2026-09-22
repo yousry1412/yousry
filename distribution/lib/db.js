@@ -133,6 +133,14 @@ dropCheckConstraintIfPresent(
   )`
 );
 ensureColumn('vouchers', 'trip_id', 'trip_id INTEGER REFERENCES trips(id)');
+ensureColumn('trips', 'odometer_start', 'odometer_start REAL');
+ensureColumn('trips', 'odometer_end', 'odometer_end REAL');
+// تحميلات قديمة كانت بتتحرك من المخزن فورًا وقت التسجيل (قبل ما نضيف خطوة موافقة السائق)،
+// فلازم تتعامل معاها كـ"معتمدة" مش "معلّقة" - وإلا هتظهر وكأنها لسه محتاجة موافقة رغم إنها اتصرفت فعلاً.
+ensureColumn('trip_loads', 'status', "status TEXT NOT NULL DEFAULT 'approved'");
+ensureColumn('trip_loads', 'approved_by_user_id', 'approved_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('trip_loads', 'approved_at', 'approved_at TEXT');
+ensureColumn('trip_loads', 'rejected_reason', 'rejected_reason TEXT');
 dropCheckConstraintIfPresent(
   'trip_expenses',
   "paid_from IN ('cash','bank')",

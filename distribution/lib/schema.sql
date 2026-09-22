@@ -287,6 +287,8 @@ CREATE TABLE IF NOT EXISTS trips (
   responsible_employee_id INTEGER REFERENCES employees(id),
   trip_date TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','settled')),
+  odometer_start REAL,
+  odometer_end REAL,
   notes TEXT,
   settled_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -298,6 +300,10 @@ CREATE TABLE IF NOT EXISTS trip_loads (
   product_id INTEGER NOT NULL REFERENCES products(id),
   qty_loaded REAL NOT NULL,
   unit_cost REAL NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
+  approved_by_user_id INTEGER REFERENCES users(id),
+  approved_at TEXT,
+  rejected_reason TEXT,
   created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

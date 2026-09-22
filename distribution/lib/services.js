@@ -793,17 +793,16 @@ function liveTripLocations(companyId, branchId) {
     .filter(Boolean);
 }
 
+// المخزن بيسجل التحميل كـ"مسودة" بس - مفيش مخزون بيتحرك ولا قيد بيتعمل لحد ما مسؤول
+// الرحلة (السواق) يوافق عليه صراحةً في approveTripLoads، ويسجل قراءة العداد قبل التحرك.
 function addTripLoad({ trip_id, items, created_by_user_id }) {
   return inTransaction(() => {
     const trip = requireOpenTrip(trip_id);
-    assertPeriodOpen(trip.company_id, trip.branch_id, trip.trip_date);
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف أصناف للتحميل');
 
     const insertLoad = db.prepare(
-      `INSERT INTO trip_loads (trip_id, product_id, qty_loaded, unit_cost, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
+      `INSERT INTO trip_loads (trip_id, product_id, qty_loaded, unit_cost, status, created_by_user_id, created_at) VALUES (?, ?, ?, ?, 'pending', ?, datetime('now'))`
     );
-    const invAccTotals = {};
-    let totalValue = 0;
     for (const it of items) {
       const qty = Number(it.qty_loaded);
       if (!(qty > 0)) continue;
@@ -811,16 +810,49 @@ function addTripLoad({ trip_id, items, created_by_user_id }) {
       if (stock.qty_on_hand < qty) {
         throw new Error(`المخزون غير كافٍ من "${stock.name}" (متاح ${stock.qty_on_hand}، مطلوب ${qty})`);
       }
+      // التكلفة الفعلية هتتحدد وقت الموافقة (ممكن تتغير لو حصلت مشتريات في الفترة بين التسجيل والموافقة)
+      insertLoad.run(trip_id, it.product_id, qty, stock.cost_price || 0, created_by_user_id || null);
+    }
+    return getTrip(trip_id);
+  });
+}
+
+// موافقة مسؤول الرحلة (السواق) على استلام كل التحميلات المعلّقة - ده اللحظة اللي فعليًا
+// بيتحرك فيها المخزون من المخزن لعهدة الرحلة ويتعمل القيد المحاسبي. قراءة العداد إجبارية
+// وبتتسجل مرة واحدة بس (أول موافقة) عشان تقدر تحسب تكلفة وأداء الرحلة بدقة بعدين.
+function approveTripLoads({ trip_id, odometer_start, approved_by_user_id }) {
+  return inTransaction(() => {
+    const trip = requireOpenTrip(trip_id);
+    assertPeriodOpen(trip.company_id, trip.branch_id, trip.trip_date);
+    const pending = db.prepare(`SELECT * FROM trip_loads WHERE trip_id = ? AND status = 'pending'`).all(trip_id);
+    if (pending.length === 0) throw new Error('مفيش تحميلات معلّقة في انتظار الموافقة لهذه الرحلة');
+
+    if (trip.odometer_start == null) {
+      const odo = Number(odometer_start);
+      if (!(odo >= 0)) throw new Error('لازم تسجل قراءة عداد السيارة قبل الموافقة على استلام التحميل');
+      db.prepare('UPDATE trips SET odometer_start = ? WHERE id = ?').run(odo, trip_id);
+    }
+
+    const invAccTotals = {};
+    let totalValue = 0;
+    const updateLoad = db.prepare(
+      `UPDATE trip_loads SET status = 'approved', unit_cost = ?, approved_by_user_id = ?, approved_at = datetime('now') WHERE id = ?`
+    );
+    for (const load of pending) {
+      const stock = getProductWithStock(load.product_id, trip.branch_id, trip.company_id);
+      if (stock.qty_on_hand < load.qty_loaded) {
+        throw new Error(`المخزون بقى غير كافٍ من "${stock.name}" (متاح ${stock.qty_on_hand}، مطلوب ${load.qty_loaded}) - راجع المخزون قبل الموافقة`);
+      }
       const effectiveCost = applyStockMovement({
-        product_id: it.product_id,
+        product_id: load.product_id,
         branch_id: trip.branch_id,
         date: trip.trip_date,
-        qty: -qty,
+        qty: -load.qty_loaded,
         ref_type: 'trip_load',
         ref_id: trip_id,
       });
-      insertLoad.run(trip_id, it.product_id, qty, effectiveCost, created_by_user_id || null);
-      const value = round2(qty * effectiveCost);
+      updateLoad.run(effectiveCost, approved_by_user_id || null, load.id);
+      const value = round2(load.qty_loaded * effectiveCost);
       totalValue = round2(totalValue + value);
       const acc = invAccFor(stock);
       invAccTotals[acc] = round2((invAccTotals[acc] || 0) + value);
@@ -839,7 +871,7 @@ function addTripLoad({ trip_id, items, created_by_user_id }) {
         date: trip.trip_date,
         ref_type: 'trip_load',
         ref_id: trip_id,
-        description: `تحميل رحلة ${trip.trip_no}`,
+        description: `تحميل رحلة ${trip.trip_no} (بعد موافقة السائق)`,
         lines: jLines,
       });
     }
@@ -848,11 +880,26 @@ function addTripLoad({ trip_id, items, created_by_user_id }) {
   });
 }
 
+// رفض تحميل معلّق لسه ماتحركش منه مخزون ولا اتعمله قيد - رفض بسيط بدون أي أثر محاسبي
+function rejectTripLoad({ trip_id, load_id, reason, rejected_by_user_id }) {
+  return inTransaction(() => {
+    const trip = requireOpenTrip(trip_id);
+    if (!reason || !reason.trim()) throw new Error('لازم تكتب سبب الرفض');
+    const load = db.prepare(`SELECT * FROM trip_loads WHERE id = ? AND trip_id = ?`).get(load_id, trip_id);
+    if (!load) throw new Error('التحميل غير موجود');
+    if (load.status !== 'pending') throw new Error('التحميل ده مش معلّق - اتعمله موافقة أو رفض بالفعل');
+    db.prepare(
+      `UPDATE trip_loads SET status = 'rejected', rejected_reason = ?, approved_by_user_id = ?, approved_at = datetime('now') WHERE id = ?`
+    ).run(reason.trim(), rejected_by_user_id || null, load_id);
+    return getTrip(trip_id);
+  });
+}
+
 function tripLoadUnitCost(trip_id, product_id) {
   const row = db
     .prepare(
       `SELECT COALESCE(SUM(qty_loaded * unit_cost),0) AS val, COALESCE(SUM(qty_loaded),0) AS qty
-       FROM trip_loads WHERE trip_id = ? AND product_id = ?`
+       FROM trip_loads WHERE trip_id = ? AND product_id = ? AND status = 'approved'`
     )
     .get(trip_id, product_id);
   return row.qty > 0 ? row.val / row.qty : 0;
@@ -860,7 +907,7 @@ function tripLoadUnitCost(trip_id, product_id) {
 
 function tripRemainingQty(trip_id, product_id) {
   const loaded = db
-    .prepare('SELECT COALESCE(SUM(qty_loaded),0) AS q FROM trip_loads WHERE trip_id = ? AND product_id = ?')
+    .prepare(`SELECT COALESCE(SUM(qty_loaded),0) AS q FROM trip_loads WHERE trip_id = ? AND product_id = ? AND status = 'approved'`)
     .get(trip_id, product_id).q;
   const sold = db
     .prepare(
@@ -976,11 +1023,17 @@ function addTripReturn({ trip_id, items, created_by_user_id }) {
   });
 }
 
-function settleTrip({ trip_id, write_off_discrepancy }) {
+function settleTrip({ trip_id, write_off_discrepancy, odometer_end }) {
   return inTransaction(() => {
     const trip = requireOpenTrip(trip_id);
+    const pendingCount = db
+      .prepare(`SELECT COUNT(*) AS c FROM trip_loads WHERE trip_id = ? AND status = 'pending'`)
+      .get(trip_id).c;
+    if (pendingCount > 0) {
+      throw new Error('فيه تحميلات لسه في انتظار موافقة السائق - لازم توافق عليها أو ترفضها قبل تصفية الرحلة');
+    }
     const products = db
-      .prepare('SELECT DISTINCT product_id FROM trip_loads WHERE trip_id = ?')
+      .prepare(`SELECT DISTINCT product_id FROM trip_loads WHERE trip_id = ? AND status = 'approved'`)
       .all(trip_id);
 
     const reconciliation = products.map((row) => {
@@ -1006,8 +1059,18 @@ function settleTrip({ trip_id, write_off_discrepancy }) {
       }
     }
 
+    let km_driven = null;
+    if (odometer_end !== undefined && odometer_end !== null && odometer_end !== '') {
+      const odo = Number(odometer_end);
+      if (trip.odometer_start != null && !(odo >= trip.odometer_start)) {
+        throw new Error(`قراءة عداد النهاية لازم تكون أكبر من أو تساوي قراءة البداية (${trip.odometer_start})`);
+      }
+      db.prepare('UPDATE trips SET odometer_end = ? WHERE id = ?').run(odo, trip_id);
+      if (trip.odometer_start != null) km_driven = round2(odo - trip.odometer_start);
+    }
+
     db.prepare(`UPDATE trips SET status = 'settled', settled_at = datetime('now') WHERE id = ?`).run(trip_id);
-    return { trip: getTrip(trip_id), reconciliation };
+    return { trip: getTrip(trip_id), reconciliation, km_driven };
   });
 }
 
@@ -2116,6 +2179,8 @@ module.exports = {
   createVehicle,
   createTrip,
   addTripLoad,
+  approveTripLoads,
+  rejectTripLoad,
   addTripExpense,
   addTripReturn,
   settleTrip,

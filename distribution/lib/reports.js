@@ -530,13 +530,19 @@ function tripSettlementReport(tripId) {
   if (!trip) throw new Error('رحلة غير موجودة');
 
   const products = db
-    .prepare('SELECT DISTINCT product_id FROM trip_loads WHERE trip_id = ?')
+    .prepare(`SELECT DISTINCT product_id FROM trip_loads WHERE trip_id = ? AND status = 'approved'`)
+    .all(tripId);
+  const pendingLoads = db
+    .prepare(
+      `SELECT tl.*, p.name AS product_name, p.unit AS product_unit FROM trip_loads tl
+       JOIN products p ON p.id = tl.product_id WHERE tl.trip_id = ? AND tl.status = 'pending'`
+    )
     .all(tripId);
 
   const reconciliation = products.map((row) => {
     const product = db.prepare('SELECT * FROM products WHERE id = ?').get(row.product_id);
     const loaded = db
-      .prepare('SELECT COALESCE(SUM(qty_loaded),0) AS q FROM trip_loads WHERE trip_id=? AND product_id=?')
+      .prepare(`SELECT COALESCE(SUM(qty_loaded),0) AS q FROM trip_loads WHERE trip_id=? AND product_id=? AND status='approved'`)
       .get(tripId, row.product_id).q;
     const sold = db
       .prepare(
@@ -582,9 +588,16 @@ function tripSettlementReport(tripId) {
   const grossProfit = round2(salesTotal - cogsTotal);
   const netResult = round2(grossProfit - expensesTotal - damagesTotal);
 
+  const kmDriven = trip.odometer_start != null && trip.odometer_end != null
+    ? round2(trip.odometer_end - trip.odometer_start)
+    : null;
+  const costPerKm = kmDriven && kmDriven > 0 ? round2(expensesTotal / kmDriven) : null;
+
   return {
     trip,
+    pendingLoads,
     reconciliation,
+    performance: { odometer_start: trip.odometer_start, odometer_end: trip.odometer_end, km_driven: kmDriven, cost_per_km: costPerKm },
     financials: {
       salesTotal: round2(salesTotal),
       cogsTotal: round2(cogsTotal),
@@ -738,8 +751,10 @@ function tripProfitability(companyId, { from, to, branchId } = {}) {
   }
   const trips = db
     .prepare(
-      `SELECT t.id, t.trip_no, t.trip_date, t.status, v.name AS vehicle_name
+      `SELECT t.id, t.trip_no, t.trip_date, t.status, t.odometer_start, t.odometer_end,
+              v.name AS vehicle_name, e.name AS driver_name
        FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+       LEFT JOIN employees e ON e.id = t.responsible_employee_id
        WHERE ${conditions.join(' AND ')} ORDER BY t.trip_date DESC`
     )
     .all(...params);
@@ -757,12 +772,17 @@ function tripProfitability(companyId, { from, to, branchId } = {}) {
       const damages = db.prepare('SELECT COALESCE(SUM(qty * unit_cost),0) AS s FROM damages WHERE trip_id = ?').get(t.id).s;
       const grossProfit = round2(sales - cogs);
       const netResult = round2(grossProfit - expenses - damages);
+      const kmDriven = t.odometer_start != null && t.odometer_end != null ? round2(t.odometer_end - t.odometer_start) : null;
+      const costPerKm = kmDriven && kmDriven > 0 ? round2(expenses / kmDriven) : null;
       return {
         trip_id: t.id,
         trip_no: t.trip_no,
         trip_date: t.trip_date,
         status: t.status,
         vehicle_name: t.vehicle_name,
+        driver_name: t.driver_name,
+        km_driven: kmDriven,
+        cost_per_km: costPerKm,
         sales: round2(sales),
         cogs: round2(cogs),
         expenses: round2(expenses),

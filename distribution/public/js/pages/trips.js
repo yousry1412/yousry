@@ -151,11 +151,76 @@ function openLoadModal(tripId, products, onDone) {
     try {
       await Api.post(`/trips/${tripId}/load`, { items });
       UI.closeModal();
-      UI.toast('تم تسجيل التحميل', 'success');
+      UI.toast('تم حفظ التحميل كمسودة - في انتظار موافقة السائق قبل ما تتحرك البضاعة من المخزن', 'success');
       onDone();
     } catch (err) {
       UI.toast(err.message, 'error');
     }
+  });
+}
+
+function openApproveLoadModal(tripId, pendingLoads, onDone) {
+  UI.openModal(
+    'موافقة السائق على استلام التحميل',
+    `<div class="table-wrap"><table><thead><tr><th>الصنف</th><th>الكمية</th></tr></thead><tbody>
+      ${pendingLoads.map((l) => `<tr><td>${UI.escapeHtml(l.product_name)}</td><td>${UI.num(l.qty_loaded)} ${UI.escapeHtml(l.product_unit)}</td></tr>`).join('')}
+    </tbody></table></div>
+    <form id="approveLoadForm">
+      <div class="form-grid">
+        <div class="field span-2"><label>قراءة عداد السيارة الآن (قبل التحرك) *</label><input name="odometer_start" type="number" step="1" min="0" required /></div>
+      </div>
+      <p class="muted" style="font-size:13px">بمجرد الموافقة، البضاعة دي هتتحرك فعليًا من المخزن لعهدتك ومينفعش يترجع فيها إلا بمرتجع أو تسوية.</p>
+      <div class="modal-actions">
+        <button class="btn" type="submit">تأكيد الاستلام والموافقة</button>
+        <button class="btn secondary" type="button" onclick="UI.closeModal()">إلغاء</button>
+      </div>
+    </form>`
+  );
+  document.getElementById('approveLoadForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await Api.post(`/trips/${tripId}/load/approve`, Object.fromEntries(fd.entries()));
+      UI.closeModal();
+      UI.toast('تم تأكيد الاستلام - البضاعة بقت في عهدتك', 'success');
+      onDone();
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    }
+  });
+}
+
+async function rejectPendingLoad(tripId, loadId, onDone) {
+  const reason = await UI.promptReason('سبب رفض التحميل؟ (إجباري - البضاعة هتفضل في المخزن)');
+  if (!reason) return;
+  try {
+    await Api.post(`/trips/${tripId}/load/${loadId}/reject`, { reason });
+    UI.toast('تم رفض التحميل', 'success');
+    onDone();
+  } catch (err) {
+    UI.toast(err.message, 'error');
+  }
+}
+
+function openSettleModal(tripId, hasStart, onDone) {
+  UI.openModal(
+    'تسوية وإقفال الرحلة',
+    `<form id="settleTripForm">
+      <div class="form-grid">
+        <div class="field span-2"><label>قراءة عداد السيارة الآن (بعد الرجوع)${hasStart ? ' *' : ''}</label><input name="odometer_end" type="number" step="1" min="0" ${hasStart ? 'required' : ''} /></div>
+      </div>
+      ${!hasStart ? '<p class="muted" style="font-size:13px">مفيش قراءة عداد بداية مسجّلة لهذه الرحلة (لسه من قبل خاصية الموافقة) - تقدر تسيب الحقل فاضي.</p>' : ''}
+      <div class="modal-actions">
+        <button class="btn danger" type="submit">تأكيد التسوية والإقفال</button>
+        <button class="btn secondary" type="button" onclick="UI.closeModal()">إلغاء</button>
+      </div>
+    </form>`
+  );
+  document.getElementById('settleTripForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    UI.closeModal();
+    onDone(fd.get('odometer_end') || null);
   });
 }
 
@@ -469,7 +534,8 @@ Pages.tripDetail = async function (id) {
         <h2>رحلة ${UI.escapeHtml(trip.trip_no)} ${UI.badge(statusLabel, statusColor)}</h2>
         <a class="btn secondary small" href="#/trips">رجوع</a>
       </div>
-      <p class="muted">السيارة: <strong>${UI.escapeHtml(trip.vehicle_name)}</strong> (${trip.ownership === 'owned' ? 'ملك خاص' : 'مأجورة'}) · المسؤول: <strong>${UI.escapeHtml(trip.responsible_employee_name || '-')}</strong> · التاريخ: ${UI.escapeHtml(trip.trip_date)}</p>
+      <p class="muted">السيارة: <strong>${UI.escapeHtml(trip.vehicle_name)}</strong> (${trip.ownership === 'owned' ? 'ملك خاص' : 'مأجورة'}) · المسؤول: <strong>${UI.escapeHtml(trip.responsible_employee_name || '-')}</strong> · التاريخ: ${UI.escapeHtml(trip.trip_date)}
+      ${trip.odometer_start != null ? ` · عداد البداية: ${UI.num(trip.odometer_start)}` : ''}${trip.odometer_end != null ? ` · عداد النهاية: ${UI.num(trip.odometer_end)}` : ''}${settlement.performance.km_driven != null ? ` · المسافة: ${UI.num(settlement.performance.km_driven)} كم` : ''}</p>
 
       ${
         isOpen
@@ -485,10 +551,33 @@ Pages.tripDetail = async function (id) {
       }
     </div>
 
+    ${
+      settlement.pendingLoads.length > 0
+        ? `<div class="card">
+            <div class="card-header"><h3>تحميلات في انتظار موافقة السائق</h3></div>
+            <div class="table-wrap"><table><thead><tr><th>الصنف</th><th>الكمية</th><th>سجّله</th><th></th></tr></thead><tbody>
+              ${settlement.pendingLoads
+                .map(
+                  (l) => `<tr>
+                <td>${UI.escapeHtml(l.product_name)}</td>
+                <td>${UI.num(l.qty_loaded)} ${UI.escapeHtml(l.product_unit)}</td>
+                <td class="muted">${UI.escapeHtml(l.created_by_username || '-')}</td>
+                <td>
+                  <button class="link-btn" data-approve-load="1">موافقة</button>
+                  <button class="link-btn" data-reject-load="${l.id}">رفض</button>
+                </td>
+              </tr>`
+                )
+                .join('')}
+            </tbody></table></div>
+          </div>`
+        : ''
+    }
+
     <div class="grid cols-4">
       <div class="stat-card"><div class="label">إجمالي المبيعات</div><div class="value">${UI.money(settlement.financials.salesTotal)}</div></div>
       <div class="stat-card"><div class="label">تكلفة البضاعة المباعة</div><div class="value">${UI.money(settlement.financials.cogsTotal)}</div></div>
-      <div class="stat-card"><div class="label">مصروفات الرحلة</div><div class="value">${UI.money(settlement.financials.expensesTotal)}</div></div>
+      <div class="stat-card"><div class="label">مصروفات الرحلة${settlement.performance.cost_per_km != null ? ` (${UI.money(settlement.performance.cost_per_km)}/كم)` : ''}</div><div class="value">${UI.money(settlement.financials.expensesTotal)}</div></div>
       <div class="stat-card ${settlement.financials.netResult >= 0 ? 'pos' : 'neg'}"><div class="label">صافي نتيجة الرحلة</div><div class="value">${UI.money(settlement.financials.netResult)}</div></div>
     </div>
 
@@ -562,6 +651,13 @@ Pages.tripDetail = async function (id) {
       document.getElementById('tripMap').innerHTML = '<div class="empty-state">تعذّر تحميل مسار الرحلة</div>';
     });
 
+  document.querySelectorAll('[data-approve-load]').forEach((btn) => {
+    btn.addEventListener('click', () => openApproveLoadModal(id, settlement.pendingLoads, () => Pages.tripDetail(id)));
+  });
+  document.querySelectorAll('[data-reject-load]').forEach((btn) => {
+    btn.addEventListener('click', () => rejectPendingLoad(id, Number(btn.dataset.rejectLoad), () => Pages.tripDetail(id)));
+  });
+
   if (isOpen) {
     document.getElementById('btnLoad').addEventListener('click', () => openLoadModal(id, products, () => Pages.tripDetail(id)));
     document.getElementById('btnExpense').addEventListener('click', () => openExpenseModal(id, () => Pages.tripDetail(id)));
@@ -571,6 +667,9 @@ Pages.tripDetail = async function (id) {
       openReturnModal(id, loadedWithRemaining, () => Pages.tripDetail(id));
     });
     document.getElementById('btnSettle').addEventListener('click', async () => {
+      if (settlement.pendingLoads.length > 0) {
+        return UI.toast('فيه تحميلات لسه في انتظار موافقة السائق - وافق عليها أو ارفضها الأول', 'error');
+      }
       const hasDiscrepancy = settlement.reconciliation.some((r) => r.remaining !== 0);
       let writeOff = false;
       if (hasDiscrepancy) {
@@ -581,13 +680,15 @@ Pages.tripDetail = async function (id) {
       } else if (!(await UI.confirmAction('هل تريد تسوية وإقفال هذه الرحلة؟'))) {
         return;
       }
-      try {
-        await Api.post(`/trips/${id}/settle`, { write_off_discrepancy: writeOff });
-        UI.toast('تم إقفال الرحلة', 'success');
-        Pages.tripDetail(id);
-      } catch (err) {
-        UI.toast(err.message, 'error');
-      }
+      openSettleModal(id, trip.odometer_start != null, async (odometerEnd) => {
+        try {
+          await Api.post(`/trips/${id}/settle`, { write_off_discrepancy: writeOff, odometer_end: odometerEnd });
+          UI.toast('تم إقفال الرحلة', 'success');
+          Pages.tripDetail(id);
+        } catch (err) {
+          UI.toast(err.message, 'error');
+        }
+      });
     });
   }
 };
