@@ -4,6 +4,7 @@ const ACCT_TABS = [
   { key: 'trial', label: 'ميزان المراجعة' },
   { key: 'income', label: 'قائمة الدخل' },
   { key: 'balance', label: 'المركز المالي' },
+  { key: 'aging', label: 'أعمار الديون' },
   { key: 'profitability', label: 'الربحية' },
   { key: 'partners', label: 'حقوق الشركاء' },
   { key: 'cashflow', label: 'التدفقات النقدية' },
@@ -167,6 +168,66 @@ async function renderProfitability(container) {
   bindFilter();
 }
 
+function agingTableHtml(title, linkPrefix, report) {
+  if (report.rows.length === 0) {
+    return `<h4>${title}</h4><div class="empty-state">لا توجد مبالغ مفتوحة</div>`;
+  }
+  return `
+    <h4>${title}</h4>
+    <div class="table-wrap"><table><thead><tr>
+      <th>الاسم</th><th>الهاتف</th><th>0-30 يوم</th><th>31-60 يوم</th><th>61-90 يوم</th><th>أكتر من 90 يوم</th><th>الإجمالي المستحق</th>
+    </tr></thead><tbody>
+      ${report.rows
+        .map(
+          (r) => `<tr>
+          <td>${linkPrefix ? `<a href="${linkPrefix}${r.party_id}">${UI.escapeHtml(r.name)}</a>` : UI.escapeHtml(r.name)}</td>
+          <td>${UI.escapeHtml(r.phone || '-')}</td>
+          <td>${r.current ? UI.money(r.current) : '-'}</td>
+          <td>${r.d31_60 ? UI.money(r.d31_60) : '-'}</td>
+          <td>${r.d61_90 ? UI.money(r.d61_90) : '-'}</td>
+          <td>${r.over90 ? UI.badge(UI.money(r.over90), 'red') : '-'}</td>
+          <td><strong>${UI.money(r.total)}</strong></td>
+        </tr>`
+        )
+        .join('')}
+    </tbody>
+    <tfoot><tr style="font-weight:700">
+      <td colspan="2">الإجمالي</td>
+      <td>${UI.money(report.totals.current)}</td>
+      <td>${UI.money(report.totals.d31_60)}</td>
+      <td>${UI.money(report.totals.d61_90)}</td>
+      <td>${UI.money(report.totals.over90)}</td>
+      <td>${UI.money(report.totals.total)}</td>
+    </tr></tfoot>
+    </table></div>
+  `;
+}
+
+async function renderAging(container) {
+  async function load(asOf) {
+    const qs = asOf ? `?asOf=${asOf}` : '';
+    const [ar, ap] = await Promise.all([Api.get('/reports/ar-aging' + qs), Api.get('/reports/ap-aging' + qs)]);
+    return `
+      <div class="form-grid" style="margin-bottom:14px">
+        <div class="field"><label>حتى تاريخ</label><input type="date" id="agingAsOf" value="${ar.asOf}" /></div>
+        <div class="field" style="align-self:flex-end"><button class="btn secondary small" id="agingFilter">تصفية</button></div>
+      </div>
+      ${agingTableHtml('أعمار ديون العملاء (مستحق لنا)', '#/customers/', ar)}
+      <div style="margin-top:26px"></div>
+      ${agingTableHtml('أعمار ديون الموردين (مستحق علينا)', null, ap)}
+    `;
+  }
+  async function bindFilter() {
+    document.getElementById('agingFilter').addEventListener('click', async () => {
+      const asOf = document.getElementById('agingAsOf').value;
+      container.innerHTML = await load(asOf);
+      bindFilter();
+    });
+  }
+  container.innerHTML = await load();
+  bindFilter();
+}
+
 async function renderPartnersEquity(container) {
   const rows = await Api.get('/reports/partners-equity');
   if (rows.length === 0) {
@@ -322,6 +383,7 @@ const TAB_RENDERERS = {
   trial: renderTrialBalance,
   income: renderIncomeStatement,
   balance: renderBalanceSheet,
+  aging: renderAging,
   profitability: renderProfitability,
   partners: renderPartnersEquity,
   cashflow: renderCashFlow,

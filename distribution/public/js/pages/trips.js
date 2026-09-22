@@ -197,6 +197,208 @@ function openExpenseModal(tripId, onDone) {
   });
 }
 
+function productTileHtml(p) {
+  return `<div class="product-tile" data-product="${p.product_id}" data-price="${p.sale_price}" data-max="${p.remaining}">
+    <div class="pt-name">${UI.escapeHtml(p.product_name)}</div>
+    <div class="pt-remaining muted">متاح بالعهدة: ${UI.num(p.remaining)} ${UI.escapeHtml(p.unit)}</div>
+    <div class="pt-stepper">
+      <button type="button" class="pt-minus">−</button>
+      <input type="number" class="pt-qty" value="0" min="0" max="${p.remaining}" step="0.01" inputmode="decimal" />
+      <button type="button" class="pt-plus">+</button>
+    </div>
+    <div class="pt-line-total muted">0.00 ج.م</div>
+  </div>`;
+}
+
+function openCollectModal(tripId, customers, onDone) {
+  const withBalance = customers.filter((c) => c.balance > 0);
+  if (withBalance.length === 0) return UI.toast('لا يوجد عملاء عليهم رصيد مستحق', 'error');
+  UI.openModal(
+    'تسجيل تحصيل نقدي من عميل',
+    `<form id="fieldCollectForm">
+      <div class="form-grid">
+        <div class="field span-2"><label>العميل *</label><select name="party_id" required>
+          ${withBalance.map((c) => `<option value="${c.id}">${UI.escapeHtml(c.name)} (مستحق عليه ${UI.money(c.balance)})</option>`).join('')}
+        </select></div>
+        <div class="field"><label>المبلغ المحصّل *</label><input name="amount" type="number" step="0.01" required /></div>
+        <div class="field"><label>يضاف إلى</label><select name="method"><option value="cash">نقدية</option><option value="bank">بنك</option></select></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="submit">تسجيل التحصيل</button>
+        <button class="btn secondary" type="button" onclick="UI.closeModal()">إلغاء</button>
+      </div>
+    </form>`
+  );
+  document.getElementById('fieldCollectForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = Object.fromEntries(fd.entries());
+    payload.voucher_type = 'receipt';
+    payload.party_type = 'customer';
+    payload.voucher_date = UI.todayStr();
+    try {
+      await Api.post('/vouchers', payload);
+      UI.closeModal();
+      UI.toast('تم تسجيل التحصيل', 'success');
+      onDone();
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    }
+  });
+}
+
+Pages.tripField = async function (id) {
+  const [trip, settlement, allProducts, customers, trips] = await Promise.all([
+    Api.get(`/trips/${id}`),
+    Api.get(`/trips/${id}/settlement`),
+    Api.get('/products'),
+    Api.get('/customers'),
+    Api.get('/trips'),
+  ]);
+  if (trip.status !== 'open') {
+    UI.setContent('<div class="card"><div class="empty-state">الرحلة دي مقفولة، وضع السائق متاح للرحلات المفتوحة فقط</div></div>');
+    return;
+  }
+  const priceMap = Object.fromEntries(allProducts.map((p) => [p.id, p.sale_price]));
+  const available = settlement.reconciliation.filter((r) => r.remaining > 0).map((r) => ({ ...r, sale_price: priceMap[r.product_id] || 0 }));
+
+  UI.setContent(`
+    <div class="field-mode">
+      <div class="field-header">
+        <a class="btn secondary small" href="#/trips/${id}">رجوع للرحلة</a>
+        <div class="field-title">🚚 ${UI.escapeHtml(trip.trip_no)} — وضع السائق</div>
+      </div>
+
+      <div class="card">
+        <div class="field"><label>العميل</label><select id="fieldCustomer">${UI.optionsHtml(customers, 'id', 'name')}</select></div>
+        <div class="field" style="margin-top:8px; flex-direction:row; align-items:center; gap:8px">
+          <input type="checkbox" id="fieldPaidNow" style="width:auto" /><label for="fieldPaidNow" style="margin:0">تحصيل نقدًا فورًا</label>
+        </div>
+      </div>
+
+      ${
+        available.length === 0
+          ? '<div class="empty-state">لا توجد كمية متبقية بالعهدة للبيع منها</div>'
+          : `<div class="product-tiles">${available.map(productTileHtml).join('')}</div>`
+      }
+
+      <div class="field-actions no-print">
+        <button type="button" class="btn secondary" id="fieldReturnBtn">↩️ مرتجع</button>
+        <button type="button" class="btn secondary" id="fieldDamageBtn">⚠️ توالف</button>
+        <button type="button" class="btn secondary" id="fieldExpenseBtn">💸 مصروف</button>
+        <button type="button" class="btn secondary" id="fieldCollectBtn">💰 تحصيل</button>
+      </div>
+    </div>
+
+    <div class="field-submit-bar no-print">
+      <div class="field-total">الإجمالي: <span id="fieldTotal">0.00 ج.م</span></div>
+      <button class="btn" id="fieldSubmitSale" disabled>تسجيل البيع</button>
+    </div>
+  `);
+
+  const tiles = [...document.querySelectorAll('.product-tile')];
+  const submitBtn = document.getElementById('fieldSubmitSale');
+
+  function recalc() {
+    let total = 0;
+    tiles.forEach((tile) => {
+      const qty = Number(tile.querySelector('.pt-qty').value) || 0;
+      const price = Number(tile.dataset.price) || 0;
+      const lt = round2ui(qty * price);
+      tile.querySelector('.pt-line-total').textContent = UI.money(lt);
+      tile.classList.toggle('active', qty > 0);
+      total += lt;
+    });
+    document.getElementById('fieldTotal').textContent = UI.money(total);
+    submitBtn.disabled = total <= 0;
+  }
+  function round2ui(n) {
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  }
+
+  tiles.forEach((tile) => {
+    const max = Number(tile.dataset.max) || 0;
+    const input = tile.querySelector('.pt-qty');
+    const clamp = () => {
+      let v = Number(input.value) || 0;
+      if (v < 0) v = 0;
+      if (v > max) v = max;
+      input.value = v;
+    };
+    tile.querySelector('.pt-minus').addEventListener('click', () => {
+      input.value = Math.max(0, (Number(input.value) || 0) - 1);
+      recalc();
+    });
+    tile.querySelector('.pt-plus').addEventListener('click', () => {
+      input.value = Math.min(max, (Number(input.value) || 0) + 1);
+      recalc();
+    });
+    input.addEventListener('input', () => {
+      clamp();
+      recalc();
+    });
+  });
+  recalc();
+
+  submitBtn.addEventListener('click', async () => {
+    const items = tiles
+      .map((tile) => ({
+        product_id: Number(tile.dataset.product),
+        qty: Number(tile.querySelector('.pt-qty').value) || 0,
+        unit_price: Number(tile.dataset.price) || 0,
+      }))
+      .filter((it) => it.qty > 0);
+    if (items.length === 0) return;
+    const total = round2ui(items.reduce((s, it) => s + it.qty * it.unit_price, 0));
+    const paidNow = document.getElementById('fieldPaidNow').checked;
+    const payload = {
+      trip_id: Number(id),
+      customer_id: Number(document.getElementById('fieldCustomer').value),
+      invoice_date: UI.todayStr(),
+      items,
+      paid_amount: paidNow ? total : 0,
+      paid_to: 'cash',
+    };
+    submitBtn.disabled = true;
+    try {
+      await Api.post('/sales', payload);
+      UI.toast('تم تسجيل البيع', 'success');
+      Pages.tripField(id);
+    } catch (err) {
+      UI.toast(err.message, 'error');
+      submitBtn.disabled = false;
+    }
+  });
+
+  document.getElementById('fieldReturnBtn').addEventListener('click', () => {
+    const loadedWithRemaining = settlement.reconciliation.filter((r) => r.remaining > 0);
+    if (loadedWithRemaining.length === 0) return UI.toast('لا توجد كمية متبقية بالعهدة لإرجاعها', 'error');
+    openReturnModal(id, loadedWithRemaining, () => Pages.tripField(id));
+  });
+  document.getElementById('fieldExpenseBtn').addEventListener('click', () => openExpenseModal(id, () => Pages.tripField(id)));
+  document.getElementById('fieldCollectBtn').addEventListener('click', () => openCollectModal(id, customers, () => Pages.tripField(id)));
+  document.getElementById('fieldDamageBtn').addEventListener('click', () => {
+    const openTrips = trips.filter((t) => t.status === 'open');
+    UI.openModal('تسجيل تلف / هالك', damageFormHtml(allProducts, openTrips));
+    const form = document.getElementById('damageForm');
+    form.querySelector('[name="trip_id"]').value = id;
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const payload = Object.fromEntries(fd.entries());
+      if (!payload.trip_id) delete payload.trip_id;
+      try {
+        await Api.post('/damages', payload);
+        UI.closeModal();
+        UI.toast('تم تسجيل التلف', 'success');
+        Pages.tripField(id);
+      } catch (err) {
+        UI.toast(err.message, 'error');
+      }
+    });
+  });
+};
+
 Pages.tripDetail = async function (id) {
   const [trip, settlement, products] = await Promise.all([
     Api.get(`/trips/${id}`),
@@ -217,7 +419,8 @@ Pages.tripDetail = async function (id) {
       ${
         isOpen
           ? `<div class="no-print" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom: 10px;">
-              <button class="btn" id="btnLoad">تحميل بضاعة</button>
+              <a class="btn" href="#/trips/${id}/field">📱 وضع السائق</a>
+              <button class="btn secondary" id="btnLoad">تحميل بضاعة</button>
               <a class="btn secondary" href="#/sales/new?trip=${id}">فاتورة بيع من الرحلة</a>
               <button class="btn secondary" id="btnExpense">تسجيل مصروف</button>
               <button class="btn secondary" id="btnReturn">تسجيل مرتجع</button>

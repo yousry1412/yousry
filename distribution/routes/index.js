@@ -841,6 +841,16 @@ router.get(
   )
 );
 router.get(
+  '/reports/ar-aging',
+  allow(...FIN),
+  handle((req) => reports.arAgingReport(ctx(req, { needBranch: false }).company_id, { asOf: req.query.asOf, branchId: reportBranch(req) }))
+);
+router.get(
+  '/reports/ap-aging',
+  allow(...FIN),
+  handle((req) => reports.apAgingReport(ctx(req, { needBranch: false }).company_id, { asOf: req.query.asOf, branchId: reportBranch(req) }))
+);
+router.get(
   '/reports/partners-equity',
   allow(...FIN),
   handle((req) =>

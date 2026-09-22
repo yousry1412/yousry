@@ -213,6 +213,92 @@ function allSupplierBalances(companyId) {
 }
 
 // ---------------------------------------------------------------------------
+// أعمار الديون (مدين/دائن) - عملاء وموردين
+// ---------------------------------------------------------------------------
+
+/**
+ * بيحسب لكل طرف (عميل أو مورد) المبالغ المفتوحة المستحقة وبيوزعها على أعمار حسب
+ * تاريخ نشأتها، عن طريق تسوية المبالغ المحصّلة/المدفوعة مع أقدم حركة مفتوحة أولاً
+ * (FIFO)، لأن مفيش ربط مباشر بين كل فاتورة وسداداتها في الجدول.
+ */
+function partyAgingReport(companyId, { asOf, branchId, table, accountCode, partyType } = {}) {
+  const asOfDate = asOf || today();
+  const increaseIsDebit = partyType === 'customer';
+  const accountRow = db.prepare('SELECT id FROM accounts WHERE company_id = ? AND code = ?').get(companyId, accountCode);
+  if (!accountRow) return { asOf: asOfDate, rows: [], totals: { current: 0, d31_60: 0, d61_90: 0, over90: 0, total: 0 } };
+
+  const parties = db.prepare(`SELECT * FROM ${table} WHERE company_id = ? AND is_active = 1 ORDER BY name`).all(companyId);
+  const branchFilter = branchId ? 'AND jl.branch_id = ?' : '';
+
+  const rows = parties
+    .map((party) => {
+      const params = branchId
+        ? [accountRow.id, partyType, party.id, asOfDate, branchId]
+        : [accountRow.id, partyType, party.id, asOfDate];
+      const lines = db
+        .prepare(
+          `SELECT je.entry_date, jl.debit, jl.credit
+           FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
+           WHERE jl.account_id = ? AND jl.party_type = ? AND jl.party_id = ? AND je.entry_date <= ? ${branchFilter}
+           ORDER BY je.entry_date, je.id`
+        )
+        .all(...params);
+
+      const openBuckets = [];
+      lines.forEach((l) => {
+        const inc = increaseIsDebit ? l.debit : l.credit;
+        const dec = increaseIsDebit ? l.credit : l.debit;
+        if (inc > 0) openBuckets.push({ date: l.entry_date, amount: inc });
+        if (dec > 0) {
+          let remaining = dec;
+          for (const bucket of openBuckets) {
+            if (remaining <= 0) break;
+            const take = Math.min(bucket.amount, remaining);
+            bucket.amount = round2(bucket.amount - take);
+            remaining = round2(remaining - take);
+          }
+        }
+      });
+
+      const sums = { current: 0, d31_60: 0, d61_90: 0, over90: 0 };
+      openBuckets
+        .filter((b) => b.amount > 0.004)
+        .forEach((b) => {
+          const days = Math.floor((new Date(asOfDate) - new Date(b.date)) / 86400000);
+          if (days <= 30) sums.current = round2(sums.current + b.amount);
+          else if (days <= 60) sums.d31_60 = round2(sums.d31_60 + b.amount);
+          else if (days <= 90) sums.d61_90 = round2(sums.d61_90 + b.amount);
+          else sums.over90 = round2(sums.over90 + b.amount);
+        });
+      const total = round2(sums.current + sums.d31_60 + sums.d61_90 + sums.over90);
+      return { party_id: party.id, name: party.name, phone: party.phone, ...sums, total };
+    })
+    .filter((r) => r.total > 0.004)
+    .sort((a, b) => b.total - a.total);
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      current: round2(acc.current + r.current),
+      d31_60: round2(acc.d31_60 + r.d31_60),
+      d61_90: round2(acc.d61_90 + r.d61_90),
+      over90: round2(acc.over90 + r.over90),
+      total: round2(acc.total + r.total),
+    }),
+    { current: 0, d31_60: 0, d61_90: 0, over90: 0, total: 0 }
+  );
+
+  return { asOf: asOfDate, rows, totals };
+}
+
+function arAgingReport(companyId, { asOf, branchId } = {}) {
+  return partyAgingReport(companyId, { asOf, branchId, table: 'customers', accountCode: ACC.AR, partyType: 'customer' });
+}
+
+function apAgingReport(companyId, { asOf, branchId } = {}) {
+  return partyAgingReport(companyId, { asOf, branchId, table: 'suppliers', accountCode: ACC.AP, partyType: 'supplier' });
+}
+
+// ---------------------------------------------------------------------------
 // المخزون
 // ---------------------------------------------------------------------------
 
@@ -674,6 +760,8 @@ module.exports = {
   supplierStatement,
   allCustomerBalances,
   allSupplierBalances,
+  arAgingReport,
+  apAgingReport,
   inventoryValuation,
   tripSettlementReport,
   productProfitability,

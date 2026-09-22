@@ -60,6 +60,7 @@ const ROUTES = [
   { re: /^#\/trips$/, title: 'رحلات التوزيع', render: () => Pages.tripsList() },
   { re: /^#\/trips\/new$/, title: 'رحلة جديدة', render: () => Pages.tripNew() },
   { re: /^#\/trips\/(\d+)$/, title: 'تفاصيل الرحلة', render: (m) => Pages.tripDetail(m[1]) },
+  { re: /^#\/trips\/(\d+)\/field$/, title: 'وضع السائق', render: (m) => Pages.tripField(m[1]) },
 
   { re: /^#\/sales$/, title: 'فواتير المبيعات', render: () => Pages.salesList() },
   { re: /^#\/sales\/new(?:\?.*)?$/, title: 'فاتورة مبيعات جديدة', render: () => Pages.salesNew() },

@@ -296,3 +296,85 @@ tbody tr:hover { background: #f9fafb; }
   .sidebar.open { right: 0; }
   .menu-toggle { display: inline-block; }
 }
+
+/* ---------- وضع السائق (واجهة موبايل مبسّطة للبيع الميداني) ---------- */
+
+.field-mode { padding-bottom: 90px; }
+.field-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.field-title { font-size: 18px; font-weight: 700; }
+
+.product-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.product-tile {
+  background: var(--card);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.product-tile.active { border-color: var(--primary); background: #f0f9f6; }
+.pt-name { font-weight: 700; font-size: 15px; margin-bottom: 4px; }
+.pt-remaining { font-size: 12px; margin-bottom: 10px; }
+.pt-stepper { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
+.pt-stepper button {
+  width: 40px;
+  height: 40px;
+  font-size: 20px;
+  font-weight: 700;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.pt-stepper button:active { background: var(--primary); color: #fff; }
+.pt-qty {
+  width: 64px;
+  height: 40px;
+  text-align: center;
+  font-size: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.pt-line-total { font-size: 13px; font-weight: 600; }
+
+.field-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.field-actions .btn { width: 100%; justify-content: center; padding: 14px 10px; font-size: 14.5px; }
+
+.field-submit-bar {
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  left: 0;
+  background: var(--card);
+  border-top: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  z-index: 40;
+  box-shadow: 0 -4px 14px rgba(0,0,0,0.08);
+}
+.field-total { font-weight: 700; font-size: 16px; }
+.field-submit-bar .btn { padding: 14px 26px; font-size: 15.5px; }
+
+@media (max-width: 600px) {
+  .product-tiles { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}
