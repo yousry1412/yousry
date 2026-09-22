@@ -286,12 +286,13 @@ function openCollectModal(tripId, customers, onDone) {
 }
 
 Pages.tripField = async function (id) {
-  const [trip, settlement, allProducts, customers, trips] = await Promise.all([
+  const [trip, settlement, allProducts, customers, trips, employees] = await Promise.all([
     Api.get(`/trips/${id}`),
     Api.get(`/trips/${id}/settlement`),
     Api.get('/products'),
     Api.get('/customers'),
     Api.get('/trips'),
+    Api.get('/employees/basic').catch(() => []),
   ]);
   if (trip.status !== 'open') {
     UI.setContent('<div class="card"><div class="empty-state">الرحلة دي مقفولة، وضع السائق متاح للرحلات المفتوحة فقط</div></div>');
@@ -423,14 +424,24 @@ Pages.tripField = async function (id) {
   document.getElementById('fieldCollectBtn').addEventListener('click', () => openCollectModal(id, customers, () => Pages.tripField(id)));
   document.getElementById('fieldDamageBtn').addEventListener('click', () => {
     const openTrips = trips.filter((t) => t.status === 'open');
-    UI.openModal('تسجيل تلف / هالك', damageFormHtml(allProducts, openTrips));
+    UI.openModal('تسجيل تلف / هالك', damageFormHtml(allProducts, openTrips, employees));
     const form = document.getElementById('damageForm');
     form.querySelector('[name="trip_id"]').value = id;
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
+      const photoFile = fd.get('photo');
+      fd.delete('photo');
       const payload = Object.fromEntries(fd.entries());
       if (!payload.trip_id) delete payload.trip_id;
+      if (!payload.responsible_employee_id) delete payload.responsible_employee_id;
+      if (photoFile && photoFile.size > 0) {
+        try {
+          payload.photo_data = await compressImageFile(photoFile);
+        } catch (_) {
+          /* لو فشل ضغط الصورة، نسجل التلف من غيرها بدل ما نوقف العملية */
+        }
+      }
       try {
         await Api.post('/damages', payload);
         UI.closeModal();

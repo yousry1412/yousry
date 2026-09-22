@@ -1337,10 +1337,14 @@ function getSalesReturn(id) {
 // التوالف
 // ---------------------------------------------------------------------------
 
-function createDamage({ company_id, branch_id, product_id, qty, damage_date, reason, trip_id, notes }) {
+function createDamage({
+  company_id, branch_id, product_id, qty, damage_date, reason, trip_id, notes,
+  responsible_employee_id, responsible_name, photo_data,
+}) {
   return inTransaction(() => {
     const qtyNum = Number(qty);
     if (!(qtyNum > 0)) throw new Error('الكمية لازم تكون أكبر من صفر');
+    if (!reason || !reason.trim()) throw new Error('لازم تكتب سبب التلف');
 
     if (trip_id) {
       const trip = requireOpenTrip(trip_id);
@@ -1362,6 +1366,8 @@ function createDamage({ company_id, branch_id, product_id, qty, damage_date, rea
       unit_cost = tripLoadUnitCost(trip_id, product_id);
       creditAcc = ACC.CUSTODY;
       creditParty = { party_type: 'employee', party_id: trip.responsible_employee_id };
+      // افتراضيًا المسؤول عن التلف أثناء رحلة هو المسؤول عن الرحلة نفسه، إلا لو اتحدد حد تاني صراحة
+      if (!responsible_employee_id && !responsible_name) responsible_employee_id = trip.responsible_employee_id;
     } else {
       const stock = getProductWithStock(product_id, branch_id, company_id);
       if (stock.qty_on_hand < qtyNum) {
@@ -1371,13 +1377,30 @@ function createDamage({ company_id, branch_id, product_id, qty, damage_date, rea
       creditAcc = invAccFor(stock);
     }
 
+    if (responsible_employee_id) assertBelongs('employees', responsible_employee_id, company_id, 'المسؤول عن التلف');
+
     const damage_no = nextNumber('damages', 'DMG');
     const info = db
       .prepare(
-        `INSERT INTO damages (company_id, branch_id, damage_no, product_id, qty, unit_cost, damage_date, reason, trip_id, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO damages
+         (company_id, branch_id, damage_no, product_id, qty, unit_cost, damage_date, reason, responsible_employee_id, responsible_name, photo_data, trip_id, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, branch_id, damage_no, product_id, qtyNum, unit_cost, damage_date, reason || null, trip_id || null, notes || null);
+      .run(
+        company_id,
+        branch_id,
+        damage_no,
+        product_id,
+        qtyNum,
+        unit_cost,
+        damage_date,
+        reason.trim(),
+        responsible_employee_id || null,
+        responsible_employee_id ? null : responsible_name || null,
+        photo_data || null,
+        trip_id || null,
+        notes || null
+      );
 
     if (!trip_id) {
       applyStockMovement({

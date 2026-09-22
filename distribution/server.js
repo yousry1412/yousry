@@ -8,7 +8,8 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
-app.use(express.json());
+// حد أعلى أكبر من الافتراضي (100kb) عشان يستوعب صور التوالف (base64) بعد ضغطها في المتصفح
+app.use(express.json({ limit: '8mb' }));
 app.use('/api/auth', authRouter);
 app.use('/api', requireAuth, apiRouter);
 app.use(express.static(path.join(__dirname, 'public')));

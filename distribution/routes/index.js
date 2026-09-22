@@ -769,8 +769,10 @@ router.get(
     const { company_id, branch_id } = ctx(req);
     return db
       .prepare(
-        `SELECT d.*, p.name AS product_name, p.unit AS product_unit FROM damages d
+        `SELECT d.*, p.name AS product_name, p.unit AS product_unit, e.name AS responsible_employee_name
+         FROM damages d
          JOIN products p ON p.id = d.product_id
+         LEFT JOIN employees e ON e.id = d.responsible_employee_id
          WHERE d.company_id = ? AND d.branch_id = ? ORDER BY d.id DESC LIMIT 500`
       )
       .all(company_id, branch_id);

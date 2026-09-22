@@ -389,6 +389,9 @@ CREATE TABLE IF NOT EXISTS damages (
   unit_cost REAL NOT NULL,
   damage_date TEXT NOT NULL,
   reason TEXT,
+  responsible_employee_id INTEGER REFERENCES employees(id), -- المسبب (لو موظف مسجّل)
+  responsible_name TEXT, -- اسم المسبب لو مش موظف مسجّل في النظام
+  photo_data TEXT, -- صورة التلف (data URL base64) - دليل موثّق وقت التسجيل
   trip_id INTEGER REFERENCES trips(id),
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
