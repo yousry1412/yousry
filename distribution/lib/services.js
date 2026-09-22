@@ -187,6 +187,9 @@ function createSupplier({ company_id, name, phone, address, notes, opening_balan
 
 function createCustomer({ company_id, name, phone, address, notes, credit_limit, opening_balance }) {
   return inTransaction(() => {
+    if (!phone || !String(phone).trim()) {
+      throw new Error('رقم هاتف العميل إجباري - لازم عشان إرسال الفواتير على واتساب ومطابقة الحسابات');
+    }
     const ob = round2(Number(opening_balance) || 0);
     const info = db
       .prepare(

@@ -345,6 +345,9 @@ router.put(
     const { company_id } = ctx(req, { needBranch: false });
     assertOwned(db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id), company_id, 'عميل غير موجود');
     const { name, phone, address, notes, credit_limit, is_active } = req.body;
+    if (!phone || !String(phone).trim()) {
+      throw new Error('رقم هاتف العميل إجباري - لازم عشان إرسال الفواتير على واتساب ومطابقة الحسابات');
+    }
     db.prepare(
       'UPDATE customers SET name=?, phone=?, address=?, notes=?, credit_limit=?, is_active=? WHERE id=?'
     ).run(name, phone || null, address || null, notes || null, Number(credit_limit) || 0, is_active ? 1 : 0, req.params.id);
@@ -723,7 +726,18 @@ router.get(
 router.post(
   '/sales',
   allow(...SALES_G),
-  handle((req) => services.createSalesInvoice({ ...req.body, ...ctx(req, { needBranch: !req.body.trip_id }), created_by_user_id: req.user.id }))
+  handle(async (req) => {
+    const invoice = services.createSalesInvoice({ ...req.body, ...ctx(req, { needBranch: !req.body.trip_id }), created_by_user_id: req.user.id });
+    // إرسال الفاتورة على واتساب تلقائيًا لحظة الحفظ - من غير ما نوقف حفظ الفاتورة لو
+    // الإرسال فشل (مفيش رقم هاتف، أو إعدادات واتساب ناقصة، أو مشكلة في الشبكة).
+    // كل محاولة (نجحت أو فشلت) بتتسجل في سجل واتساب عشان تقدر تراجعها من الإعدادات.
+    if (invoice.customer_phone) {
+      whatsapp
+        .sendInvoiceNotification({ companyId: invoice.company_id, invoice, customerPhone: invoice.customer_phone })
+        .catch(() => {});
+    }
+    return invoice;
+  })
 );
 router.post(
   '/sales/:id/send-whatsapp',

@@ -109,10 +109,18 @@ function logAttempt({ company_id, sales_invoice_id, to_phone, status, message_id
 /** إرسال إشعار فاتورة للعميل عن طريق القالب المعتمد */
 async function sendInvoiceNotification({ companyId, invoice, customerPhone }) {
   const config = getConfig(companyId);
+  // بنسجّل أي محاولة إرسال حتى لو فشلت قبل ما توصل لواتساب فعليًا (إعدادات ناقصة، مفيش رقم)
+  // عشان صاحب المنشأة يشوف في سجل واتساب إن الفاتورة "متبعتش" وليه، مش يفضل مستني في الفاضي.
   if (!config || !config.access_token || !config.phone_number_id) {
-    throw new Error('إعدادات واتساب غير مكتملة لهذه المنشأة. أدخل التوكن ورقم الهاتف من صفحة إعدادات واتساب');
+    const message = 'إعدادات واتساب غير مكتملة لهذه المنشأة. أدخل التوكن ورقم الهاتف من صفحة إعدادات واتساب';
+    logAttempt({ company_id: companyId, sales_invoice_id: invoice.id, to_phone: customerPhone || '-', status: 'failed', error: message });
+    throw new Error(message);
   }
-  if (!customerPhone) throw new Error('لا يوجد رقم هاتف مسجّل لهذا العميل');
+  if (!customerPhone) {
+    const message = 'لا يوجد رقم هاتف مسجّل لهذا العميل';
+    logAttempt({ company_id: companyId, sales_invoice_id: invoice.id, to_phone: '-', status: 'failed', error: message });
+    throw new Error(message);
+  }
 
   const to = normalizePhone(customerPhone, config.default_country_code);
   const link = invoice.company_public_url

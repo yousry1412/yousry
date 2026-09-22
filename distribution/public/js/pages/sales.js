@@ -313,7 +313,7 @@ Pages.salesDetail = async function (id) {
         <h2>فاتورة مبيعات ${UI.escapeHtml(inv.invoice_no)}</h2>
         <div>
           <a class="btn secondary small" href="#/print/sale/${inv.id}" target="_blank">طباعة الفاتورة</a>
-          <button class="btn secondary small" id="sendWhatsappBtn">إرسال واتساب</button>
+          <button class="btn secondary small" id="sendWhatsappBtn">إعادة إرسال واتساب</button>
           <button class="btn secondary small" id="salesReturnBtn">تسجيل مرتجع</button>
           <a class="btn secondary small" href="#/sales">رجوع</a>
         </div>

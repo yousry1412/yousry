@@ -5,7 +5,7 @@ function customerFormHtml(c = {}) {
     <form id="customerForm">
       <div class="form-grid">
         <div class="field span-2"><label>اسم العميل *</label><input name="name" required value="${UI.escapeHtml(c.name || '')}" /></div>
-        <div class="field"><label>الهاتف</label><input name="phone" value="${UI.escapeHtml(c.phone || '')}" /></div>
+        <div class="field"><label>الهاتف *</label><input name="phone" type="tel" required value="${UI.escapeHtml(c.phone || '')}" /></div>
         <div class="field"><label>حد الائتمان</label><input name="credit_limit" type="number" step="0.01" value="${c.credit_limit ?? 0}" /></div>
         <div class="field span-2"><label>العنوان</label><input name="address" value="${UI.escapeHtml(c.address || '')}" /></div>
         ${
