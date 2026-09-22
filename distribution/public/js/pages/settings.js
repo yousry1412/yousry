@@ -7,6 +7,7 @@ const SETTINGS_TABS = [
   { key: 'users', label: 'المستخدمون' },
   { key: 'accounts', label: 'شجرة الحسابات' },
   { key: 'whatsapp', label: 'واتساب' },
+  { key: 'maps', label: 'الخرائط' },
 ];
 
 const USER_ROLE_LABELS = {
@@ -462,6 +463,43 @@ async function renderWhatsappTab() {
   });
 }
 
+async function renderMapsTab() {
+  const config = await Api.get('/maps/config');
+  const html = `
+    <div class="card-header"><h3>إعدادات خرائط جوجل (لتتبع مواقع الفواتير والرحلات)</h3></div>
+    <p class="muted" style="font-size:13px">
+      النظام بيسجّل موقع GPS لموبايل السائق عند تسجيل كل فاتورة بيع، وبيتتبع موقعه لحظيًا أثناء
+      الرحلة المفتوحة، وبيوريك كل ده على خريطة. من غير مفتاح API، النظام بيشتغل بنسخة احتياطية
+      مجانية (خرائط OpenStreetMap + روابط مباشرة لفتح أي موقع في خرائط جوجل). لو عايز خريطة جوجل
+      تفاعلية كاملة بكل النقاط في نفس الشاشة، هتحتاج:
+    </p>
+    <ol class="muted" style="font-size:13px; padding-right:18px">
+      <li>اعمل مشروع في <a href="https://console.cloud.google.com" target="_blank" rel="noopener">Google Cloud Console</a> وفعّل خدمة "Maps JavaScript API".</li>
+      <li>أنشئ مفتاح API (API Key)، وقيّده على دومين موقعك بس (HTTP referrer restriction) عشان محدش يستخدمه غيرك.</li>
+      <li>لاصق المفتاح هنا واحفظ.</li>
+    </ol>
+    <p class="muted" style="font-size:13px">
+      ملحوظة: تتبع موقع السائقين لحظيًا أثناء العمل بيحتاج توضيح للموظفين إنه شغال ولإيه (شفافية
+      قانونية بسيطة)، ومفتاح الخريطة ده مش سر زي توكن واتساب - بيتقيّد بالدومين مش بالسرية.
+    </p>
+    <form id="mapsForm" class="form-grid">
+      <div class="field span-2"><label>Google Maps API Key</label><input name="google_maps_api_key" value="${UI.escapeHtml(config.google_maps_api_key || '')}" placeholder="AIza..." /></div>
+      <div class="field"><button class="btn" type="submit">حفظ</button></div>
+    </form>
+  `;
+  document.getElementById('settingsTabContent').innerHTML = html;
+  document.getElementById('mapsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await Api.put('/maps/config', Object.fromEntries(fd.entries()));
+      UI.toast('تم حفظ إعدادات الخرائط', 'success');
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    }
+  });
+}
+
 const SETTINGS_RENDERERS = {
   companies: renderCompaniesTab,
   branches: renderBranchesTab,
@@ -469,6 +507,7 @@ const SETTINGS_RENDERERS = {
   users: renderUsersTab,
   accounts: renderAccountsTab,
   whatsapp: renderWhatsappTab,
+  maps: renderMapsTab,
 };
 
 Pages.settingsHome = async function () {

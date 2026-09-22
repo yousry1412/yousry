@@ -299,6 +299,35 @@ function apAgingReport(companyId, { asOf, branchId } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// مواقع الفواتير (خريطة المبيعات)
+// ---------------------------------------------------------------------------
+
+function invoiceLocationsReport(companyId, { from, to, branchId } = {}) {
+  const conditions = ['sv.company_id = ?', 'sv.latitude IS NOT NULL', 'sv.longitude IS NOT NULL'];
+  const params = [companyId];
+  if (branchId) {
+    conditions.push('sv.branch_id = ?');
+    params.push(branchId);
+  }
+  if (from && to) {
+    conditions.push('sv.invoice_date BETWEEN ? AND ?');
+    params.push(from, to);
+  }
+  return db
+    .prepare(
+      `SELECT sv.id, sv.invoice_no, sv.invoice_date, sv.total, sv.latitude, sv.longitude,
+              c.name AS customer_name, t.trip_no
+       FROM sales_invoices sv
+       JOIN customers c ON c.id = sv.customer_id
+       LEFT JOIN trips t ON t.id = sv.trip_id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY sv.invoice_date DESC, sv.id DESC
+       LIMIT 1000`
+    )
+    .all(...params);
+}
+
+// ---------------------------------------------------------------------------
 // المخزون
 // ---------------------------------------------------------------------------
 
@@ -762,6 +791,7 @@ module.exports = {
   allSupplierBalances,
   arAgingReport,
   apAgingReport,
+  invoiceLocationsReport,
   inventoryValuation,
   tripSettlementReport,
   productProfitability,

@@ -297,6 +297,8 @@ CREATE TABLE IF NOT EXISTS sales_invoices (
   paid_to TEXT NOT NULL DEFAULT 'cash' CHECK(paid_to IN ('cash','bank')),
   total REAL NOT NULL DEFAULT 0,
   notes TEXT,
+  latitude REAL,
+  longitude REAL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -496,4 +498,26 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
   user_id INTEGER NOT NULL REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   expires_at TEXT NOT NULL
+);
+
+-- ---------- تتبع مواقع الرحلات (خرائط جوجل) ----------
+
+-- نقاط GPS متتابعة (بصمة مسار) بتتسجل من موبايل السائق أثناء الرحلة المفتوحة
+CREATE TABLE IF NOT EXISTS driver_locations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  branch_id INTEGER NOT NULL REFERENCES branches(id),
+  trip_id INTEGER NOT NULL REFERENCES trips(id),
+  user_id INTEGER REFERENCES users(id),
+  latitude REAL NOT NULL,
+  longitude REAL NOT NULL,
+  accuracy REAL,
+  recorded_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_driver_locations_trip ON driver_locations(trip_id, recorded_at);
+
+CREATE TABLE IF NOT EXISTS map_config (
+  company_id INTEGER PRIMARY KEY REFERENCES companies(id),
+  google_maps_api_key TEXT,
+  updated_at TEXT
 );

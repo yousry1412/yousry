@@ -546,6 +546,57 @@ function requireOpenTrip(trip_id) {
   return trip;
 }
 
+// ---------------------------------------------------------------------------
+// تتبع موقع الرحلة (خرائط جوجل)
+// ---------------------------------------------------------------------------
+
+function recordDriverLocation({ company_id, branch_id, trip_id, user_id, latitude, longitude, accuracy }) {
+  const trip = requireOpenTrip(trip_id);
+  if (trip.company_id !== company_id) throw new Error('رحلة غير موجودة أو لا تنتمي لهذه المنشأة');
+  const coord = sanitizeCoord(latitude, longitude);
+  if (coord.latitude === null) throw new Error('إحداثيات غير صالحة');
+  db.prepare(
+    `INSERT INTO driver_locations (company_id, branch_id, trip_id, user_id, latitude, longitude, accuracy)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(company_id, branch_id || trip.branch_id, trip_id, user_id || null, coord.latitude, coord.longitude, Number(accuracy) || null);
+  return { ok: true };
+}
+
+function tripLocationTrail(tripId, companyId) {
+  assertBelongs('trips', tripId, companyId, 'رحلة');
+  return db
+    .prepare(
+      `SELECT dl.id, dl.latitude, dl.longitude, dl.accuracy, dl.recorded_at, u.username
+       FROM driver_locations dl LEFT JOIN users u ON u.id = dl.user_id
+       WHERE dl.trip_id = ? ORDER BY dl.recorded_at DESC LIMIT 300`
+    )
+    .all(tripId);
+}
+
+/** آخر موقع معروف لكل الرحلات المفتوحة (خريطة تتبع حية للمالك/المحاسب) */
+function liveTripLocations(companyId, branchId) {
+  const branchFilter = branchId ? 'AND t.branch_id = ?' : '';
+  const params = branchId ? [companyId, branchId] : [companyId];
+  const trips = db
+    .prepare(
+      `SELECT t.id, t.trip_no, t.trip_date, v.name AS vehicle_name
+       FROM trips t JOIN vehicles v ON v.id = t.vehicle_id
+       WHERE t.company_id = ? AND t.status = 'open' ${branchFilter}`
+    )
+    .all(...params);
+  return trips
+    .map((t) => {
+      const last = db
+        .prepare(
+          `SELECT latitude, longitude, accuracy, recorded_at FROM driver_locations
+           WHERE trip_id = ? ORDER BY recorded_at DESC LIMIT 1`
+        )
+        .get(t.id);
+      return last ? { ...t, ...last } : null;
+    })
+    .filter(Boolean);
+}
+
 function addTripLoad({ trip_id, items }) {
   return inTransaction(() => {
     const trip = requireOpenTrip(trip_id);
@@ -781,7 +832,15 @@ function getTrip(id) {
 // المبيعات ومرتجعاتها
 // ---------------------------------------------------------------------------
 
-function createSalesInvoice({ company_id, branch_id, customer_id, trip_id, invoice_date, items, paid_amount, paid_to, notes }) {
+function sanitizeCoord(lat, lng) {
+  const latitude = Number(lat);
+  const longitude = Number(lng);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return { latitude: null, longitude: null };
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return { latitude: null, longitude: null };
+  return { latitude, longitude };
+}
+
+function createSalesInvoice({ company_id, branch_id, customer_id, trip_id, invoice_date, items, paid_amount, paid_to, notes, latitude, longitude }) {
   return inTransaction(() => {
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف بنود للفاتورة');
 
@@ -830,12 +889,26 @@ function createSalesInvoice({ company_id, branch_id, customer_id, trip_id, invoi
     }
 
     const paid = Math.max(0, Math.min(round2(Number(paid_amount) || 0), total));
+    const coord = sanitizeCoord(latitude, longitude);
     const info = db
       .prepare(
-        `INSERT INTO sales_invoices (company_id, branch_id, invoice_no, customer_id, trip_id, invoice_date, paid_amount, paid_to, total, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO sales_invoices (company_id, branch_id, invoice_no, customer_id, trip_id, invoice_date, paid_amount, paid_to, total, notes, latitude, longitude)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, branch_id, invoice_no, customer_id, trip_id || null, invoice_date, paid, paid_to || 'cash', total, notes || null);
+      .run(
+        company_id,
+        branch_id,
+        invoice_no,
+        customer_id,
+        trip_id || null,
+        invoice_date,
+        paid,
+        paid_to || 'cash',
+        total,
+        notes || null,
+        coord.latitude,
+        coord.longitude
+      );
     const invoiceId = info.lastInsertRowid;
 
     // تمريرة ثانية: الآن بعد ما بقى عندنا رقم الفاتورة، نسجل بنود الفاتورة ونحرك المخزون فعليًا
@@ -1496,6 +1569,9 @@ module.exports = {
   settleTrip,
   getTrip,
   tripRemainingQty,
+  recordDriverLocation,
+  tripLocationTrail,
+  liveTripLocations,
   createSalesInvoice,
   getSalesInvoice,
   createSalesReturn,

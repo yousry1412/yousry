@@ -171,6 +171,11 @@ Pages.salesNew = async function () {
       UI.toast('لازم تضيف صنف واحد على الأقل', 'error');
       return;
     }
+    const pos = await UI.getCurrentPosition();
+    if (pos) {
+      payload.latitude = pos.latitude;
+      payload.longitude = pos.longitude;
+    }
     try {
       const inv = await Api.post('/sales', payload);
       UI.toast('تم حفظ فاتورة المبيعات', 'success');
@@ -268,7 +273,22 @@ Pages.salesDetail = async function (id) {
       </div></div>
       ${inv.notes ? `<p class="muted">ملاحظات: ${UI.escapeHtml(inv.notes)}</p>` : ''}
     </div>
+
+    ${
+      inv.latitude && inv.longitude
+        ? `<div class="card">
+            <div class="card-header"><h3>📍 موقع تسجيل الفاتورة</h3></div>
+            <div id="invoiceMap"></div>
+          </div>`
+        : ''
+    }
   `);
+
+  if (inv.latitude && inv.longitude) {
+    UI.renderMap(document.getElementById('invoiceMap'), [
+      { lat: inv.latitude, lng: inv.longitude, title: inv.invoice_no, info: inv.customer_name },
+    ]);
+  }
 
   document.getElementById('salesReturnBtn').addEventListener('click', () => openSalesReturnModal(inv));
   document.getElementById('sendWhatsappBtn').addEventListener('click', async () => {

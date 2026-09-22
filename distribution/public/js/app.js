@@ -21,6 +21,7 @@ const NAV = [
   { hash: '#/vouchers', label: 'سندات القبض والصرف', icon: '🧮', roles: ROLE_GROUPS.FIN },
   { hash: '#/stock-ops', label: 'تحويل وجرد المخزون', icon: '🔄', roles: ROLE_GROUPS.WH_G },
   { hash: '#/accounting', label: 'الحسابات والتقارير', icon: '📚', roles: ROLE_GROUPS.FIN },
+  { hash: '#/maps', label: 'الخريطة', icon: '🗺️', roles: ROLE_GROUPS.FIN },
   { hash: '#/settings', label: 'المنشآت والفروع والشركاء', icon: '⚙️', roles: ROLE_GROUPS.OWNER },
 ];
 
@@ -71,6 +72,7 @@ const ROUTES = [
   { re: /^#\/vouchers$/, title: 'سندات القبض والصرف', render: () => Pages.vouchersList() },
 
   { re: /^#\/accounting$/, title: 'الحسابات والتقارير', render: () => Pages.accountingHome() },
+  { re: /^#\/maps$/, title: 'الخريطة', render: () => Pages.mapsHome() },
 
   { re: /^#\/stock-ops$/, title: 'تحويل وجرد المخزون', render: () => Pages.stockOpsHome() },
   { re: /^#\/settings$/, title: 'المنشآت والفروع والشركاء', render: () => Pages.settingsHome() },

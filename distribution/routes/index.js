@@ -3,6 +3,7 @@ const { db } = require('../lib/db');
 const services = require('../lib/services');
 const reports = require('../lib/reports');
 const whatsapp = require('../lib/whatsapp');
+const maps = require('../lib/maps');
 const auth = require('../lib/auth');
 
 const router = express.Router();
@@ -497,6 +498,14 @@ router.get(
   })
 );
 router.get(
+  '/trips/live-locations',
+  allow(...FIN),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    return services.liveTripLocations(company_id, reportBranch(req));
+  })
+);
+router.get(
   '/trips/:id',
   allow(...ALL_ROLES),
   handle((req) => {
@@ -547,6 +556,30 @@ router.post(
   handle((req) => {
     ownedTrip(req);
     return services.settleTrip({ trip_id: Number(req.params.id), write_off_discrepancy: !!req.body.write_off_discrepancy });
+  })
+);
+router.post(
+  '/trips/:id/location',
+  allow(...ALL_ROLES),
+  handle((req) => {
+    const { company_id, branch_id } = ctx(req, { needBranch: false });
+    return services.recordDriverLocation({
+      company_id,
+      branch_id,
+      trip_id: Number(req.params.id),
+      user_id: req.user.id,
+      latitude: req.body.latitude,
+      longitude: req.body.longitude,
+      accuracy: req.body.accuracy,
+    });
+  })
+);
+router.get(
+  '/trips/:id/location-trail',
+  allow(...ALL_ROLES),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    return services.tripLocationTrail(Number(req.params.id), company_id);
   })
 );
 
@@ -851,6 +884,17 @@ router.get(
   handle((req) => reports.apAgingReport(ctx(req, { needBranch: false }).company_id, { asOf: req.query.asOf, branchId: reportBranch(req) }))
 );
 router.get(
+  '/reports/invoice-locations',
+  allow(...FIN),
+  handle((req) =>
+    reports.invoiceLocationsReport(ctx(req, { needBranch: false }).company_id, {
+      from: req.query.from,
+      to: req.query.to,
+      branchId: reportBranch(req),
+    })
+  )
+);
+router.get(
   '/reports/partners-equity',
   allow(...FIN),
   handle((req) =>
@@ -897,6 +941,27 @@ router.get(
 // ---------------------------------------------------------------------------
 // واتساب
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// إعدادات الخرائط (Google Maps)
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/maps/config',
+  allow(...ALL_ROLES),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    const config = maps.getConfig(company_id);
+    // مفتاح خرائط جوجل مش سر زي توكن واتساب - المفروض يتقيّد على الدومين
+    // من Google Cloud Console، فمعمول له إرجاع كامل عشان يُستخدم في المتصفح
+    return { google_maps_api_key: config ? config.google_maps_api_key || '' : '' };
+  })
+);
+router.put(
+  '/maps/config',
+  allow(...OWNER),
+  handle((req) => maps.saveConfig(ctx(req, { needBranch: false }).company_id, req.body))
+);
 
 router.get(
   '/whatsapp/config',

@@ -15,6 +15,17 @@ db.exec('PRAGMA journal_mode = WAL');
 const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 db.exec(schema);
 
+// ترقيات خفيفة لقواعد بيانات قديمة اتعملها CREATE قبل إضافة أعمدة جديدة
+// (CREATE TABLE IF NOT EXISTS مبيلمسش جدول موجود فعلاً)
+function ensureColumn(table, column, ddl) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
+}
+ensureColumn('sales_invoices', 'latitude', 'latitude REAL');
+ensureColumn('sales_invoices', 'longitude', 'longitude REAL');
+
 function seedChartForCompany(companyId) {
   const count = db.prepare('SELECT COUNT(*) AS c FROM accounts WHERE company_id = ?').get(companyId).c;
   if (count > 0) return;

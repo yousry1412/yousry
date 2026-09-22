@@ -2,6 +2,32 @@ var Pages = window.Pages || {};
 
 const STATUS_BADGE = { open: ['مفتوحة', 'orange'], settled: ['مُسوّاة', 'green'] };
 
+// تتبع الموقع الحي: بيبعت نبضة GPS كل فترة طول ما السائق فاتح شاشة "وضع السائق"
+// لرحلة مفتوحة. بيتقفل تلقائيًا لما يغيّر الصفحة عشان مايفضلش شغال في الخلفية.
+let fieldLocationTimer = null;
+function stopFieldLocationTracking() {
+  if (fieldLocationTimer) {
+    clearInterval(fieldLocationTimer);
+    fieldLocationTimer = null;
+  }
+}
+window.addEventListener('hashchange', stopFieldLocationTracking);
+
+function startFieldLocationTracking(tripId) {
+  stopFieldLocationTracking();
+  const ping = async () => {
+    const pos = await UI.getCurrentPosition();
+    if (!pos) return;
+    try {
+      await Api.post(`/trips/${tripId}/location`, pos);
+    } catch (_) {
+      /* السائق ممكن يكون في منطقة ضعيفة التغطية - مش لازم يوقفه أو يزعجه */
+    }
+  };
+  ping();
+  fieldLocationTimer = setInterval(ping, 60000);
+}
+
 Pages.tripsList = async function () {
   const trips = await Api.get('/trips');
   UI.setContent(`
@@ -259,6 +285,7 @@ Pages.tripField = async function (id) {
     UI.setContent('<div class="card"><div class="empty-state">الرحلة دي مقفولة، وضع السائق متاح للرحلات المفتوحة فقط</div></div>');
     return;
   }
+  startFieldLocationTracking(id);
   const priceMap = Object.fromEntries(allProducts.map((p) => [p.id, p.sale_price]));
   const available = settlement.reconciliation.filter((r) => r.remaining > 0).map((r) => ({ ...r, sale_price: priceMap[r.product_id] || 0 }));
 
@@ -360,6 +387,11 @@ Pages.tripField = async function (id) {
       paid_to: 'cash',
     };
     submitBtn.disabled = true;
+    const pos = await UI.getCurrentPosition();
+    if (pos) {
+      payload.latitude = pos.latitude;
+      payload.longitude = pos.longitude;
+    }
     try {
       await Api.post('/sales', payload);
       UI.toast('تم تسجيل البيع', 'success');
@@ -483,7 +515,29 @@ Pages.tripDetail = async function (id) {
         }
       </div>
     </div>
+
+    <div class="card">
+      <div class="card-header"><h3>🗺️ مسار الرحلة (تتبع GPS)</h3></div>
+      <div id="tripMap"><div class="empty-state">جارِ التحميل...</div></div>
+    </div>
   `);
+
+  Api.get(`/trips/${id}/location-trail`)
+    .then((trail) => {
+      const container = document.getElementById('tripMap');
+      if (!trail || trail.length === 0) {
+        container.innerHTML = '<div class="empty-state">لسه مفيش مواقع GPS اتسجلت لهذه الرحلة</div>';
+        return;
+      }
+      const points = trail
+        .slice()
+        .reverse()
+        .map((p) => ({ lat: p.latitude, lng: p.longitude, title: p.username || '', info: UI.formatDateTime(p.recorded_at) }));
+      UI.renderMap(container, points, { polyline: true, height: '360px' });
+    })
+    .catch(() => {
+      document.getElementById('tripMap').innerHTML = '<div class="empty-state">تعذّر تحميل مسار الرحلة</div>';
+    });
 
   if (isOpen) {
     document.getElementById('btnLoad').addEventListener('click', () => openLoadModal(id, products, () => Pages.tripDetail(id)));
