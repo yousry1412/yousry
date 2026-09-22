@@ -7,13 +7,21 @@ const KIND_LABELS = {
 };
 const KIND_BADGE = { trade: 'gray', raw_material: 'orange', manufactured: 'green' };
 
-function productFormHtml() {
+function categoryOptionsHtml(categories, selectedId) {
+  return `<option value="">بدون تصنيف</option>` + UI.optionsHtml(categories, 'id', 'name', selectedId);
+}
+
+function productFormHtml(categories) {
   return `
     <form id="productForm">
       <div class="form-grid">
         <div class="field span-2"><label>اسم المنتج *</label><input name="name" required /></div>
         <div class="field"><label>الكود (SKU)</label><input name="sku" /></div>
-        <div class="field"><label>الوحدة</label><input name="unit" value="وحدة" /></div>
+        <div class="field">
+          <label>التصنيف</label>
+          <select name="category_id">${categoryOptionsHtml(categories)}</select>
+        </div>
+        <div class="field"><label>الوحدة الأساسية (الصغرى)</label><input name="unit" value="وحدة" /></div>
         <div class="field">
           <label>نوع المنتج *</label>
           <select name="kind" required>
@@ -27,7 +35,8 @@ function productFormHtml() {
         <div class="field"><label>حد إعادة الطلب</label><input name="reorder_level" type="number" step="0.01" value="0" /></div>
         <div class="field"><label>الكمية الافتتاحية بالمخزون</label><input name="opening_qty" type="number" step="0.01" value="0" /></div>
       </div>
-      <p class="muted" style="font-size:12.5px">لو المنتج "مُصنّع" تقدر تحدد تركيبة المكونات (BOM) بعد إضافته من صفحة تفاصيل المنتج.</p>
+      <p class="muted" style="font-size:12.5px">لو المنتج "مُصنّع" تقدر تحدد تركيبة المكونات (BOM)، ولو محتاج وحدات قياس
+        إضافية أكبر (زي كرتونة) تقدر تضيفها، كل ده بعد إضافة المنتج من صفحة تفاصيله.</p>
       <div class="modal-actions">
         <button type="submit" class="btn">إضافة المنتج</button>
         <button type="button" class="btn secondary" onclick="UI.closeModal()">إلغاء</button>
@@ -36,8 +45,8 @@ function productFormHtml() {
   `;
 }
 
-function openProductModal() {
-  UI.openModal('منتج جديد', productFormHtml());
+function openProductModal(categories) {
+  UI.openModal('منتج جديد', productFormHtml(categories));
   document.getElementById('productForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -53,24 +62,53 @@ function openProductModal() {
   });
 }
 
+function openCategoryModal(onDone) {
+  UI.openModal(
+    'تصنيف منتجات جديد',
+    `<form id="categoryForm">
+      <div class="field"><label>اسم التصنيف *</label><input name="name" required /></div>
+      <div class="modal-actions">
+        <button type="submit" class="btn">إضافة</button>
+        <button type="button" class="btn secondary" onclick="UI.closeModal()">إلغاء</button>
+      </div>
+    </form>`
+  );
+  document.getElementById('categoryForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await Api.post('/product-categories', Object.fromEntries(fd.entries()));
+      UI.closeModal();
+      UI.toast('تم إضافة التصنيف', 'success');
+      onDone();
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    }
+  });
+}
+
 Pages.productsList = async function () {
-  const products = await Api.get('/products');
+  const [products, categories] = await Promise.all([Api.get('/products'), Api.get('/product-categories')]);
   UI.setContent(`
     <div class="card">
       <div class="card-header">
         <h2>المنتجات والمخزون</h2>
-        <button class="btn" id="addProductBtn">+ منتج جديد</button>
+        <div>
+          <button class="btn secondary" id="addCategoryBtn">+ تصنيف</button>
+          <button class="btn" id="addProductBtn">+ منتج جديد</button>
+        </div>
       </div>
       ${
         products.length === 0
           ? '<div class="empty-state">لا يوجد منتجات بعد</div>'
           : `<div class="table-wrap"><table><thead><tr>
-              <th>المنتج</th><th>النوع</th><th>المتاح</th><th>تكلفة الوحدة</th><th>سعر البيع</th><th>قيمة المخزون</th><th></th>
+              <th>المنتج</th><th>التصنيف</th><th>النوع</th><th>المتاح</th><th>تكلفة الوحدة</th><th>سعر البيع</th><th>قيمة المخزون</th><th></th>
             </tr></thead><tbody>
               ${products
                 .map(
                   (p) => `<tr>
                   <td><a href="#/products/${p.id}">${UI.escapeHtml(p.name)}</a></td>
+                  <td class="muted">${UI.escapeHtml(p.category_name || '-')}</td>
                   <td>${UI.badge(KIND_LABELS[p.kind], KIND_BADGE[p.kind])}</td>
                   <td>${p.qty_on_hand <= p.reorder_level ? UI.badge(UI.num(p.qty_on_hand) + ' ' + p.unit, 'red') : UI.num(p.qty_on_hand) + ' ' + UI.escapeHtml(p.unit)}</td>
                   <td>${UI.money(p.cost_price)}</td>
@@ -84,12 +122,16 @@ Pages.productsList = async function () {
       }
     </div>
   `);
-  document.getElementById('addProductBtn').addEventListener('click', openProductModal);
+  document.getElementById('addProductBtn').addEventListener('click', () => openProductModal(categories));
+  document.getElementById('addCategoryBtn').addEventListener('click', () => openCategoryModal(() => Pages.productsList()));
 };
 
 Pages.productDetail = async function (id) {
-  const p = await Api.get(`/products/${id}`);
-  const allProducts = await Api.get('/products');
+  const [p, allProducts, categories] = await Promise.all([
+    Api.get(`/products/${id}`),
+    Api.get('/products'),
+    Api.get('/product-categories'),
+  ]);
   const components = allProducts.filter((c) => c.id !== p.id);
 
   UI.setContent(`
@@ -112,12 +154,37 @@ Pages.productDetail = async function (id) {
         <div class="form-grid">
           <div class="field span-2"><label>اسم المنتج</label><input name="name" value="${UI.escapeHtml(p.name)}" required /></div>
           <div class="field"><label>الكود (SKU)</label><input name="sku" value="${UI.escapeHtml(p.sku || '')}" /></div>
-          <div class="field"><label>الوحدة</label><input name="unit" value="${UI.escapeHtml(p.unit)}" /></div>
+          <div class="field"><label>التصنيف</label><select name="category_id">${categoryOptionsHtml(categories, p.category_id)}</select></div>
+          <div class="field"><label>الوحدة الأساسية (الصغرى)</label><input name="unit" value="${UI.escapeHtml(p.unit)}" /></div>
           <div class="field"><label>سعر البيع</label><input name="sale_price" type="number" step="0.01" value="${p.sale_price}" /></div>
           <div class="field"><label>حد إعادة الطلب</label><input name="reorder_level" type="number" step="0.01" value="${p.reorder_level}" /></div>
         </div>
         <div class="modal-actions"><button class="btn" type="submit">حفظ التعديلات</button></div>
       </form>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3>وحدات القياس الإضافية (أكبر من الوحدة الأساسية)</h3></div>
+      <p class="muted" style="font-size:12.5px">مثلًا لو الوحدة الأساسية "قطعة" وبتتباع كمان بالكرتونة، أضف وحدة
+        "كرتونة" ومعامل التحويل (كام قطعة في الكرتونة) - وهتلاقيها متاحة كخيار عند تسجيل فواتير الشراء والبيع.</p>
+      <table class="items-table" id="unitsTable">
+        <thead><tr><th>اسم الوحدة</th><th>معامل التحويل (كام "${UI.escapeHtml(p.unit)}")</th><th></th></tr></thead>
+        <tbody>
+          ${p.units
+            .map(
+              (u) => `<tr>
+              <td><input class="unit-name" value="${UI.escapeHtml(u.unit_name)}" /></td>
+              <td><input class="unit-factor" type="number" step="0.0001" value="${u.factor}" /></td>
+              <td><button type="button" class="remove-row">✕</button></td>
+            </tr>`
+            )
+            .join('')}
+        </tbody>
+      </table>
+      <div style="margin-top:10px; display:flex; gap:8px;">
+        <button class="btn secondary small" id="addUnitRow">+ إضافة وحدة</button>
+        <button class="btn small" id="saveUnits">حفظ الوحدات</button>
+      </div>
     </div>
 
     ${
@@ -176,6 +243,35 @@ Pages.productDetail = async function (id) {
     try {
       await Api.put(`/products/${id}`, payload);
       UI.toast('تم حفظ التعديلات', 'success');
+      Pages.productDetail(id);
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    }
+  });
+
+  const unitsBody = document.querySelector('#unitsTable tbody');
+  function addUnitRow() {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><input class="unit-name" placeholder="مثال: كرتونة" /></td>
+      <td><input class="unit-factor" type="number" step="0.0001" value="1" /></td>
+      <td><button type="button" class="remove-row">✕</button></td>`;
+    unitsBody.appendChild(tr);
+    tr.querySelector('.remove-row').addEventListener('click', () => tr.remove());
+  }
+  document.getElementById('addUnitRow').addEventListener('click', addUnitRow);
+  document.querySelectorAll('#unitsTable .remove-row').forEach((btn) =>
+    btn.addEventListener('click', (e) => e.target.closest('tr').remove())
+  );
+  document.getElementById('saveUnits').addEventListener('click', async () => {
+    const items = [...unitsBody.querySelectorAll('tr')]
+      .map((tr) => ({
+        unit_name: tr.querySelector('.unit-name').value.trim(),
+        factor: Number(tr.querySelector('.unit-factor').value),
+      }))
+      .filter((it) => it.unit_name);
+    try {
+      await Api.put(`/products/${id}/units`, { items });
+      UI.toast('تم حفظ الوحدات', 'success');
       Pages.productDetail(id);
     } catch (err) {
       UI.toast(err.message, 'error');

@@ -36,8 +36,8 @@ Pages.printSale = async function (id) {
               (it, i) => `<tr>
               <td>${i + 1}</td>
               <td>${UI.escapeHtml(it.product_name)}</td>
-              <td>${UI.num(it.qty)} ${UI.escapeHtml(it.product_unit)}</td>
-              <td>${UI.money(it.unit_price)}</td>
+              <td>${it.unit_qty ? `${UI.num(it.unit_qty)} ${UI.escapeHtml(it.entered_unit_name)}` : `${UI.num(it.qty)} ${UI.escapeHtml(it.product_unit)}`}</td>
+              <td>${UI.money(it.unit_qty ? it.line_total / it.unit_qty : it.unit_price)}</td>
               <td>${UI.money(it.line_total)}</td>
             </tr>`
             )
@@ -94,8 +94,8 @@ Pages.printPurchase = async function (id) {
               (it, i) => `<tr>
               <td>${i + 1}</td>
               <td>${UI.escapeHtml(it.product_name)}</td>
-              <td>${UI.num(it.qty)} ${UI.escapeHtml(it.product_unit)}</td>
-              <td>${UI.money(it.unit_cost)}</td>
+              <td>${it.unit_qty ? `${UI.num(it.unit_qty)} ${UI.escapeHtml(it.entered_unit_name)}` : `${UI.num(it.qty)} ${UI.escapeHtml(it.product_unit)}`}</td>
+              <td>${UI.money(it.unit_qty ? it.line_total / it.unit_qty : it.unit_cost)}</td>
               <td>${UI.money(it.line_total)}</td>
             </tr>`
             )

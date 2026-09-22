@@ -345,6 +345,26 @@ router.put(
 );
 
 // ---------------------------------------------------------------------------
+// تصنيفات المنتجات
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/product-categories',
+  allow(...ALL_ROLES),
+  handle((req) => services.listProductCategories(ctx(req, { needBranch: false }).company_id))
+);
+router.post(
+  '/product-categories',
+  allow(...WH_G),
+  handle((req) => services.createProductCategory({ ...req.body, company_id: ctx(req, { needBranch: false }).company_id }))
+);
+router.put(
+  '/product-categories/:id',
+  allow(...WH_G),
+  handle((req) => services.updateProductCategory(Number(req.params.id), ctx(req, { needBranch: false }).company_id, req.body))
+);
+
+// ---------------------------------------------------------------------------
 // المنتجات
 // ---------------------------------------------------------------------------
 
@@ -353,13 +373,28 @@ router.get(
   allow(...ALL_ROLES),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
-    return db
+    const products = db
       .prepare(
-        `SELECT p.*, COALESCE(ps.qty_on_hand,0) AS qty_on_hand, COALESCE(ps.cost_price,0) AS cost_price
-         FROM products p LEFT JOIN product_stock ps ON ps.product_id = p.id AND ps.branch_id = ?
+        `SELECT p.*, COALESCE(ps.qty_on_hand,0) AS qty_on_hand, COALESCE(ps.cost_price,0) AS cost_price,
+                pc.name AS category_name
+         FROM products p
+         LEFT JOIN product_stock ps ON ps.product_id = p.id AND ps.branch_id = ?
+         LEFT JOIN product_categories pc ON pc.id = p.category_id
          WHERE p.company_id = ? ORDER BY p.kind, p.name`
       )
       .all(branch_id, company_id);
+    const unitsByProduct = {};
+    db.prepare(
+      `SELECT pu.* FROM product_units pu JOIN products p ON p.id = pu.product_id WHERE p.company_id = ?`
+    )
+      .all(company_id)
+      .forEach((u) => {
+        (unitsByProduct[u.product_id] = unitsByProduct[u.product_id] || []).push(u);
+      });
+    products.forEach((p) => {
+      p.units = unitsByProduct[p.id] || [];
+    });
+    return products;
   })
 );
 router.get(
@@ -377,6 +412,7 @@ router.get(
          FROM bom_items b JOIN products p ON p.id = b.component_id WHERE b.product_id = ?`
       )
       .all(req.params.id);
+    product.units = services.listProductUnits(Number(req.params.id));
     product.movements = db
       .prepare('SELECT * FROM stock_movements WHERE product_id=? AND branch_id=? ORDER BY id DESC LIMIT 200')
       .all(req.params.id, branch_id);
@@ -397,10 +433,11 @@ router.put(
   handle((req) => {
     const { company_id } = ctx(req);
     assertOwned(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id), company_id, 'منتج غير موجود');
-    const { name, sku, unit, sale_price, reorder_level, is_active } = req.body;
+    const { name, sku, unit, category_id, sale_price, reorder_level, is_active } = req.body;
+    if (category_id) assertOwned(db.prepare('SELECT * FROM product_categories WHERE id=?').get(category_id), company_id, 'تصنيف غير موجود');
     db.prepare(
-      'UPDATE products SET name=?, sku=?, unit=?, sale_price=?, reorder_level=?, is_active=? WHERE id=?'
-    ).run(name, sku || null, unit || 'وحدة', Number(sale_price) || 0, Number(reorder_level) || 0, is_active ? 1 : 0, req.params.id);
+      'UPDATE products SET name=?, sku=?, unit=?, category_id=?, sale_price=?, reorder_level=?, is_active=? WHERE id=?'
+    ).run(name, sku || null, unit || 'وحدة', category_id || null, Number(sale_price) || 0, Number(reorder_level) || 0, is_active ? 1 : 0, req.params.id);
     return db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   })
 );
@@ -410,6 +447,14 @@ router.put(
   handle((req) => {
     const { company_id } = ctx(req);
     return services.setBom(Number(req.params.id), req.body.items || [], company_id);
+  })
+);
+router.put(
+  '/products/:id/units',
+  allow(...WH_G),
+  handle((req) => {
+    const { company_id } = ctx(req);
+    return services.setProductUnits(Number(req.params.id), req.body.items || [], company_id);
   })
 );
 

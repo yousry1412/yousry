@@ -41,6 +41,11 @@ ensureColumn('suppliers', 'latitude', 'latitude REAL');
 ensureColumn('suppliers', 'longitude', 'longitude REAL');
 ensureColumn('suppliers', 'geofence_radius_m', 'geofence_radius_m REAL');
 ensureColumn('trips', 'responsible_employee_id', 'responsible_employee_id INTEGER REFERENCES employees(id)');
+ensureColumn('products', 'category_id', 'category_id INTEGER REFERENCES product_categories(id)');
+ensureColumn('purchase_items', 'unit_id', 'unit_id INTEGER REFERENCES product_units(id)');
+ensureColumn('purchase_items', 'unit_qty', 'unit_qty REAL');
+ensureColumn('sales_items', 'unit_id', 'unit_id INTEGER REFERENCES product_units(id)');
+ensureColumn('sales_items', 'unit_qty', 'unit_qty REAL');
 
 // بعض القيود القديمة (CHECK على party_type/voucher_type) كانت بتمنع قيم جديدة زي 'employee' -
 // SQLite مسمحش بتعديل CHECK مباشرة، فلو لقينا الجدول لسه شايل القيد القديم، بنعيد إنشاءه بنفس البيانات

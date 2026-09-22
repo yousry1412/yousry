@@ -1,5 +1,9 @@
 var Pages = window.Pages || {};
 
+function round2ui(n) {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
 Pages.salesList = async function () {
   const rows = await Api.get('/sales');
   UI.setContent(`
@@ -33,9 +37,19 @@ Pages.salesList = async function () {
   `);
 };
 
+function saleUnitOptionsHtml(product) {
+  const base = `<option value="">${UI.escapeHtml(product.unit || 'وحدة')} (الوحدة الأساسية)</option>`;
+  const extra = (product.units || [])
+    .map((u) => `<option value="${u.id}">${UI.escapeHtml(u.unit_name)} (= ${UI.num(u.factor)} ${UI.escapeHtml(product.unit || 'وحدة')})</option>`)
+    .join('');
+  return base + extra;
+}
+
 function saleRowHtml(products) {
+  const first = products[0];
   return `<tr>
     <td><select class="it-product">${UI.optionsHtml(products, 'id', 'label')}</select></td>
+    <td><select class="it-unit">${first ? saleUnitOptionsHtml(first) : ''}</select></td>
     <td><input class="it-qty" type="number" step="0.01" value="1" /></td>
     <td><input class="it-price" type="number" step="0.01" value="0" /></td>
     <td class="it-total">0.00</td>
@@ -65,6 +79,8 @@ Pages.salesNew = async function () {
         id: r.product_id,
         label: `${r.product_name} (متاح بالعهدة: ${r.remaining})`,
         sale_price: priceMap[r.product_id] ? priceMap[r.product_id].sale_price : 0,
+        unit: priceMap[r.product_id] ? priceMap[r.product_id].unit : 'وحدة',
+        units: priceMap[r.product_id] ? priceMap[r.product_id].units : [],
       }));
     if (products.length === 0) {
       UI.setContent('<div class="card"><div class="empty-state">لا توجد كمية متبقية بعهدة هذه الرحلة للبيع منها</div></div>');
@@ -74,7 +90,13 @@ Pages.salesNew = async function () {
     const all = await Api.get('/products');
     products = all
       .filter((p) => p.qty_on_hand > 0)
-      .map((p) => ({ id: p.id, label: `${p.name} (متاح: ${UI.num(p.qty_on_hand)} ${p.unit})`, sale_price: p.sale_price }));
+      .map((p) => ({
+        id: p.id,
+        label: `${p.name} (متاح: ${UI.num(p.qty_on_hand)} ${p.unit})`,
+        sale_price: p.sale_price,
+        unit: p.unit,
+        units: p.units,
+      }));
     if (products.length === 0) {
       UI.setContent('<div class="card"><div class="empty-state">لا يوجد مخزون متاح للبيع حاليًا</div></div>');
       return;
@@ -91,7 +113,7 @@ Pages.salesNew = async function () {
         </div>
 
         <table class="items-table" style="margin-top:16px" id="itemsTable">
-          <thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th></th></tr></thead>
+          <thead><tr><th>الصنف</th><th>الوحدة</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th></th></tr></thead>
           <tbody>${saleRowHtml(products)}</tbody>
         </table>
         <button type="button" class="btn secondary small" id="addRowBtn" style="margin-top:8px">+ إضافة صنف</button>
@@ -124,13 +146,20 @@ Pages.salesNew = async function () {
       recalc();
     });
     const sel = tr.querySelector('.it-product');
+    const unitSel = tr.querySelector('.it-unit');
     const priceInput = tr.querySelector('.it-price');
     const applyDefaultPrice = () => {
       const p = products.find((x) => x.id === Number(sel.value));
-      if (p) priceInput.value = p.sale_price;
+      const factor = p && unitSel.value ? Number((p.units || []).find((u) => String(u.id) === unitSel.value)?.factor) || 1 : 1;
+      if (p) priceInput.value = round2ui(p.sale_price * factor);
       recalc();
     };
-    sel.addEventListener('change', applyDefaultPrice);
+    sel.addEventListener('change', () => {
+      const p = products.find((x) => x.id === Number(sel.value));
+      unitSel.innerHTML = p ? saleUnitOptionsHtml(p) : '';
+      applyDefaultPrice();
+    });
+    unitSel.addEventListener('change', applyDefaultPrice);
     tr.querySelectorAll('input').forEach((inp) => inp.addEventListener('input', recalc));
     applyDefaultPrice();
   }
@@ -174,6 +203,7 @@ Pages.salesNew = async function () {
     payload.items = [...tbody.querySelectorAll('tr')]
       .map((tr) => ({
         product_id: Number(tr.querySelector('.it-product').value),
+        unit_id: tr.querySelector('.it-unit').value || null,
         qty: Number(tr.querySelector('.it-qty').value) || 0,
         unit_price: Number(tr.querySelector('.it-price').value) || 0,
       }))
@@ -270,8 +300,8 @@ Pages.salesDetail = async function (id) {
           .map(
             (it) => `<tr>
             <td>${UI.escapeHtml(it.product_name)}</td>
-            <td>${UI.num(it.qty)} ${UI.escapeHtml(it.product_unit)}</td>
-            <td>${UI.money(it.unit_price)}</td>
+            <td>${it.unit_qty ? `${UI.num(it.unit_qty)} ${UI.escapeHtml(it.entered_unit_name)} = ` : ''}${UI.num(it.qty)} ${UI.escapeHtml(it.product_unit)}</td>
+            <td>${UI.money(it.unit_qty ? it.line_total / it.unit_qty : it.unit_price)}</td>
             <td>${UI.money(it.line_total)}</td>
           </tr>`
           )

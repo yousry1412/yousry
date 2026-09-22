@@ -120,16 +120,34 @@ CREATE TABLE IF NOT EXISTS customers (
 
 -- ---------- المنتجات (كتالوج على مستوى المنشأة) والمخزون (لكل فرع) ----------
 
-CREATE TABLE IF NOT EXISTS products (
+CREATE TABLE IF NOT EXISTS product_categories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   company_id INTEGER NOT NULL REFERENCES companies(id),
   name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  category_id INTEGER REFERENCES product_categories(id),
+  name TEXT NOT NULL,
   sku TEXT,
-  unit TEXT NOT NULL DEFAULT 'وحدة',
+  unit TEXT NOT NULL DEFAULT 'وحدة', -- الوحدة الأساسية (الصغرى) - كل الكميات والتكاليف بتتخزن بيها
   kind TEXT NOT NULL CHECK(kind IN ('trade','raw_material','manufactured')),
   sale_price REAL NOT NULL DEFAULT 0,
   reorder_level REAL NOT NULL DEFAULT 0,
   is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- وحدات قياس إضافية أكبر من الوحدة الأساسية (زي الكرتونة) بمعامل تحويل - قابلة للتوسع
+-- لأكتر من وحدتين مستقبلًا بدون تعديل الهيكل (مش مجرد عمودين "كبرى/صغرى")
+CREATE TABLE IF NOT EXISTS product_units (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  unit_name TEXT NOT NULL,
+  factor REAL NOT NULL, -- كام وحدة أساسية في الوحدة دي (مثلًا كرتونة = 24 قطعة)
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -188,9 +206,11 @@ CREATE TABLE IF NOT EXISTS purchase_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   invoice_id INTEGER NOT NULL REFERENCES purchase_invoices(id) ON DELETE CASCADE,
   product_id INTEGER NOT NULL REFERENCES products(id),
-  qty REAL NOT NULL,
-  unit_cost REAL NOT NULL,
-  line_total REAL NOT NULL
+  qty REAL NOT NULL, -- بالوحدة الأساسية دايمًا (بعد التحويل لو اتسجل ببند بوحدة أكبر)
+  unit_cost REAL NOT NULL, -- تكلفة الوحدة الأساسية دايمًا
+  line_total REAL NOT NULL,
+  unit_id INTEGER REFERENCES product_units(id), -- الوحدة اللي المستخدم اختارها فعليًا (لو أكبر من الأساسية) - للعرض بس
+  unit_qty REAL -- الكمية بنفس الوحدة دي - للعرض بس
 );
 
 CREATE TABLE IF NOT EXISTS purchase_returns (
@@ -323,10 +343,12 @@ CREATE TABLE IF NOT EXISTS sales_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   invoice_id INTEGER NOT NULL REFERENCES sales_invoices(id) ON DELETE CASCADE,
   product_id INTEGER NOT NULL REFERENCES products(id),
-  qty REAL NOT NULL,
-  unit_price REAL NOT NULL,
+  qty REAL NOT NULL, -- بالوحدة الأساسية دايمًا (بعد التحويل لو اتسجل ببند بوحدة أكبر)
+  unit_price REAL NOT NULL, -- سعر الوحدة الأساسية دايمًا
   unit_cost REAL NOT NULL,
-  line_total REAL NOT NULL
+  line_total REAL NOT NULL,
+  unit_id INTEGER REFERENCES product_units(id), -- الوحدة اللي المستخدم اختارها فعليًا (لو أكبر من الأساسية) - للعرض بس
+  unit_qty REAL -- الكمية بنفس الوحدة دي - للعرض بس
 );
 
 CREATE TABLE IF NOT EXISTS sales_returns (

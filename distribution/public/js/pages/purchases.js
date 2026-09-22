@@ -33,9 +33,19 @@ Pages.purchasesList = async function () {
   `);
 };
 
+function unitOptionsHtml(product) {
+  const base = `<option value="">${UI.escapeHtml(product.unit)} (الوحدة الأساسية)</option>`;
+  const extra = (product.units || [])
+    .map((u) => `<option value="${u.id}">${UI.escapeHtml(u.unit_name)} (= ${UI.num(u.factor)} ${UI.escapeHtml(product.unit)})</option>`)
+    .join('');
+  return base + extra;
+}
+
 function itemRowHtml(products) {
+  const first = products[0];
   return `<tr>
     <td><select class="it-product">${UI.optionsHtml(products, 'id', 'name')}</select></td>
+    <td><select class="it-unit">${first ? unitOptionsHtml(first) : ''}</select></td>
     <td><input class="it-qty" type="number" step="0.01" value="1" /></td>
     <td><input class="it-cost" type="number" step="0.01" value="0" /></td>
     <td class="it-total">0.00</td>
@@ -49,7 +59,12 @@ function wireItemsTable(tbody, products, onChange) {
       tr.remove();
       onChange();
     });
-    tr.querySelectorAll('input').forEach((inp) => inp.addEventListener('input', onChange));
+    tr.querySelector('.it-product').addEventListener('change', (e) => {
+      const p = products.find((x) => x.id === Number(e.target.value));
+      tr.querySelector('.it-unit').innerHTML = p ? unitOptionsHtml(p) : '';
+      onChange();
+    });
+    tr.querySelectorAll('input, select').forEach((inp) => inp.addEventListener('input', onChange));
   }
   tbody.querySelectorAll('tr').forEach(bindRow);
   return {
@@ -67,6 +82,7 @@ function wireItemsTable(tbody, products, onChange) {
 function readItems(tbody) {
   return [...tbody.querySelectorAll('tr')].map((tr) => ({
     product_id: Number(tr.querySelector('.it-product').value),
+    unit_id: tr.querySelector('.it-unit').value || null,
     qty: Number(tr.querySelector('.it-qty').value) || 0,
     unit_cost: Number(tr.querySelector('.it-cost').value) || 0,
   }));
@@ -89,7 +105,7 @@ Pages.purchaseNew = async function () {
         <p class="muted" id="geofenceHint" style="font-size:12.5px; display:none">📍 هذا المورد عليه رقابة موقع - لازم تكون فعليًا عنده وتسمح للمتصفح بموقعك عشان تقدر تسجل الفاتورة.</p>
 
         <table class="items-table" style="margin-top:16px" id="itemsTable">
-          <thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th></th></tr></thead>
+          <thead><tr><th>الصنف</th><th>الوحدة</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th></th></tr></thead>
           <tbody>${itemRowHtml(products)}</tbody>
         </table>
         <button type="button" class="btn secondary small" id="addRowBtn" style="margin-top:8px">+ إضافة صنف</button>
@@ -241,8 +257,8 @@ Pages.purchaseDetail = async function (id) {
           .map(
             (it) => `<tr>
             <td>${UI.escapeHtml(it.product_name)}</td>
-            <td>${UI.num(it.qty)} ${UI.escapeHtml(it.product_unit)}</td>
-            <td>${UI.money(it.unit_cost)}</td>
+            <td>${it.unit_qty ? `${UI.num(it.unit_qty)} ${UI.escapeHtml(it.entered_unit_name)} = ` : ''}${UI.num(it.qty)} ${UI.escapeHtml(it.product_unit)}</td>
+            <td>${UI.money(it.unit_qty ? it.line_total / it.unit_qty : it.unit_cost)}</td>
             <td>${UI.money(it.line_total)}</td>
           </tr>`
           )

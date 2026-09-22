@@ -197,17 +197,38 @@ function createCustomer({ company_id, name, phone, address, notes, credit_limit,
 }
 
 // ---------------------------------------------------------------------------
-// المنتجات و BOM
+// تصنيفات المنتجات
 // ---------------------------------------------------------------------------
 
-function createProduct({ company_id, branch_id, name, sku, unit, kind, sale_price, cost_price, reorder_level, opening_qty, bom }) {
+function createProductCategory({ company_id, name }) {
+  if (!name || !name.trim()) throw new Error('لازم تكتب اسم التصنيف');
+  const info = db.prepare('INSERT INTO product_categories (company_id, name) VALUES (?, ?)').run(company_id, name.trim());
+  return db.prepare('SELECT * FROM product_categories WHERE id = ?').get(info.lastInsertRowid);
+}
+
+function updateProductCategory(id, companyId, { name }) {
+  assertBelongs('product_categories', id, companyId, 'التصنيف');
+  db.prepare('UPDATE product_categories SET name = ? WHERE id = ?').run(name, id);
+  return db.prepare('SELECT * FROM product_categories WHERE id = ?').get(id);
+}
+
+function listProductCategories(companyId) {
+  return db.prepare('SELECT * FROM product_categories WHERE company_id = ? ORDER BY name').all(companyId);
+}
+
+// ---------------------------------------------------------------------------
+// المنتجات و BOM ووحدات القياس
+// ---------------------------------------------------------------------------
+
+function createProduct({ company_id, branch_id, category_id, name, sku, unit, kind, sale_price, cost_price, reorder_level, opening_qty, bom }) {
   return inTransaction(() => {
+    if (category_id) assertBelongs('product_categories', category_id, company_id, 'التصنيف');
     const info = db
       .prepare(
-        `INSERT INTO products (company_id, name, sku, unit, kind, sale_price, reorder_level)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO products (company_id, category_id, name, sku, unit, kind, sale_price, reorder_level)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, name, sku || null, unit || 'وحدة', kind, Number(sale_price) || 0, Number(reorder_level) || 0);
+      .run(company_id, category_id || null, name, sku || null, unit || 'وحدة', kind, Number(sale_price) || 0, Number(reorder_level) || 0);
     const id = info.lastInsertRowid;
 
     const oQty = round2(Number(opening_qty) || 0);
@@ -273,6 +294,39 @@ function setBom(productId, items, companyId) {
   });
 }
 
+/** استبدال كل وحدات القياس الإضافية (الأكبر من الوحدة الأساسية) لمنتج معين */
+function setProductUnits(productId, items, companyId) {
+  return inTransaction(() => {
+    assertBelongs('products', productId, companyId, 'المنتج');
+    db.prepare('DELETE FROM product_units WHERE product_id = ?').run(productId);
+    const insert = db.prepare('INSERT INTO product_units (product_id, unit_name, factor) VALUES (?, ?, ?)');
+    for (const item of items || []) {
+      const factor = Number(item.factor);
+      if (!item.unit_name || !item.unit_name.trim()) throw new Error('لازم تكتب اسم الوحدة');
+      if (!(factor > 0)) throw new Error(`معامل التحويل لوحدة "${item.unit_name}" لازم يكون أكبر من صفر`);
+      insert.run(productId, item.unit_name.trim(), factor);
+    }
+    return db.prepare('SELECT * FROM product_units WHERE product_id = ?').all(productId);
+  });
+}
+
+function listProductUnits(productId) {
+  return db.prepare('SELECT * FROM product_units WHERE product_id = ?').all(productId);
+}
+
+/** معامل التحويل لوحدة قياس معينة لمنتج معين (1 لو مفيش وحدة محددة = الوحدة الأساسية) */
+function getUnitFactor(productId, companyId, unitId) {
+  if (!unitId) return 1;
+  const row = db
+    .prepare(
+      `SELECT pu.factor FROM product_units pu JOIN products p ON p.id = pu.product_id
+       WHERE pu.id = ? AND pu.product_id = ? AND p.company_id = ?`
+    )
+    .get(unitId, productId, companyId);
+  if (!row) throw new Error('وحدة قياس غير صحيحة لهذا المنتج');
+  return row.factor;
+}
+
 // ---------------------------------------------------------------------------
 // المشتريات ومرتجعاتها
 // ---------------------------------------------------------------------------
@@ -318,12 +372,22 @@ function createPurchaseInvoice({
     const invoice_no = nextNumber('purchase_invoices', 'PINV');
     let subtotal = 0;
     const lineData = items.map((it) => {
-      const qty = Number(it.qty);
-      const unit_cost = Number(it.unit_cost);
-      if (!(qty > 0)) throw new Error('الكمية لازم تكون أكبر من صفر');
-      const line_total = round2(qty * unit_cost);
+      const enteredQty = Number(it.qty);
+      const enteredUnitCost = Number(it.unit_cost);
+      if (!(enteredQty > 0)) throw new Error('الكمية لازم تكون أكبر من صفر');
+      const factor = getUnitFactor(it.product_id, company_id, it.unit_id);
+      const line_total = round2(enteredQty * enteredUnitCost);
+      const qty = round2(enteredQty * factor);
+      const unit_cost = factor === 1 ? enteredUnitCost : round2(line_total / qty);
       subtotal += line_total;
-      return { product_id: it.product_id, qty, unit_cost, line_total };
+      return {
+        product_id: it.product_id,
+        qty,
+        unit_cost,
+        line_total,
+        unit_id: factor === 1 ? null : it.unit_id,
+        unit_qty: factor === 1 ? null : enteredQty,
+      };
     });
     subtotal = round2(subtotal);
     const vat_amount = company.vat_enabled ? round2(subtotal * (company.vat_rate / 100)) : 0;
@@ -344,11 +408,12 @@ function createPurchaseInvoice({
     const invoiceId = info.lastInsertRowid;
 
     const insertItem = db.prepare(
-      `INSERT INTO purchase_items (invoice_id, product_id, qty, unit_cost, line_total) VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO purchase_items (invoice_id, product_id, qty, unit_cost, line_total, unit_id, unit_qty)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
     );
     const invAccTotals = {};
     for (const line of lineData) {
-      insertItem.run(invoiceId, line.product_id, line.qty, line.unit_cost, line.line_total);
+      insertItem.run(invoiceId, line.product_id, line.qty, line.unit_cost, line.line_total, line.unit_id || null, line.unit_qty ?? null);
       applyStockMovement({
         product_id: line.product_id,
         branch_id,
@@ -403,8 +468,11 @@ function getPurchaseInvoice(id) {
   if (!invoice) return null;
   invoice.items = db
     .prepare(
-      `SELECT pit.*, p.name AS product_name, p.unit AS product_unit
-       FROM purchase_items pit JOIN products p ON p.id = pit.product_id WHERE pit.invoice_id = ?`
+      `SELECT pit.*, p.name AS product_name, p.unit AS product_unit, pu.unit_name AS entered_unit_name
+       FROM purchase_items pit
+       JOIN products p ON p.id = pit.product_id
+       LEFT JOIN product_units pu ON pu.id = pit.unit_id
+       WHERE pit.invoice_id = ?`
     )
     .all(id);
   return invoice;
@@ -991,9 +1059,11 @@ function createSalesInvoice({
 
     // تمريرة أولى: تحقق فقط + حساب التكلفة والإجمالي بدون تعديل المخزون
     for (const it of items) {
-      const qty = Number(it.qty);
-      const unit_price = Number(it.unit_price);
-      if (!(qty > 0)) throw new Error('الكمية لازم تكون أكبر من صفر');
+      const enteredQty = Number(it.qty);
+      const enteredUnitPrice = Number(it.unit_price);
+      if (!(enteredQty > 0)) throw new Error('الكمية لازم تكون أكبر من صفر');
+      const factor = getUnitFactor(it.product_id, company_id, it.unit_id);
+      const qty = round2(enteredQty * factor);
 
       let unit_cost;
       let productKind;
@@ -1014,10 +1084,20 @@ function createSalesInvoice({
         productKind = stock.kind;
       }
 
-      const line_total = round2(qty * unit_price);
+      const line_total = round2(enteredQty * enteredUnitPrice);
+      const unit_price = factor === 1 ? enteredUnitPrice : round2(line_total / qty);
       subtotal = round2(subtotal + line_total);
       totalCost = round2(totalCost + round2(qty * unit_cost));
-      lineData.push({ product_id: it.product_id, qty, unit_price, unit_cost, line_total, kind: productKind });
+      lineData.push({
+        product_id: it.product_id,
+        qty,
+        unit_price,
+        unit_cost,
+        line_total,
+        kind: productKind,
+        unit_id: factor === 1 ? null : it.unit_id,
+        unit_qty: factor === 1 ? null : enteredQty,
+      });
     }
 
     const vat_amount = company.vat_enabled ? round2(subtotal * (company.vat_rate / 100)) : 0;
@@ -1051,12 +1131,12 @@ function createSalesInvoice({
 
     // تمريرة ثانية: الآن بعد ما بقى عندنا رقم الفاتورة، نسجل بنود الفاتورة ونحرك المخزون فعليًا
     const insertItem = db.prepare(
-      `INSERT INTO sales_items (invoice_id, product_id, qty, unit_price, unit_cost, line_total)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sales_items (invoice_id, product_id, qty, unit_price, unit_cost, line_total, unit_id, unit_qty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
     const cogsAccTotals = {};
     for (const line of lineData) {
-      insertItem.run(invoiceId, line.product_id, line.qty, line.unit_price, line.unit_cost, line.line_total);
+      insertItem.run(invoiceId, line.product_id, line.qty, line.unit_price, line.unit_cost, line.line_total, line.unit_id || null, line.unit_qty ?? null);
       if (!trip_id) {
         applyStockMovement({
           product_id: line.product_id,
@@ -1130,8 +1210,11 @@ function getSalesInvoice(id) {
   if (!invoice) return null;
   invoice.items = db
     .prepare(
-      `SELECT sit.*, p.name AS product_name, p.unit AS product_unit
-       FROM sales_items sit JOIN products p ON p.id = sit.product_id WHERE sit.invoice_id = ?`
+      `SELECT sit.*, p.name AS product_name, p.unit AS product_unit, pu.unit_name AS entered_unit_name
+       FROM sales_items sit
+       JOIN products p ON p.id = sit.product_id
+       LEFT JOIN product_units pu ON pu.id = sit.unit_id
+       WHERE sit.invoice_id = ?`
     )
     .all(id);
   return invoice;
@@ -1787,6 +1870,11 @@ module.exports = {
   toBool,
   createEmployee,
   updateEmployee,
+  createProductCategory,
+  updateProductCategory,
+  listProductCategories,
+  setProductUnits,
+  listProductUnits,
   createCompany,
   createBranch,
   createPartner,
