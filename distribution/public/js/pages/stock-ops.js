@@ -39,10 +39,10 @@ async function renderTransferTab() {
     ${
       transfers.length === 0
         ? '<div class="empty-state">لا توجد تحويلات بعد</div>'
-        : `<div class="table-wrap"><table><thead><tr><th>الرقم</th><th>من</th><th>إلى</th><th>التاريخ</th></tr></thead><tbody>
+        : `<div class="table-wrap"><table><thead><tr><th>الرقم</th><th>من</th><th>إلى</th><th>التاريخ</th><th>سجّله</th></tr></thead><tbody>
             ${transfers
               .map(
-                (t) => `<tr><td>${UI.escapeHtml(t.transfer_no)}</td><td>${UI.escapeHtml(t.from_branch_name)}</td><td>${UI.escapeHtml(t.to_branch_name)}</td><td>${UI.escapeHtml(t.transfer_date)}</td></tr>`
+                (t) => `<tr><td>${UI.escapeHtml(t.transfer_no)}</td><td>${UI.escapeHtml(t.from_branch_name)}</td><td>${UI.escapeHtml(t.to_branch_name)}</td><td>${UI.escapeHtml(t.transfer_date)}</td><td class="muted">${UI.escapeHtml(t.created_by_username || '-')}</td></tr>`
               )
               .join('')}
           </tbody></table></div>`
@@ -116,7 +116,7 @@ async function renderAdjustmentTab() {
     ${
       adjustments.length === 0
         ? '<div class="empty-state">لا توجد تسويات بعد</div>'
-        : `<div class="table-wrap"><table><thead><tr><th>الرقم</th><th>الصنف</th><th>قبل</th><th>بعد الجرد</th><th>الفرق</th><th>التاريخ</th></tr></thead><tbody>
+        : `<div class="table-wrap"><table><thead><tr><th>الرقم</th><th>الصنف</th><th>قبل</th><th>بعد الجرد</th><th>الفرق</th><th>التاريخ</th><th>سجّله</th></tr></thead><tbody>
             ${adjustments
               .map(
                 (a) => `<tr>
@@ -126,6 +126,7 @@ async function renderAdjustmentTab() {
                 <td>${UI.num(a.qty_counted)}</td>
                 <td style="color:${a.qty_diff >= 0 ? 'var(--success)' : 'var(--danger)'}">${a.qty_diff >= 0 ? '+' : ''}${UI.num(a.qty_diff)}</td>
                 <td>${UI.escapeHtml(a.adjustment_date)}</td>
+                <td class="muted">${UI.escapeHtml(a.created_by_username || '-')}</td>
               </tr>`
               )
               .join('')}

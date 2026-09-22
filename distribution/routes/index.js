@@ -530,8 +530,9 @@ router.get(
     const { company_id, branch_id } = ctx(req);
     return db
       .prepare(
-        `SELECT po.*, p.name AS product_name FROM production_orders po
+        `SELECT po.*, p.name AS product_name, u.username AS created_by_username FROM production_orders po
          JOIN products p ON p.id = po.product_id
+         LEFT JOIN users u ON u.id = po.created_by_user_id
          WHERE po.company_id = ? AND po.branch_id = ? ORDER BY po.id DESC LIMIT 500`
       )
       .all(company_id, branch_id);
@@ -548,7 +549,7 @@ router.get(
 router.post(
   '/production',
   allow(...WH_G),
-  handle((req) => services.createProductionOrder({ ...req.body, ...ctx(req) }))
+  handle((req) => services.createProductionOrder({ ...req.body, ...ctx(req), created_by_user_id: req.user.id }))
 );
 
 // ---------------------------------------------------------------------------
@@ -640,7 +641,7 @@ router.post(
   allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
-    return services.addTripLoad({ trip_id: Number(req.params.id), items: req.body.items });
+    return services.addTripLoad({ trip_id: Number(req.params.id), items: req.body.items, created_by_user_id: req.user.id });
   })
 );
 router.post(
@@ -648,7 +649,7 @@ router.post(
   allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
-    return services.addTripExpense({ ...req.body, trip_id: Number(req.params.id) });
+    return services.addTripExpense({ ...req.body, trip_id: Number(req.params.id), created_by_user_id: req.user.id });
   })
 );
 router.post(
@@ -656,7 +657,7 @@ router.post(
   allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
-    return services.addTripReturn({ trip_id: Number(req.params.id), items: req.body.items });
+    return services.addTripReturn({ trip_id: Number(req.params.id), items: req.body.items, created_by_user_id: req.user.id });
   })
 );
 router.post(
@@ -769,10 +770,12 @@ router.get(
     const { company_id, branch_id } = ctx(req);
     return db
       .prepare(
-        `SELECT d.*, p.name AS product_name, p.unit AS product_unit, e.name AS responsible_employee_name
+        `SELECT d.*, p.name AS product_name, p.unit AS product_unit, e.name AS responsible_employee_name,
+                u.username AS created_by_username
          FROM damages d
          JOIN products p ON p.id = d.product_id
          LEFT JOIN employees e ON e.id = d.responsible_employee_id
+         LEFT JOIN users u ON u.id = d.created_by_user_id
          WHERE d.company_id = ? AND d.branch_id = ? ORDER BY d.id DESC LIMIT 500`
       )
       .all(company_id, branch_id);
@@ -781,7 +784,7 @@ router.get(
 router.post(
   '/damages',
   allow(...ALL_ROLES),
-  handle((req) => services.createDamage({ ...req.body, ...ctx(req, { needBranch: !req.body.trip_id }) }))
+  handle((req) => services.createDamage({ ...req.body, ...ctx(req, { needBranch: !req.body.trip_id }), created_by_user_id: req.user.id }))
 );
 
 // ---------------------------------------------------------------------------
@@ -795,9 +798,11 @@ router.get(
     const { company_id } = ctx(req, { needBranch: false });
     return db
       .prepare(
-        `SELECT st.*, fb.name AS from_branch_name, tb.name AS to_branch_name FROM stock_transfers st
+        `SELECT st.*, fb.name AS from_branch_name, tb.name AS to_branch_name, u.username AS created_by_username
+         FROM stock_transfers st
          JOIN branches fb ON fb.id = st.from_branch_id
          JOIN branches tb ON tb.id = st.to_branch_id
+         LEFT JOIN users u ON u.id = st.created_by_user_id
          WHERE st.company_id = ? ORDER BY st.id DESC LIMIT 500`
       )
       .all(company_id);
@@ -823,7 +828,7 @@ router.post(
   allow(...WH_G),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
-    return services.createStockTransfer({ ...req.body, company_id, from_branch_id: branch_id });
+    return services.createStockTransfer({ ...req.body, company_id, from_branch_id: branch_id, created_by_user_id: req.user.id });
   })
 );
 
@@ -834,8 +839,10 @@ router.get(
     const { company_id, branch_id } = ctx(req);
     return db
       .prepare(
-        `SELECT a.*, p.name AS product_name, p.unit AS product_unit FROM stock_adjustments a
+        `SELECT a.*, p.name AS product_name, p.unit AS product_unit, u.username AS created_by_username
+         FROM stock_adjustments a
          JOIN products p ON p.id = a.product_id
+         LEFT JOIN users u ON u.id = a.created_by_user_id
          WHERE a.company_id = ? AND a.branch_id = ? ORDER BY a.id DESC LIMIT 500`
       )
       .all(company_id, branch_id);
@@ -844,7 +851,7 @@ router.get(
 router.post(
   '/stock-adjustments',
   allow(...WH_G),
-  handle((req) => services.createStockAdjustment({ ...req.body, ...ctx(req) }))
+  handle((req) => services.createStockAdjustment({ ...req.body, ...ctx(req), created_by_user_id: req.user.id }))
 );
 
 // ---------------------------------------------------------------------------
@@ -856,13 +863,19 @@ router.get(
   allow(...FIN),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
-    return db.prepare('SELECT * FROM expenses WHERE company_id = ? AND branch_id = ? ORDER BY id DESC LIMIT 500').all(company_id, branch_id);
+    return db
+      .prepare(
+        `SELECT e.*, u.username AS created_by_username FROM expenses e
+         LEFT JOIN users u ON u.id = e.created_by_user_id
+         WHERE e.company_id = ? AND e.branch_id = ? ORDER BY e.id DESC LIMIT 500`
+      )
+      .all(company_id, branch_id);
   })
 );
 router.post(
   '/expenses',
   allow(...FIN),
-  handle((req) => services.createExpense({ ...req.body, ...ctx(req) }))
+  handle((req) => services.createExpense({ ...req.body, ...ctx(req), created_by_user_id: req.user.id }))
 );
 
 // ---------------------------------------------------------------------------
@@ -874,7 +887,13 @@ router.get(
   allow(...FIN),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
-    return db.prepare('SELECT * FROM vouchers WHERE company_id = ? ORDER BY id DESC LIMIT 500').all(company_id);
+    return db
+      .prepare(
+        `SELECT v.*, u.username AS created_by_username FROM vouchers v
+         LEFT JOIN users u ON u.id = v.created_by_user_id
+         WHERE v.company_id = ? ORDER BY v.id DESC LIMIT 500`
+      )
+      .all(company_id);
   })
 );
 router.post(
@@ -889,7 +908,7 @@ router.post(
       throw err;
     }
     const { company_id, branch_id } = ctx(req, { needBranch: false });
-    return services.createVoucher({ ...req.body, company_id, branch_id });
+    return services.createVoucher({ ...req.body, company_id, branch_id, created_by_user_id: req.user.id });
   })
 );
 

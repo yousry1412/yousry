@@ -12,7 +12,7 @@ Pages.productionList = async function () {
         rows.length === 0
           ? '<div class="empty-state">لا توجد أوامر تصنيع بعد</div>'
           : `<div class="table-wrap"><table><thead><tr>
-              <th>رقم الأمر</th><th>المنتج</th><th>التاريخ</th><th>الكمية المنتجة</th><th>تكلفة إضافية</th><th></th>
+              <th>رقم الأمر</th><th>المنتج</th><th>التاريخ</th><th>الكمية المنتجة</th><th>تكلفة إضافية</th><th>سجّله</th><th></th>
             </tr></thead><tbody>
               ${rows
                 .map(
@@ -22,6 +22,7 @@ Pages.productionList = async function () {
                   <td>${UI.escapeHtml(r.order_date)}</td>
                   <td>${UI.num(r.qty_produced)}</td>
                   <td>${UI.money(r.extra_cost)}</td>
+                  <td class="muted">${UI.escapeHtml(r.created_by_username || '-')}</td>
                   <td><a class="link-btn" href="#/production/${r.id}">تفاصيل</a></td>
                 </tr>`
                 )

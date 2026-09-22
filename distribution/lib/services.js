@@ -36,6 +36,21 @@ function assertBelongs(table, id, companyId, label) {
   if (!row || row.company_id !== companyId) throw new Error(`${label} غير موجود أو لا ينتمي لهذه المنشأة`);
 }
 
+/**
+ * يمنع تسجيل أي حركة مالية (فاتورة/سند/تلف/رحلة...) بتاريخ داخل فترة اتقفلت بالفعل
+ * (إقفال على مستوى الشركة كلها، أو إقفال خاص بنفس الفرع) - غير كده الإقفال المالي بيبقى
+ * شكلي بس ومفيدوش لو أي حد لسه يقدر يعدّل نتيجة فترة مقفولة برجوع لتاريخ فاتها.
+ */
+function assertPeriodOpen(companyId, branchId, date) {
+  if (!date) return;
+  const row = db
+    .prepare(`SELECT MAX(period_to) AS d FROM fiscal_closings WHERE company_id = ? AND (branch_id IS NULL OR branch_id = ?)`)
+    .get(companyId, branchId || null);
+  if (row.d && date <= row.d) {
+    throw new Error(`الفترة دي مقفولة ماليًا لحد ${row.d}. مينفعش تسجل حركة بتاريخ يساوي أو قبل كده`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // المنشآت والفروع والشركاء
 // ---------------------------------------------------------------------------
@@ -348,6 +363,7 @@ function createPurchaseInvoice({
 }) {
   return inTransaction(() => {
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف بنود للفاتورة');
+    assertPeriodOpen(company_id, branch_id, invoice_date);
     assertBelongs('suppliers', supplier_id, company_id, 'المورد');
     const supplier = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(supplier_id);
     const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(company_id);
@@ -482,6 +498,7 @@ function getPurchaseInvoice(id) {
 function createPurchaseReturn({ company_id, branch_id, supplier_id, purchase_invoice_id, return_date, items, refund_amount, refund_to, notes }) {
   return inTransaction(() => {
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف بنود للمرتجع');
+    assertPeriodOpen(company_id, branch_id, return_date);
     assertBelongs('suppliers', supplier_id, company_id, 'المورد');
 
     const return_no = nextNumber('purchase_returns', 'PRET');
@@ -575,8 +592,9 @@ function getPurchaseReturn(id) {
 // أوامر التصنيع
 // ---------------------------------------------------------------------------
 
-function createProductionOrder({ company_id, branch_id, product_id, qty_produced, order_date, extra_cost, paid_from, notes, items }) {
+function createProductionOrder({ company_id, branch_id, product_id, qty_produced, order_date, extra_cost, paid_from, notes, items, created_by_user_id }) {
   return inTransaction(() => {
+    assertPeriodOpen(company_id, branch_id, order_date);
     const product = getProduct(product_id, company_id);
     if (product.kind !== 'manufactured') {
       throw new Error('أمر التصنيع لازم يكون لمنتج من نوع "مُصنّع"');
@@ -595,10 +613,10 @@ function createProductionOrder({ company_id, branch_id, product_id, qty_produced
     const extraCost = Math.max(0, round2(Number(extra_cost) || 0));
     const info = db
       .prepare(
-        `INSERT INTO production_orders (company_id, branch_id, order_no, product_id, qty_produced, order_date, extra_cost, paid_from, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO production_orders (company_id, branch_id, order_no, product_id, qty_produced, order_date, extra_cost, paid_from, notes, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, branch_id, order_no, product_id, qtyProduced, order_date, extraCost, paid_from || 'cash', notes || null);
+      .run(company_id, branch_id, order_no, product_id, qtyProduced, order_date, extraCost, paid_from || 'cash', notes || null, created_by_user_id || null);
     const orderId = info.lastInsertRowid;
 
     const insertItem = db.prepare(
@@ -772,13 +790,14 @@ function liveTripLocations(companyId, branchId) {
     .filter(Boolean);
 }
 
-function addTripLoad({ trip_id, items }) {
+function addTripLoad({ trip_id, items, created_by_user_id }) {
   return inTransaction(() => {
     const trip = requireOpenTrip(trip_id);
+    assertPeriodOpen(trip.company_id, trip.branch_id, trip.trip_date);
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف أصناف للتحميل');
 
     const insertLoad = db.prepare(
-      `INSERT INTO trip_loads (trip_id, product_id, qty_loaded, unit_cost) VALUES (?, ?, ?, ?)`
+      `INSERT INTO trip_loads (trip_id, product_id, qty_loaded, unit_cost, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
     );
     const invAccTotals = {};
     let totalValue = 0;
@@ -797,7 +816,7 @@ function addTripLoad({ trip_id, items }) {
         ref_type: 'trip_load',
         ref_id: trip_id,
       });
-      insertLoad.run(trip_id, it.product_id, qty, effectiveCost);
+      insertLoad.run(trip_id, it.product_id, qty, effectiveCost, created_by_user_id || null);
       const value = round2(qty * effectiveCost);
       totalValue = round2(totalValue + value);
       const acc = invAccFor(stock);
@@ -856,9 +875,10 @@ function tripRemainingQty(trip_id, product_id) {
   return round2(loaded - sold - returned - damaged);
 }
 
-function addTripExpense({ trip_id, category, amount, paid_from, notes }) {
+function addTripExpense({ trip_id, category, amount, paid_from, notes, created_by_user_id }) {
   return inTransaction(() => {
     const trip = requireOpenTrip(trip_id);
+    assertPeriodOpen(trip.company_id, trip.branch_id, trip.trip_date);
     const amt = round2(Number(amount));
     if (!(amt > 0)) throw new Error('المبلغ لازم يكون أكبر من صفر');
     const from = paid_from || 'cash';
@@ -867,9 +887,9 @@ function addTripExpense({ trip_id, category, amount, paid_from, notes }) {
     }
     const info = db
       .prepare(
-        `INSERT INTO trip_expenses (trip_id, category, amount, paid_from, notes) VALUES (?, ?, ?, ?, ?)`
+        `INSERT INTO trip_expenses (trip_id, category, amount, paid_from, notes, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)`
       )
-      .run(trip_id, category, amt, from, notes || null);
+      .run(trip_id, category, amt, from, notes || null, created_by_user_id || null);
 
     // 'driver_custody' = المصروف اتدفع من الكاش اللي في إيد السائق (تحصيلات ميدانية)، فبنقلل عهدته
     // النقدية بدل ما نلمس خزنة/بنك المنشأة اللي أصلًا محصلش منها حاجة.
@@ -894,13 +914,14 @@ function addTripExpense({ trip_id, category, amount, paid_from, notes }) {
   });
 }
 
-function addTripReturn({ trip_id, items }) {
+function addTripReturn({ trip_id, items, created_by_user_id }) {
   return inTransaction(() => {
     const trip = requireOpenTrip(trip_id);
+    assertPeriodOpen(trip.company_id, trip.branch_id, trip.trip_date);
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف أصناف للإرجاع');
 
     const insertReturn = db.prepare(
-      `INSERT INTO trip_returns (trip_id, product_id, qty_returned, unit_cost) VALUES (?, ?, ?, ?)`
+      `INSERT INTO trip_returns (trip_id, product_id, qty_returned, unit_cost, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))`
     );
     const invAccTotals = {};
     let totalValue = 0;
@@ -922,7 +943,7 @@ function addTripReturn({ trip_id, items }) {
         ref_type: 'trip_return',
         ref_id: trip_id,
       });
-      insertReturn.run(trip_id, it.product_id, qty, unitCost);
+      insertReturn.run(trip_id, it.product_id, qty, unitCost, created_by_user_id || null);
       const value = round2(qty * unitCost);
       totalValue = round2(totalValue + value);
       const product = getProduct(it.product_id, trip.company_id);
@@ -1000,17 +1021,29 @@ function getTrip(id) {
   if (!trip) return null;
   trip.loads = db
     .prepare(
-      `SELECT tl.*, p.name AS product_name, p.unit AS product_unit FROM trip_loads tl
-       JOIN products p ON p.id = tl.product_id WHERE tl.trip_id = ?`
+      `SELECT tl.*, p.name AS product_name, p.unit AS product_unit, u.username AS created_by_username
+       FROM trip_loads tl
+       JOIN products p ON p.id = tl.product_id
+       LEFT JOIN users u ON u.id = tl.created_by_user_id
+       WHERE tl.trip_id = ?`
     )
     .all(id);
   trip.returns = db
     .prepare(
-      `SELECT tr.*, p.name AS product_name, p.unit AS product_unit FROM trip_returns tr
-       JOIN products p ON p.id = tr.product_id WHERE tr.trip_id = ?`
+      `SELECT tr.*, p.name AS product_name, p.unit AS product_unit, u.username AS created_by_username
+       FROM trip_returns tr
+       JOIN products p ON p.id = tr.product_id
+       LEFT JOIN users u ON u.id = tr.created_by_user_id
+       WHERE tr.trip_id = ?`
     )
     .all(id);
-  trip.expenses = db.prepare('SELECT * FROM trip_expenses WHERE trip_id = ?').all(id);
+  trip.expenses = db
+    .prepare(
+      `SELECT te.*, u.username AS created_by_username FROM trip_expenses te
+       LEFT JOIN users u ON u.id = te.created_by_user_id
+       WHERE te.trip_id = ?`
+    )
+    .all(id);
   trip.sales = db
     .prepare(
       `SELECT si.*, c.name AS customer_name FROM sales_invoices si
@@ -1050,6 +1083,7 @@ function createSalesInvoice({
       branch_id = trip.branch_id;
     }
     if (!company_id || !branch_id) throw new Error('لازم تحديد المنشأة والفرع');
+    assertPeriodOpen(company_id, branch_id, invoice_date);
     assertBelongs('customers', customer_id, company_id, 'العميل');
     const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(company_id);
 
@@ -1104,6 +1138,32 @@ function createSalesInvoice({
     const vat_amount = company.vat_enabled ? round2(subtotal * (company.vat_rate / 100)) : 0;
     const total = round2(subtotal + vat_amount);
     const paid = Math.max(0, Math.min(round2(Number(paid_amount) || 0), total));
+    const remainingOnInvoice = round2(total - paid);
+
+    // رقابة حد الائتمان: لو العميل له حد ائتمان محدد (أكبر من صفر)، مينفعش رصيده المستحق
+    // (بعد إضافة المتبقي من الفاتورة دي) يتجاوزه - غير كده حد الائتمان بيبقى رقم مسجّل بس من غير فايدة
+    if (remainingOnInvoice > 0) {
+      const customerForLimit = db.prepare('SELECT * FROM customers WHERE id = ?').get(customer_id);
+      if (customerForLimit.credit_limit > 0) {
+        const arRow = db
+          .prepare(
+            `SELECT COALESCE(SUM(jl.debit),0) AS d, COALESCE(SUM(jl.credit),0) AS c
+             FROM journal_lines jl
+             JOIN journal_entries je ON je.id = jl.entry_id
+             JOIN accounts a ON a.id = jl.account_id
+             WHERE je.company_id = ? AND a.code = ? AND jl.party_type = 'customer' AND jl.party_id = ?`
+          )
+          .get(company_id, ACC.AR, customer_id);
+        const currentBalance = round2(arRow.d - arRow.c);
+        const balanceAfter = round2(currentBalance + remainingOnInvoice);
+        if (balanceAfter > customerForLimit.credit_limit) {
+          throw new Error(
+            `الفاتورة دي هتخلي رصيد العميل "${customerForLimit.name}" ${balanceAfter} ج.م، وده أكبر من حد الائتمان المسموح ${customerForLimit.credit_limit} ج.م (رصيده الحالي ${currentBalance} ج.م)`
+          );
+        }
+      }
+    }
+
     const coord = sanitizeCoord(latitude, longitude);
     const info = db
       .prepare(
@@ -1224,6 +1284,7 @@ function getSalesInvoice(id) {
 function createSalesReturn({ company_id, branch_id, customer_id, sales_invoice_id, return_date, items, refund_amount, refund_from, notes }) {
   return inTransaction(() => {
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف بنود للمرتجع');
+    assertPeriodOpen(company_id, branch_id, return_date);
     assertBelongs('customers', customer_id, company_id, 'العميل');
 
     const return_no = nextNumber('sales_returns', 'SRET');
@@ -1339,7 +1400,7 @@ function getSalesReturn(id) {
 
 function createDamage({
   company_id, branch_id, product_id, qty, damage_date, reason, trip_id, notes,
-  responsible_employee_id, responsible_name, photo_data,
+  responsible_employee_id, responsible_name, photo_data, created_by_user_id,
 }) {
   return inTransaction(() => {
     const qtyNum = Number(qty);
@@ -1352,6 +1413,7 @@ function createDamage({
       branch_id = trip.branch_id;
     }
     if (!company_id || !branch_id) throw new Error('لازم تحديد المنشأة والفرع');
+    assertPeriodOpen(company_id, branch_id, damage_date);
 
     const product = getProduct(product_id, company_id);
     let unit_cost;
@@ -1383,8 +1445,8 @@ function createDamage({
     const info = db
       .prepare(
         `INSERT INTO damages
-         (company_id, branch_id, damage_no, product_id, qty, unit_cost, damage_date, reason, responsible_employee_id, responsible_name, photo_data, trip_id, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (company_id, branch_id, damage_no, product_id, qty, unit_cost, damage_date, reason, responsible_employee_id, responsible_name, photo_data, trip_id, notes, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         company_id,
@@ -1399,7 +1461,8 @@ function createDamage({
         responsible_employee_id ? null : responsible_name || null,
         photo_data || null,
         trip_id || null,
-        notes || null
+        notes || null,
+        created_by_user_id || null
       );
 
     if (!trip_id) {
@@ -1437,20 +1500,22 @@ function createDamage({
 // تحويلات وتسويات المخزون
 // ---------------------------------------------------------------------------
 
-function createStockTransfer({ company_id, from_branch_id, to_branch_id, transfer_date, items, notes }) {
+function createStockTransfer({ company_id, from_branch_id, to_branch_id, transfer_date, items, notes, created_by_user_id }) {
   return inTransaction(() => {
     if (from_branch_id === to_branch_id) throw new Error('لازم يكون الفرع المرسل مختلف عن الفرع المستقبل');
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف أصناف للتحويل');
     assertBelongs('branches', from_branch_id, company_id, 'الفرع المرسل');
     assertBelongs('branches', to_branch_id, company_id, 'الفرع المستقبل');
+    assertPeriodOpen(company_id, from_branch_id, transfer_date);
+    assertPeriodOpen(company_id, to_branch_id, transfer_date);
 
     const transfer_no = nextNumber('stock_transfers', 'TRF');
     const info = db
       .prepare(
-        `INSERT INTO stock_transfers (company_id, transfer_no, from_branch_id, to_branch_id, transfer_date, notes)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO stock_transfers (company_id, transfer_no, from_branch_id, to_branch_id, transfer_date, notes, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, transfer_no, from_branch_id, to_branch_id, transfer_date, notes || null);
+      .run(company_id, transfer_no, from_branch_id, to_branch_id, transfer_date, notes || null, created_by_user_id || null);
     const transferId = info.lastInsertRowid;
 
     const insertItem = db.prepare(
@@ -1509,8 +1574,9 @@ function createStockTransfer({ company_id, from_branch_id, to_branch_id, transfe
   });
 }
 
-function createStockAdjustment({ company_id, branch_id, product_id, qty_counted, adjustment_date, reason, notes }) {
+function createStockAdjustment({ company_id, branch_id, product_id, qty_counted, adjustment_date, reason, notes, created_by_user_id }) {
   return inTransaction(() => {
+    assertPeriodOpen(company_id, branch_id, adjustment_date);
     const stock = getProductWithStock(product_id, branch_id, company_id);
     const qtyBefore = stock.qty_on_hand;
     const qtyCounted = Number(qty_counted);
@@ -1520,10 +1586,10 @@ function createStockAdjustment({ company_id, branch_id, product_id, qty_counted,
     const unitCostForRecord = stock.cost_price;
     const info = db
       .prepare(
-        `INSERT INTO stock_adjustments (company_id, branch_id, adjustment_no, product_id, qty_before, qty_counted, qty_diff, unit_cost, adjustment_date, reason, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO stock_adjustments (company_id, branch_id, adjustment_no, product_id, qty_before, qty_counted, qty_diff, unit_cost, adjustment_date, reason, notes, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, branch_id, adjustment_no, product_id, qtyBefore, qtyCounted, diff, unitCostForRecord, adjustment_date, reason || null, notes || null);
+      .run(company_id, branch_id, adjustment_no, product_id, qtyBefore, qtyCounted, diff, unitCostForRecord, adjustment_date, reason || null, notes || null, created_by_user_id || null);
 
     if (diff !== 0) {
       const effectiveCost = applyStockMovement({
@@ -1568,17 +1634,18 @@ function createStockAdjustment({ company_id, branch_id, product_id, qty_counted,
 // المصروفات العامة
 // ---------------------------------------------------------------------------
 
-function createExpense({ company_id, branch_id, category, amount, expense_date, paid_from, notes }) {
+function createExpense({ company_id, branch_id, category, amount, expense_date, paid_from, notes, created_by_user_id }) {
   return inTransaction(() => {
+    assertPeriodOpen(company_id, branch_id, expense_date);
     const amt = round2(Number(amount));
     if (!(amt > 0)) throw new Error('المبلغ لازم يكون أكبر من صفر');
     const expense_no = nextNumber('expenses', 'EXP');
     const info = db
       .prepare(
-        `INSERT INTO expenses (company_id, branch_id, expense_no, category, amount, expense_date, paid_from, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO expenses (company_id, branch_id, expense_no, category, amount, expense_date, paid_from, notes, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, branch_id, expense_no, category, amt, expense_date, paid_from || 'cash', notes || null);
+      .run(company_id, branch_id, expense_no, category, amt, expense_date, paid_from || 'cash', notes || null, created_by_user_id || null);
 
     postEntry({
       company_id,
@@ -1609,15 +1676,15 @@ const EMPLOYEE_VOUCHER_LABELS = {
   salary: 'صرف راتب',
 };
 
-function createEmployeeVoucher({ company_id, branch_id, voucher_type, party_id, amt, method, voucher_date, notes }) {
+function createEmployeeVoucher({ company_id, branch_id, voucher_type, party_id, amt, method, voucher_date, notes, created_by_user_id }) {
   const employee = db.prepare('SELECT * FROM employees WHERE id = ?').get(party_id);
   const voucher_no = nextNumber('vouchers', 'EMP');
   const info = db
     .prepare(
-      `INSERT INTO vouchers (company_id, branch_id, voucher_no, voucher_type, party_type, party_id, party_name, amount, method, voucher_date, notes)
-       VALUES (?, ?, ?, ?, 'employee', ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO vouchers (company_id, branch_id, voucher_no, voucher_type, party_type, party_id, party_name, amount, method, voucher_date, notes, created_by_user_id)
+       VALUES (?, ?, ?, ?, 'employee', ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(company_id, branch_id || null, voucher_no, voucher_type, party_id, employee.name, amt, method || 'cash', voucher_date, notes || null);
+    .run(company_id, branch_id || null, voucher_no, voucher_type, party_id, employee.name, amt, method || 'cash', voucher_date, notes || null, created_by_user_id || null);
 
   let jLines;
   const cashLine = { account_code: cashOrBank(method), branch_id };
@@ -1655,10 +1722,11 @@ function createEmployeeVoucher({ company_id, branch_id, voucher_type, party_id, 
   return db.prepare('SELECT * FROM vouchers WHERE id = ?').get(info.lastInsertRowid);
 }
 
-function createVoucher({ company_id, branch_id, voucher_type, party_type, party_id, party_name, other_account_code, amount, method, voucher_date, notes, trip_id }) {
+function createVoucher({ company_id, branch_id, voucher_type, party_type, party_id, party_name, other_account_code, amount, method, voucher_date, notes, trip_id, created_by_user_id }) {
   return inTransaction(() => {
     const amt = round2(Number(amount));
     if (!(amt > 0)) throw new Error('المبلغ لازم يكون أكبر من صفر');
+    assertPeriodOpen(company_id, branch_id, voucher_date);
 
     if (party_type === 'employee' && !EMPLOYEE_VOUCHER_TYPES.includes(voucher_type)) {
       throw new Error('نوع سند غير صحيح للموظف - لازم يكون سلفة أو تسوية سلفة أو صرف/استرجاع عهدة أو صرف راتب');
@@ -1681,7 +1749,7 @@ function createVoucher({ company_id, branch_id, voucher_type, party_type, party_
     }
 
     if (party_type === 'employee') {
-      return createEmployeeVoucher({ company_id, branch_id, voucher_type, party_id, amt, method, voucher_date, notes });
+      return createEmployeeVoucher({ company_id, branch_id, voucher_type, party_id, amt, method, voucher_date, notes, created_by_user_id });
     }
 
     // تحصيل ميداني من عميل أثناء رحلة توزيع مفتوحة: الكاش بيدخل عهدة المسؤول عن الرحلة
@@ -1700,8 +1768,8 @@ function createVoucher({ company_id, branch_id, voucher_type, party_type, party_
     const voucher_no = nextNumber('vouchers', prefix);
     const info = db
       .prepare(
-        `INSERT INTO vouchers (company_id, branch_id, voucher_no, voucher_type, party_type, party_id, party_name, other_account_code, amount, method, voucher_date, trip_id, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO vouchers (company_id, branch_id, voucher_no, voucher_type, party_type, party_id, party_name, other_account_code, amount, method, voucher_date, trip_id, notes, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         company_id,
@@ -1716,7 +1784,8 @@ function createVoucher({ company_id, branch_id, voucher_type, party_type, party_
         method || 'cash',
         voucher_date,
         trip_id || null,
-        notes || null
+        notes || null,
+        created_by_user_id || null
       );
 
     let partyName = party_name || '';

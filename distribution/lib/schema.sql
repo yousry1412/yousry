@@ -251,6 +251,7 @@ CREATE TABLE IF NOT EXISTS production_orders (
   extra_cost REAL NOT NULL DEFAULT 0,
   paid_from TEXT NOT NULL DEFAULT 'cash' CHECK(paid_from IN ('cash','bank')),
   notes TEXT,
+  created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -296,7 +297,9 @@ CREATE TABLE IF NOT EXISTS trip_loads (
   trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
   product_id INTEGER NOT NULL REFERENCES products(id),
   qty_loaded REAL NOT NULL,
-  unit_cost REAL NOT NULL
+  unit_cost REAL NOT NULL,
+  created_by_user_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS trip_returns (
@@ -304,7 +307,9 @@ CREATE TABLE IF NOT EXISTS trip_returns (
   trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
   product_id INTEGER NOT NULL REFERENCES products(id),
   qty_returned REAL NOT NULL,
-  unit_cost REAL NOT NULL
+  unit_cost REAL NOT NULL,
+  created_by_user_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS trip_expenses (
@@ -315,6 +320,7 @@ CREATE TABLE IF NOT EXISTS trip_expenses (
   -- 'cash'/'bank' = من خزنة المنشأة، 'driver_custody' = من الكاش اللي في عهدة المسؤول عن الرحلة (تحصيلات ميدانية)
   paid_from TEXT NOT NULL DEFAULT 'cash',
   notes TEXT,
+  created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -394,6 +400,7 @@ CREATE TABLE IF NOT EXISTS damages (
   photo_data TEXT, -- صورة التلف (data URL base64) - دليل موثّق وقت التسجيل
   trip_id INTEGER REFERENCES trips(id),
   notes TEXT,
+  created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -407,6 +414,7 @@ CREATE TABLE IF NOT EXISTS stock_transfers (
   to_branch_id INTEGER NOT NULL REFERENCES branches(id),
   transfer_date TEXT NOT NULL,
   notes TEXT,
+  created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -431,6 +439,7 @@ CREATE TABLE IF NOT EXISTS stock_adjustments (
   adjustment_date TEXT NOT NULL,
   reason TEXT,
   notes TEXT,
+  created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -446,6 +455,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   expense_date TEXT NOT NULL,
   paid_from TEXT NOT NULL DEFAULT 'cash' CHECK(paid_from IN ('cash','bank')),
   notes TEXT,
+  created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -466,6 +476,7 @@ CREATE TABLE IF NOT EXISTS vouchers (
   voucher_date TEXT NOT NULL,
   trip_id INTEGER REFERENCES trips(id), -- لو السند ده تحصيل ميداني أثناء رحلة توزيع مفتوحة
   notes TEXT,
+  created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

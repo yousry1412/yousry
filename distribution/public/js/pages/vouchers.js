@@ -103,7 +103,7 @@ Pages.vouchersList = async function () {
         rows.length === 0
           ? '<div class="empty-state">لا توجد سندات مسجّلة بعد</div>'
           : `<div class="table-wrap"><table><thead><tr>
-              <th>الرقم</th><th>النوع</th><th>الطرف</th><th>المبلغ</th><th>الطريقة</th><th>التاريخ</th>
+              <th>الرقم</th><th>النوع</th><th>الطرف</th><th>المبلغ</th><th>الطريقة</th><th>التاريخ</th><th>سجّله</th>
             </tr></thead><tbody>
               ${rows
                 .map(
@@ -114,6 +114,7 @@ Pages.vouchersList = async function () {
                   <td>${UI.money(r.amount)}</td>
                   <td>${r.method === 'cash' ? 'نقدية' : 'بنك'}</td>
                   <td>${UI.escapeHtml(r.voucher_date)}</td>
+                  <td class="muted">${UI.escapeHtml(r.created_by_username || '-')}</td>
                 </tr>`
                 )
                 .join('')}

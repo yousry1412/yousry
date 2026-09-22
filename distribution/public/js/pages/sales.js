@@ -111,6 +111,7 @@ Pages.salesNew = async function () {
           <div class="field"><label>العميل *</label><select name="customer_id" required>${UI.optionsHtml(customers, 'id', 'name')}</select></div>
           <div class="field"><label>التاريخ *</label><input name="invoice_date" type="date" value="${UI.todayStr()}" required /></div>
         </div>
+        <p class="muted" id="creditHint" style="font-size:12.5px; display:none"></p>
 
         <table class="items-table" style="margin-top:16px" id="itemsTable">
           <thead><tr><th>الصنف</th><th>الوحدة</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th></th></tr></thead>
@@ -165,6 +166,25 @@ Pages.salesNew = async function () {
   }
 
   const company = Context.getCompany();
+  const customerSelect = document.querySelector('select[name="customer_id"]');
+  const paidInput = document.querySelector('input[name="paid_amount"]');
+  const creditHint = document.getElementById('creditHint');
+
+  function updateCreditHint(total) {
+    const customer = customers.find((c) => c.id === Number(customerSelect.value));
+    if (!customer || !(customer.credit_limit > 0)) {
+      creditHint.style.display = 'none';
+      return;
+    }
+    const paid = Number(paidInput.value) || 0;
+    const remaining = Math.max(0, round2ui(total - paid));
+    const currentBalance = customer.balance || 0;
+    const after = round2ui(currentBalance + remaining);
+    creditHint.style.display = 'block';
+    creditHint.style.color = after > customer.credit_limit ? 'var(--danger)' : '';
+    creditHint.textContent = `رصيد العميل الحالي ${UI.money(currentBalance)} + متبقي هذه الفاتورة ${UI.money(remaining)} = ${UI.money(after)} من حد ائتمانه ${UI.money(customer.credit_limit)}${after > customer.credit_limit ? ' - تجاوز الحد المسموح!' : ''}`;
+  }
+
   function recalc() {
     let subtotal = 0;
     tbody.querySelectorAll('tr').forEach((tr) => {
@@ -182,11 +202,15 @@ Pages.salesNew = async function () {
       document.getElementById('vatRateLabel').textContent = company.vat_rate;
       document.getElementById('vatTotal').textContent = UI.money(vat);
     }
-    document.getElementById('grandTotal').textContent = UI.money(subtotal + vat);
+    const total = subtotal + vat;
+    document.getElementById('grandTotal').textContent = UI.money(total);
+    updateCreditHint(total);
   }
 
   tbody.querySelectorAll('tr').forEach(bindRow);
   recalc();
+  customerSelect.addEventListener('change', recalc);
+  paidInput.addEventListener('input', recalc);
 
   document.getElementById('addRowBtn').addEventListener('click', () => {
     const tr = document.createElement('tr');

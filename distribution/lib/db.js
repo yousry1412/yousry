@@ -51,6 +51,19 @@ ensureColumn('fiscal_closings', 'branch_id', 'branch_id INTEGER REFERENCES branc
 ensureColumn('damages', 'responsible_employee_id', 'responsible_employee_id INTEGER REFERENCES employees(id)');
 ensureColumn('damages', 'responsible_name', 'responsible_name TEXT');
 ensureColumn('damages', 'photo_data', 'photo_data TEXT');
+// تتبع "مين عمل العملية" على كل الجداول المالية اللي كانت ناقصاه - مهم للرقابة والشفافية
+// بين الشركاء والموظفين لو حصل أي خلاف على مين المسؤول عن عملية معينة
+ensureColumn('vouchers', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('damages', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('stock_adjustments', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('stock_transfers', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('production_orders', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('expenses', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('trip_loads', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('trip_loads', 'created_at', "created_at TEXT NOT NULL DEFAULT ''");
+ensureColumn('trip_returns', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('trip_returns', 'created_at', "created_at TEXT NOT NULL DEFAULT ''");
+ensureColumn('trip_expenses', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
 
 // بعض القيود القديمة (CHECK على party_type/voucher_type) كانت بتمنع قيم جديدة زي 'employee' -
 // SQLite مسمحش بتعديل CHECK مباشرة، فلو لقينا الجدول لسه شايل القيد القديم، بنعيد إنشاءه بنفس البيانات

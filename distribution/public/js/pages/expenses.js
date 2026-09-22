@@ -44,7 +44,7 @@ Pages.expensesList = async function () {
         rows.length === 0
           ? '<div class="empty-state">لا توجد مصروفات مسجّلة بعد</div>'
           : `<div class="table-wrap"><table><thead><tr>
-              <th>الرقم</th><th>البند</th><th>المبلغ</th><th>التاريخ</th><th>مدفوع من</th>
+              <th>الرقم</th><th>البند</th><th>المبلغ</th><th>التاريخ</th><th>مدفوع من</th><th>سجّله</th>
             </tr></thead><tbody>
               ${rows
                 .map(
@@ -54,6 +54,7 @@ Pages.expensesList = async function () {
                   <td>${UI.money(r.amount)}</td>
                   <td>${UI.escapeHtml(r.expense_date)}</td>
                   <td>${r.paid_from === 'cash' ? 'نقدية' : 'بنك'}</td>
+                  <td class="muted">${UI.escapeHtml(r.created_by_username || '-')}</td>
                 </tr>`
                 )
                 .join('')}

@@ -68,7 +68,7 @@ Pages.damagesList = async function () {
         rows.length === 0
           ? '<div class="empty-state">لا توجد توالف مسجّلة - الحمد لله</div>'
           : `<div class="table-wrap"><table><thead><tr>
-              <th>الرقم</th><th>الصنف</th><th>الكمية</th><th>القيمة</th><th>التاريخ</th><th>السبب</th><th>المسبب</th><th>صورة</th>
+              <th>الرقم</th><th>الصنف</th><th>الكمية</th><th>القيمة</th><th>التاريخ</th><th>السبب</th><th>المسبب</th><th>صورة</th><th>سجّله</th>
             </tr></thead><tbody>
               ${rows
                 .map(
@@ -81,6 +81,7 @@ Pages.damagesList = async function () {
                   <td>${UI.escapeHtml(r.reason || '-')}</td>
                   <td>${UI.escapeHtml(r.responsible_employee_name || r.responsible_name || '-')}</td>
                   <td>${r.photo_data ? `<button type="button" class="link-btn" data-photo="${r.id}">عرض</button>` : '-'}</td>
+                  <td class="muted">${UI.escapeHtml(r.created_by_username || '-')}</td>
                 </tr>`
                 )
                 .join('')}

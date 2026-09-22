@@ -532,8 +532,8 @@ Pages.tripDetail = async function (id) {
         ${
           trip.expenses.length === 0
             ? '<div class="empty-state">لا توجد مصروفات بعد</div>'
-            : `<div class="table-wrap"><table><thead><tr><th>البند</th><th>المبلغ</th></tr></thead><tbody>
-                ${trip.expenses.map((e) => `<tr><td>${UI.escapeHtml(e.category)}</td><td>${UI.money(e.amount)}</td></tr>`).join('')}
+            : `<div class="table-wrap"><table><thead><tr><th>البند</th><th>المبلغ</th><th>سجّله</th></tr></thead><tbody>
+                ${trip.expenses.map((e) => `<tr><td>${UI.escapeHtml(e.category)}</td><td>${UI.money(e.amount)}</td><td class="muted">${UI.escapeHtml(e.created_by_username || '-')}</td></tr>`).join('')}
               </tbody></table></div>`
         }
       </div>
