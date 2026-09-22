@@ -841,6 +841,59 @@ function cashFlowStatement(companyId, { from, to, branchId } = {}) {
   return { operating: byCategory.operating, financing: byCategory.financing, netChange, openingCash, closingCash, from, to };
 }
 
+/**
+ * الخزنة الرئيسية: رصيد الكاش والبنك الحالي (إجمالي ولكل فرع)، بالإضافة لسجل حركة يومي
+ * (دفتر خزينة) بكل ما دخل وخرج من الكاش/البنك، عشان مراقبة المدفوعات والمصروفات في مكان واحد.
+ */
+function treasuryOverview(companyId, { branchId, from, to, limit = 300 } = {}) {
+  const cash = accountBalance(companyId, ACC.CASH, branchId);
+  const bank = accountBalance(companyId, ACC.BANK, branchId);
+
+  const branches = db.prepare('SELECT id, name FROM branches WHERE company_id = ? AND is_active = 1 ORDER BY is_main DESC, name').all(companyId);
+  const byBranch = branchId
+    ? []
+    : branches.map((b) => ({
+        branch_id: b.id,
+        branch_name: b.name,
+        cash: accountBalance(companyId, ACC.CASH, b.id),
+        bank: accountBalance(companyId, ACC.BANK, b.id),
+      }));
+
+  const accountIds = db.prepare('SELECT id, code FROM accounts WHERE company_id = ? AND code IN (?, ?)').all(companyId, ACC.CASH, ACC.BANK);
+  if (accountIds.length === 0) {
+    return { cash, bank, total: round2(cash + bank), byBranch, movements: [] };
+  }
+  const idsPlaceholder = accountIds.map(() => '?').join(',');
+  const conditions = [];
+  const params = [...accountIds.map((a) => a.id)];
+  if (branchId) {
+    conditions.push('jl.branch_id = ?');
+    params.push(branchId);
+  }
+  if (from) {
+    conditions.push('je.entry_date >= ?');
+    params.push(from);
+  }
+  if (to) {
+    conditions.push('je.entry_date <= ?');
+    params.push(to);
+  }
+  const extraFilter = conditions.length ? 'AND ' + conditions.join(' AND ') : '';
+  const movements = db
+    .prepare(
+      `SELECT je.entry_date, je.description, je.ref_type, a.code AS account_code, jl.debit, jl.credit, b.name AS branch_name
+       FROM journal_lines jl
+       JOIN journal_entries je ON je.id = jl.entry_id
+       JOIN accounts a ON a.id = jl.account_id
+       LEFT JOIN branches b ON b.id = jl.branch_id
+       WHERE jl.account_id IN (${idsPlaceholder}) ${extraFilter}
+       ORDER BY je.entry_date DESC, je.id DESC LIMIT ?`
+    )
+    .all(...params, limit);
+
+  return { cash, bank, total: round2(cash + bank), byBranch, movements };
+}
+
 function listFiscalClosings(companyId) {
   return db
     .prepare(
@@ -933,6 +986,7 @@ module.exports = {
   tripProfitability,
   partnersEquityStatement,
   cashFlowStatement,
+  treasuryOverview,
   listFiscalClosings,
   dashboardSummary,
 };
