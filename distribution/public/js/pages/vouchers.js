@@ -103,7 +103,7 @@ Pages.vouchersList = async function () {
         rows.length === 0
           ? '<div class="empty-state">لا توجد سندات مسجّلة بعد</div>'
           : `<div class="table-wrap"><table><thead><tr>
-              <th>الرقم</th><th>النوع</th><th>الطرف</th><th>المبلغ</th><th>الطريقة</th><th>التاريخ</th><th>سجّله</th>
+              <th>الرقم</th><th>النوع</th><th>الطرف</th><th>المبلغ</th><th>الطريقة</th><th>التاريخ</th><th>سجّله</th><th>الحالة</th><th></th>
             </tr></thead><tbody>
               ${rows
                 .map(
@@ -115,6 +115,8 @@ Pages.vouchersList = async function () {
                   <td>${r.method === 'cash' ? 'نقدية' : 'بنك'}</td>
                   <td>${UI.escapeHtml(r.voucher_date)}</td>
                   <td class="muted">${UI.escapeHtml(r.created_by_username || '-')}</td>
+                  <td>${r.is_reversed ? UI.badge('معكوس', 'red') : UI.badge('سارٍ', 'green')}</td>
+                  <td>${r.is_reversed ? '-' : `<button class="link-btn" data-reverse="${r.id}">عكس السند</button>`}</td>
                 </tr>`
                 )
                 .join('')}
@@ -122,6 +124,20 @@ Pages.vouchersList = async function () {
       }
     </div>
   `);
+
+  document.querySelectorAll('[data-reverse]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const reason = await UI.promptReason('سبب عكس السند؟ (إجباري)');
+      if (!reason) return;
+      try {
+        await Api.post(`/vouchers/${btn.dataset.reverse}/reverse`, { reason });
+        UI.toast('تم عكس السند', 'success');
+        Pages.vouchersList();
+      } catch (err) {
+        UI.toast(err.message, 'error');
+      }
+    })
+  );
 
   document.getElementById('addVoucherBtn').addEventListener('click', async () => {
     const [customers, suppliers, partners, employees, accounts] = await Promise.all([

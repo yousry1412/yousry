@@ -1496,6 +1496,61 @@ function createDamage({
   });
 }
 
+/**
+ * عكس تلف بالكامل بدل تعديله أو حذفه: بيرجّع الكمية للمخزون بنفس تكلفة الوحدة وقت
+ * التسجيل، ويترحّل قيد معاكس (يقفل مصروف التوالف ويرجّع قيمته لحساب المخزون)، ويعلّم
+ * سجل التلف الأصلي كـ"معكوس" مع سبب وتاريخ ومين عمل العكس.
+ * مقصورة على توالف المخزن (مش المرتبطة برحلة توزيع) لأن عكس عهدة رحلة أعقد وممكن
+ * الرحلة تكون اتقفلت بالفعل - العجز المرتبط برحلة يتصحّح بتسوية مخزون + سند يدوي.
+ */
+function reverseDamage(damageId, companyId, { reason, reversed_by_user_id }) {
+  return inTransaction(() => {
+    const damage = db.prepare('SELECT * FROM damages WHERE id = ?').get(damageId);
+    if (!damage || damage.company_id !== companyId) throw new Error('تلف غير موجود أو لا ينتمي لهذه المنشأة');
+    if (damage.is_reversed) throw new Error('التلف ده اتعكس بالفعل');
+    if (!reason || !reason.trim()) throw new Error('لازم تكتب سبب عكس التلف');
+    if (damage.trip_id) {
+      throw new Error('مينفعش تعكس تلف مرتبط برحلة توزيع مباشرة - سجّل تسوية مخزون وسند يدوي بدل كده');
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    assertPeriodOpen(companyId, damage.branch_id, today);
+
+    const product = getProduct(damage.product_id, companyId);
+    applyStockMovement({
+      product_id: damage.product_id,
+      branch_id: damage.branch_id,
+      date: today,
+      qty: damage.qty,
+      unit_cost: damage.unit_cost,
+      ref_type: 'damage_reversal',
+      ref_id: damageId,
+    });
+
+    const amount = round2(damage.qty * damage.unit_cost);
+    if (amount > 0) {
+      postEntry({
+        company_id: companyId,
+        branch_id: damage.branch_id,
+        date: today,
+        ref_type: 'damage_reversal',
+        ref_id: damageId,
+        description: `عكس تلف ${damage.damage_no} - ${product.name} - ${reason.trim()}`,
+        lines: [
+          { account_code: invAccFor(product), debit: amount },
+          { account_code: ACC.DAMAGE_EXP, credit: amount },
+        ],
+      });
+    }
+
+    db.prepare(
+      `UPDATE damages SET is_reversed = 1, reversed_at = datetime('now'), reversed_by_user_id = ?, reversal_reason = ? WHERE id = ?`
+    ).run(reversed_by_user_id || null, reason.trim(), damageId);
+
+    return db.prepare('SELECT * FROM damages WHERE id = ?').get(damageId);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // تحويلات وتسويات المخزون
 // ---------------------------------------------------------------------------
@@ -1842,6 +1897,60 @@ function createVoucher({ company_id, branch_id, voucher_type, party_type, party_
   });
 }
 
+/**
+ * عكس سند بالكامل بدل تعديله أو حذفه: بيترحّل قيد معاكس تمامًا لنفس القيد الأصلي
+ * (كل سطر مدين بيبقى دائن والعكس) بتاريخ النهارده، ويعلّم السند الأصلي كـ"معكوس" مع
+ * سبب وتاريخ ومين عمل العكس - عشان يفضل أثر السند الأصلي واضح في السجل بدل ما يختفي.
+ */
+function reverseVoucher(voucherId, companyId, { reason, reversed_by_user_id }) {
+  return inTransaction(() => {
+    const voucher = db.prepare('SELECT * FROM vouchers WHERE id = ?').get(voucherId);
+    if (!voucher || voucher.company_id !== companyId) throw new Error('سند غير موجود أو لا ينتمي لهذه المنشأة');
+    if (voucher.is_reversed) throw new Error('السند ده اتعكس بالفعل');
+    if (!reason || !reason.trim()) throw new Error('لازم تكتب سبب عكس السند');
+
+    const today = new Date().toISOString().slice(0, 10);
+    assertPeriodOpen(companyId, voucher.branch_id, today);
+
+    const originalLines = db
+      .prepare(
+        `SELECT jl.debit, jl.credit, jl.party_type, jl.party_id, jl.memo, jl.branch_id, a.code AS account_code
+         FROM journal_lines jl
+         JOIN journal_entries je ON je.id = jl.entry_id
+         JOIN accounts a ON a.id = jl.account_id
+         WHERE je.company_id = ? AND je.ref_type = 'voucher' AND je.ref_id = ?`
+      )
+      .all(companyId, voucherId);
+    if (originalLines.length === 0) throw new Error('لا يوجد قيد محاسبي مرتبط بهذا السند لعكسه');
+
+    const reversedLines = originalLines.map((l) => ({
+      account_code: l.account_code,
+      debit: l.credit,
+      credit: l.debit,
+      party_type: l.party_type || undefined,
+      party_id: l.party_id || undefined,
+      memo: l.memo || undefined,
+      branch_id: l.branch_id || undefined,
+    }));
+
+    postEntry({
+      company_id: companyId,
+      branch_id: voucher.branch_id,
+      date: today,
+      ref_type: 'voucher_reversal',
+      ref_id: voucherId,
+      description: `عكس سند ${voucher.voucher_no} - ${reason.trim()}`,
+      lines: reversedLines,
+    });
+
+    db.prepare(
+      `UPDATE vouchers SET is_reversed = 1, reversed_at = datetime('now'), reversed_by_user_id = ?, reversal_reason = ? WHERE id = ?`
+    ).run(reversed_by_user_id || null, reason.trim(), voucherId);
+
+    return db.prepare('SELECT * FROM vouchers WHERE id = ?').get(voucherId);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // الإقفال المالي وتوزيع الأرباح على الشركاء
 // ---------------------------------------------------------------------------
@@ -2017,10 +2126,12 @@ module.exports = {
   createSalesReturn,
   getSalesReturn,
   createDamage,
+  reverseDamage,
   createStockTransfer,
   createStockAdjustment,
   createExpense,
   createVoucher,
+  reverseVoucher,
   closeFiscalPeriod,
   getFiscalClosing,
 };

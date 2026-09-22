@@ -86,6 +86,13 @@ const UI = (() => {
     return window.confirm(message);
   }
 
+  /** بياخد سبب نصي إجباري من المستخدم (زي سبب عكس سند/تلف) - بيرجع null لو المستخدم لغى أو سايبه فاضي */
+  async function promptReason(message) {
+    const value = window.prompt(message);
+    if (!value || !value.trim()) return null;
+    return value.trim();
+  }
+
   function badge(text, color) {
     return `<span class="badge ${color}">${escapeHtml(text)}</span>`;
   }
@@ -251,6 +258,7 @@ const UI = (() => {
     openModal,
     closeModal,
     confirmAction,
+    promptReason,
     badge,
     setContent,
     renderMap,

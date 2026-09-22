@@ -58,6 +58,7 @@ function damageFormHtml(products, trips, employees) {
 
 Pages.damagesList = async function () {
   const rows = await Api.get('/damages');
+  const canReverse = ['owner', 'accountant'].includes((Auth.getUser() || {}).role);
   UI.setContent(`
     <div class="card">
       <div class="card-header">
@@ -68,7 +69,7 @@ Pages.damagesList = async function () {
         rows.length === 0
           ? '<div class="empty-state">لا توجد توالف مسجّلة - الحمد لله</div>'
           : `<div class="table-wrap"><table><thead><tr>
-              <th>الرقم</th><th>الصنف</th><th>الكمية</th><th>القيمة</th><th>التاريخ</th><th>السبب</th><th>المسبب</th><th>صورة</th><th>سجّله</th>
+              <th>الرقم</th><th>الصنف</th><th>الكمية</th><th>القيمة</th><th>التاريخ</th><th>السبب</th><th>المسبب</th><th>صورة</th><th>سجّله</th><th>الحالة</th><th></th>
             </tr></thead><tbody>
               ${rows
                 .map(
@@ -82,6 +83,8 @@ Pages.damagesList = async function () {
                   <td>${UI.escapeHtml(r.responsible_employee_name || r.responsible_name || '-')}</td>
                   <td>${r.photo_data ? `<button type="button" class="link-btn" data-photo="${r.id}">عرض</button>` : '-'}</td>
                   <td class="muted">${UI.escapeHtml(r.created_by_username || '-')}</td>
+                  <td>${r.is_reversed ? UI.badge('معكوس', 'red') : UI.badge('سارٍ', 'green')}</td>
+                  <td>${canReverse && !r.is_reversed && !r.trip_id ? `<button class="link-btn" data-reverse="${r.id}">عكس التلف</button>` : '-'}</td>
                 </tr>`
                 )
                 .join('')}
@@ -94,6 +97,20 @@ Pages.damagesList = async function () {
     btn.addEventListener('click', () => {
       const row = rows.find((r) => r.id === Number(btn.dataset.photo));
       UI.openModal(`صورة تلف ${UI.escapeHtml(row.damage_no)}`, `<img src="${row.photo_data}" style="max-width:100%; border-radius:8px" />`);
+    })
+  );
+
+  document.querySelectorAll('[data-reverse]').forEach((btn) =>
+    btn.addEventListener('click', async () => {
+      const reason = await UI.promptReason('سبب عكس التلف؟ (إجباري - هترجع الكمية للمخزون)');
+      if (!reason) return;
+      try {
+        await Api.post(`/damages/${btn.dataset.reverse}/reverse`, { reason });
+        UI.toast('تم عكس التلف وإرجاع الكمية للمخزون', 'success');
+        Pages.damagesList();
+      } catch (err) {
+        UI.toast(err.message, 'error');
+      }
     })
   );
 

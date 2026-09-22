@@ -64,6 +64,15 @@ ensureColumn('trip_loads', 'created_at', "created_at TEXT NOT NULL DEFAULT ''");
 ensureColumn('trip_returns', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
 ensureColumn('trip_returns', 'created_at', "created_at TEXT NOT NULL DEFAULT ''");
 ensureColumn('trip_expenses', 'created_by_user_id', 'created_by_user_id INTEGER REFERENCES users(id)');
+// آلية عكس قيد رسمية للسندات والتوالف بدل أي تعديل/حذف مباشر لمستند مالي مرحّل
+ensureColumn('vouchers', 'is_reversed', 'is_reversed INTEGER NOT NULL DEFAULT 0');
+ensureColumn('vouchers', 'reversed_at', 'reversed_at TEXT');
+ensureColumn('vouchers', 'reversed_by_user_id', 'reversed_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('vouchers', 'reversal_reason', 'reversal_reason TEXT');
+ensureColumn('damages', 'is_reversed', 'is_reversed INTEGER NOT NULL DEFAULT 0');
+ensureColumn('damages', 'reversed_at', 'reversed_at TEXT');
+ensureColumn('damages', 'reversed_by_user_id', 'reversed_by_user_id INTEGER REFERENCES users(id)');
+ensureColumn('damages', 'reversal_reason', 'reversal_reason TEXT');
 
 // بعض القيود القديمة (CHECK على party_type/voucher_type) كانت بتمنع قيم جديدة زي 'employee' -
 // SQLite مسمحش بتعديل CHECK مباشرة، فلو لقينا الجدول لسه شايل القيد القديم، بنعيد إنشاءه بنفس البيانات

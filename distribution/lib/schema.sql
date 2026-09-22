@@ -401,6 +401,10 @@ CREATE TABLE IF NOT EXISTS damages (
   trip_id INTEGER REFERENCES trips(id),
   notes TEXT,
   created_by_user_id INTEGER REFERENCES users(id),
+  is_reversed INTEGER NOT NULL DEFAULT 0,
+  reversed_at TEXT,
+  reversed_by_user_id INTEGER REFERENCES users(id),
+  reversal_reason TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -477,6 +481,10 @@ CREATE TABLE IF NOT EXISTS vouchers (
   trip_id INTEGER REFERENCES trips(id), -- لو السند ده تحصيل ميداني أثناء رحلة توزيع مفتوحة
   notes TEXT,
   created_by_user_id INTEGER REFERENCES users(id),
+  is_reversed INTEGER NOT NULL DEFAULT 0,
+  reversed_at TEXT,
+  reversed_by_user_id INTEGER REFERENCES users(id),
+  reversal_reason TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

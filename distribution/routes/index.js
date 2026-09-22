@@ -786,6 +786,14 @@ router.post(
   allow(...ALL_ROLES),
   handle((req) => services.createDamage({ ...req.body, ...ctx(req, { needBranch: !req.body.trip_id }), created_by_user_id: req.user.id }))
 );
+router.post(
+  '/damages/:id/reverse',
+  allow(...FIN),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    return services.reverseDamage(Number(req.params.id), company_id, { ...req.body, reversed_by_user_id: req.user.id });
+  })
+);
 
 // ---------------------------------------------------------------------------
 // تحويلات وتسويات المخزون
@@ -909,6 +917,14 @@ router.post(
     }
     const { company_id, branch_id } = ctx(req, { needBranch: false });
     return services.createVoucher({ ...req.body, company_id, branch_id, created_by_user_id: req.user.id });
+  })
+);
+router.post(
+  '/vouchers/:id/reverse',
+  allow(...FIN),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    return services.reverseVoucher(Number(req.params.id), company_id, { ...req.body, reversed_by_user_id: req.user.id });
   })
 );
 
