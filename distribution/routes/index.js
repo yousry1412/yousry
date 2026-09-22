@@ -177,7 +177,13 @@ router.get(
   allow(...FIN),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
-    return db.prepare('SELECT * FROM partners WHERE company_id = ? ORDER BY name').all(company_id);
+    return db
+      .prepare(
+        `SELECT p.*, b.name AS branch_name FROM partners p
+         LEFT JOIN branches b ON b.id = p.branch_id
+         WHERE p.company_id = ? ORDER BY p.branch_id IS NULL DESC, b.name, p.name`
+      )
+      .all(company_id);
   })
 );
 router.post(
@@ -194,12 +200,14 @@ router.put(
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     assertOwned(db.prepare('SELECT * FROM partners WHERE id = ?').get(req.params.id), company_id, 'شريك غير موجود');
-    const { name, phone, share_percentage, notes, is_active } = req.body;
+    const { name, phone, branch_id, share_percentage, notes, is_active } = req.body;
     const pct = Number(share_percentage);
     if (!(pct > 0 && pct <= 100)) throw new Error('نسبة الشريك لازم تكون رقم بين 0 و 100');
-    db.prepare('UPDATE partners SET name=?, phone=?, share_percentage=?, notes=?, is_active=? WHERE id=?').run(
+    if (branch_id) assertOwned(db.prepare('SELECT * FROM branches WHERE id=?').get(branch_id), company_id, 'فرع غير موجود');
+    db.prepare('UPDATE partners SET name=?, phone=?, branch_id=?, share_percentage=?, notes=?, is_active=? WHERE id=?').run(
       name,
       phone || null,
+      branch_id || null,
       pct,
       notes || null,
       is_active ? 1 : 0,

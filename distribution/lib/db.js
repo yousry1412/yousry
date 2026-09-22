@@ -46,6 +46,8 @@ ensureColumn('purchase_items', 'unit_id', 'unit_id INTEGER REFERENCES product_un
 ensureColumn('purchase_items', 'unit_qty', 'unit_qty REAL');
 ensureColumn('sales_items', 'unit_id', 'unit_id INTEGER REFERENCES product_units(id)');
 ensureColumn('sales_items', 'unit_qty', 'unit_qty REAL');
+ensureColumn('partners', 'branch_id', 'branch_id INTEGER REFERENCES branches(id)');
+ensureColumn('fiscal_closings', 'branch_id', 'branch_id INTEGER REFERENCES branches(id)');
 
 // بعض القيود القديمة (CHECK على party_type/voucher_type) كانت بتمنع قيم جديدة زي 'employee' -
 // SQLite مسمحش بتعديل CHECK مباشرة، فلو لقينا الجدول لسه شايل القيد القديم، بنعيد إنشاءه بنفس البيانات

@@ -304,14 +304,17 @@ async function renderCashFlow(container) {
 }
 
 async function renderClosing(container) {
-  const closings = await Api.get('/fiscal-closings');
+  const [closings, branches] = await Promise.all([Api.get('/fiscal-closings'), Api.get('/branches')]);
   container.innerHTML = `
     <div class="card-header"><h3>إقفال فترة مالية جديدة وتوزيع الأرباح على الشركاء</h3></div>
     <p class="muted" style="font-size:13px">
       الإقفال بيحسب صافي الربح أو الخسارة للفترة المحددة، ويوزّعه على الشركاء حسب نسبهم (أو يحتفظ به كأرباح مرحلة
       لو معندكش شركاء مسجّلين)، وبيقفل حسابات الإيرادات والمصروفات لنفس الفترة بشكل نهائي.
+      اختيار فرع معين بيقفل نتيجة هذا الفرع بس ويوزّعها على شركائه هو (أو شركاء الشركة العامين لو الفرع مالوش شركاء خاصين بيه)؛
+      من غير اختيار فرع، بيتقفل نتيجة الشركة كلها وتتوزع على الشركاء العامين بس.
     </p>
     <form id="closingForm" class="form-grid">
+      <div class="field"><label>الفرع</label><select name="branch_id"><option value="">كل الشركة (كل الفروع مع بعض)</option>${UI.optionsHtml(branches, 'id', 'name')}</select></div>
       <div class="field"><label>من تاريخ *</label><input name="period_from" type="date" required /></div>
       <div class="field"><label>إلى تاريخ *</label><input name="period_to" type="date" value="${UI.todayStr()}" required /></div>
       <div class="field span-2"><label>ملاحظات</label><input name="notes" /></div>
@@ -322,10 +325,11 @@ async function renderClosing(container) {
     ${
       closings.length === 0
         ? '<div class="empty-state">لم يتم عمل أي إقفال مالي بعد</div>'
-        : `<div class="table-wrap"><table><thead><tr><th>من</th><th>إلى</th><th>الإيرادات</th><th>المصروفات</th><th>صافي الربح</th></tr></thead><tbody>
+        : `<div class="table-wrap"><table><thead><tr><th>النطاق</th><th>من</th><th>إلى</th><th>الإيرادات</th><th>المصروفات</th><th>صافي الربح</th></tr></thead><tbody>
             ${closings
               .map(
                 (c) => `<tr>
+                <td>${c.branch_id ? UI.badge(UI.escapeHtml(c.branch_name || ''), 'orange') : UI.badge('كل الشركة', 'gray')}</td>
                 <td>${UI.escapeHtml(c.period_from)}</td>
                 <td>${UI.escapeHtml(c.period_to)}</td>
                 <td>${UI.money(c.revenue_total)}</td>

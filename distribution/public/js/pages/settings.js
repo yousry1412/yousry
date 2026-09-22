@@ -162,15 +162,24 @@ async function renderBranchesTab() {
   );
 }
 
-function partnerFormHtml(p = {}) {
+function partnerFormHtml(p = {}, branches) {
   return `
     <form id="partnerForm">
       <div class="form-grid">
         <div class="field span-2"><label>اسم الشريك *</label><input name="name" required value="${UI.escapeHtml(p.name || '')}" /></div>
         <div class="field"><label>الهاتف</label><input name="phone" value="${UI.escapeHtml(p.phone || '')}" /></div>
+        <div class="field">
+          <label>نطاق الشراكة</label>
+          <select name="branch_id">
+            <option value="">على مستوى الشركة كلها</option>
+            ${UI.optionsHtml(branches, 'id', 'name', p.branch_id)}
+          </select>
+        </div>
         <div class="field"><label>نسبته في الأرباح (%) *</label><input name="share_percentage" type="number" step="0.01" min="0" max="100" required value="${p.share_percentage ?? ''}" /></div>
         <div class="field span-2"><label>ملاحظات</label><textarea name="notes" rows="2">${UI.escapeHtml(p.notes || '')}</textarea></div>
       </div>
+      <p class="muted" style="font-size:12.5px">لو اخترت فرع معين، الشريك ده هياخد نصيبه بس من صافي ربح إقفال هذا
+        الفرع لوحده (مش كل الشركة)، ونسبته لازم تتجمّع مع باقي شركاء نفس الفرع لتساوي ١٠٠٪.</p>
       <div class="modal-actions">
         <button type="submit" class="btn">${p.id ? 'حفظ التعديلات' : 'إضافة الشريك'}</button>
         <button type="button" class="btn secondary" onclick="UI.closeModal()">إلغاء</button>
@@ -179,8 +188,8 @@ function partnerFormHtml(p = {}) {
   `;
 }
 
-function openPartnerModal(existing, onDone) {
-  UI.openModal(existing ? 'تعديل بيانات شريك' : 'شريك جديد', partnerFormHtml(existing || {}));
+function openPartnerModal(existing, branches, onDone) {
+  UI.openModal(existing ? 'تعديل بيانات شريك' : 'شريك جديد', partnerFormHtml(existing || {}, branches));
   document.getElementById('partnerForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -198,24 +207,34 @@ function openPartnerModal(existing, onDone) {
   });
 }
 
+function partnerScopeSummary(partners, label, scopeKey, scopeValue) {
+  const scoped = partners.filter((p) => p.is_active && p[scopeKey] === scopeValue);
+  if (scoped.length === 0) return '';
+  const sumPct = Math.round((scoped.reduce((s, p) => s + p.share_percentage, 0) + Number.EPSILON) * 100) / 100;
+  return `<p style="font-size:13px">${label}: ${UI.badge(sumPct.toFixed(2) + '%', Math.abs(sumPct - 100) < 0.5 ? 'green' : 'red')} ${Math.abs(sumPct - 100) >= 0.5 ? '(لازم يكون المجموع ١٠٠٪ قبل إقفال هذا النطاق)' : ''}</p>`;
+}
+
 async function renderPartnersTab() {
-  const partners = await Api.get('/partners');
-  const sumPct = partners.filter((p) => p.is_active).reduce((s, p) => s + p.share_percentage, 0);
+  const [partners, branches] = await Promise.all([Api.get('/partners'), Api.get('/branches')]);
+  const branchIds = [...new Set(partners.filter((p) => p.branch_id).map((p) => p.branch_id))];
   const html = `
     <div class="card-header"><h3>الشركاء ونسبهم في الأرباح</h3><button class="btn small" id="addPartnerBtn">+ شريك جديد</button></div>
-    ${
-      partners.length > 0
-        ? `<p style="font-size:13px">إجمالي النسب النشطة: ${UI.badge(sumPct.toFixed(2) + '%', Math.abs(sumPct - 100) < 0.5 ? 'green' : 'red')} ${Math.abs(sumPct - 100) >= 0.5 ? '(لازم يكون المجموع ١٠٠٪ قبل عمل إقفال مالي)' : ''}</p>`
-        : ''
-    }
+    ${partnerScopeSummary(partners, 'إجمالي نسب شركاء الشركة العامين', 'branch_id', null)}
+    ${branchIds
+      .map((bid) => {
+        const branch = branches.find((b) => b.id === bid);
+        return partnerScopeSummary(partners, `إجمالي نسب شركاء فرع "${branch ? branch.name : bid}"`, 'branch_id', bid);
+      })
+      .join('')}
     ${
       partners.length === 0
         ? '<div class="empty-state">لا يوجد شركاء مسجّلين - لو المنشأة مالكها فرد واحد مش محتاج تضيف حد</div>'
-        : `<div class="table-wrap"><table><thead><tr><th>الاسم</th><th>الهاتف</th><th>النسبة</th><th></th></tr></thead><tbody>
+        : `<div class="table-wrap"><table><thead><tr><th>الاسم</th><th>النطاق</th><th>الهاتف</th><th>النسبة</th><th></th></tr></thead><tbody>
             ${partners
               .map(
                 (p) => `<tr>
                 <td>${UI.escapeHtml(p.name)}</td>
+                <td>${p.branch_id ? UI.badge(UI.escapeHtml(p.branch_name || ''), 'orange') : UI.badge('كل الشركة', 'gray')}</td>
                 <td>${UI.escapeHtml(p.phone || '-')}</td>
                 <td>${p.share_percentage}%</td>
                 <td><button class="link-btn" data-edit="${p.id}">تعديل</button></td>
@@ -226,11 +245,11 @@ async function renderPartnersTab() {
     }
   `;
   document.getElementById('settingsTabContent').innerHTML = html;
-  document.getElementById('addPartnerBtn').addEventListener('click', () => openPartnerModal(null, renderPartnersTab));
+  document.getElementById('addPartnerBtn').addEventListener('click', () => openPartnerModal(null, branches, renderPartnersTab));
   document.querySelectorAll('[data-edit]').forEach((btn) =>
     btn.addEventListener('click', () => {
       const p = partners.find((x) => x.id === Number(btn.dataset.edit));
-      openPartnerModal(p, renderPartnersTab);
+      openPartnerModal(p, branches, renderPartnersTab);
     })
   );
 }

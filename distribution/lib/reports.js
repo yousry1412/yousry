@@ -842,7 +842,13 @@ function cashFlowStatement(companyId, { from, to, branchId } = {}) {
 }
 
 function listFiscalClosings(companyId) {
-  return db.prepare('SELECT * FROM fiscal_closings WHERE company_id = ? ORDER BY period_to DESC').all(companyId);
+  return db
+    .prepare(
+      `SELECT fc.*, b.name AS branch_name FROM fiscal_closings fc
+       LEFT JOIN branches b ON b.id = fc.branch_id
+       WHERE fc.company_id = ? ORDER BY fc.period_to DESC`
+    )
+    .all(companyId);
 }
 
 // ---------------------------------------------------------------------------

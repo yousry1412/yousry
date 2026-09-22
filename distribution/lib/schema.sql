@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS branches (
 CREATE TABLE IF NOT EXISTS partners (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   company_id INTEGER NOT NULL REFERENCES companies(id),
+  branch_id INTEGER REFERENCES branches(id), -- NULL = شريك على مستوى الشركة كلها، وإلا شريك في فرع معين بس
   name TEXT NOT NULL,
   phone TEXT,
   share_percentage REAL NOT NULL,
@@ -485,6 +486,7 @@ CREATE TABLE IF NOT EXISTS employees (
 CREATE TABLE IF NOT EXISTS fiscal_closings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   company_id INTEGER NOT NULL REFERENCES companies(id),
+  branch_id INTEGER REFERENCES branches(id), -- NULL = إقفال على مستوى الشركة كلها (كل الفروع مع بعض)
   period_from TEXT NOT NULL,
   period_to TEXT NOT NULL,
   revenue_total REAL NOT NULL,

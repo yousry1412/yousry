@@ -76,12 +76,13 @@ function createBranch({ company_id, name, address, phone, is_main }) {
   });
 }
 
-function createPartner({ company_id, name, phone, share_percentage, notes }) {
+function createPartner({ company_id, branch_id, name, phone, share_percentage, notes }) {
   const pct = Number(share_percentage);
   if (!(pct > 0 && pct <= 100)) throw new Error('نسبة الشريك لازم تكون رقم بين 0 و 100');
+  if (branch_id) assertBelongs('branches', branch_id, company_id, 'الفرع');
   const info = db
-    .prepare('INSERT INTO partners (company_id, name, phone, share_percentage, notes) VALUES (?, ?, ?, ?, ?)')
-    .run(company_id, name, phone || null, pct, notes || null);
+    .prepare('INSERT INTO partners (company_id, branch_id, name, phone, share_percentage, notes) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(company_id, branch_id || null, name, phone || null, pct, notes || null);
   return db.prepare('SELECT * FROM partners WHERE id = ?').get(info.lastInsertRowid);
 }
 
@@ -1753,24 +1754,32 @@ function createVoucher({ company_id, branch_id, voucher_type, party_type, party_
 // الإقفال المالي وتوزيع الأرباح على الشركاء
 // ---------------------------------------------------------------------------
 
-function closeFiscalPeriod({ company_id, period_from, period_to, notes }) {
+function closeFiscalPeriod({ company_id, branch_id, period_from, period_to, notes }) {
   return inTransaction(() => {
-    const lastClosing = db
-      .prepare('SELECT MAX(period_to) AS d FROM fiscal_closings WHERE company_id = ?')
-      .get(company_id).d;
+    if (branch_id) assertBelongs('branches', branch_id, company_id, 'الفرع');
+    // إقفال فرع معين لازم ميتعارضش مع إقفال سابق لنفس الفرع ولا إقفال سابق على مستوى الشركة كلها
+    // (لأن ده يبقى يكون قفل بيانات الفرع ده ضمنيًا بالفعل)، والعكس: إقفال الشركة كلها لازم ميتعارضش
+    // مع أي إقفال فرع سابق (غير كده هنعيد قفل نفس الإيرادات/المصروفات مرتين ونوزّع نفس الربح مرتين)
+    const lastClosing = branch_id
+      ? db
+          .prepare('SELECT MAX(period_to) AS d FROM fiscal_closings WHERE company_id = ? AND (branch_id = ? OR branch_id IS NULL)')
+          .get(company_id, branch_id).d
+      : db.prepare('SELECT MAX(period_to) AS d FROM fiscal_closings WHERE company_id = ?').get(company_id).d;
     if (lastClosing && period_from <= lastClosing) {
       throw new Error(`فيه فترة سابقة مقفولة لحد ${lastClosing}. اختر تاريخ بداية بعد كده`);
     }
     if (period_to < period_from) throw new Error('تاريخ نهاية الفترة لازم يكون بعد تاريخ البداية');
 
+    const branchFilter = branch_id ? 'AND jl.branch_id = ?' : '';
     function periodBalance(acc) {
+      const params = branch_id ? [acc.id, period_from, period_to, branch_id] : [acc.id, period_from, period_to];
       const row = db
         .prepare(
           `SELECT COALESCE(SUM(jl.debit),0) AS d, COALESCE(SUM(jl.credit),0) AS c
            FROM journal_lines jl JOIN journal_entries je ON je.id = jl.entry_id
-           WHERE jl.account_id = ? AND je.entry_date BETWEEN ? AND ?`
+           WHERE jl.account_id = ? AND je.entry_date BETWEEN ? AND ? ${branchFilter}`
         )
-        .get(acc.id, period_from, period_to);
+        .get(...params);
       return acc.type === 'revenue' ? round2(row.c - row.d) : round2(row.d - row.c);
     }
 
@@ -1802,7 +1811,17 @@ function closeFiscalPeriod({ company_id, period_from, period_to, notes }) {
     if (jLines.length === 0) throw new Error('لا توجد أي حركة إيرادات أو مصروفات في هذه الفترة لإقفالها');
 
     const netProfit = round2(revenueTotal - expenseTotal);
-    const partners = db.prepare('SELECT * FROM partners WHERE company_id = ? AND is_active = 1').all(company_id);
+    // إقفال فرع معين: شركاء الفرع ده بس، ولو معندوش شركاء خاصين بيه نرجع لشركاء الشركة العامين.
+    // إقفال على مستوى الشركة كلها: الشركاء العامين بس (شركاء فرع معين نصيبهم بييجي من إقفال فرعهم لوحده).
+    let partners;
+    if (branch_id) {
+      partners = db.prepare('SELECT * FROM partners WHERE company_id = ? AND branch_id = ? AND is_active = 1').all(company_id, branch_id);
+      if (partners.length === 0) {
+        partners = db.prepare('SELECT * FROM partners WHERE company_id = ? AND branch_id IS NULL AND is_active = 1').all(company_id);
+      }
+    } else {
+      partners = db.prepare('SELECT * FROM partners WHERE company_id = ? AND branch_id IS NULL AND is_active = 1').all(company_id);
+    }
     const distributions = [];
 
     if (partners.length > 0) {
@@ -1829,18 +1848,19 @@ function closeFiscalPeriod({ company_id, period_from, period_to, notes }) {
 
     const closingInfo = db
       .prepare(
-        `INSERT INTO fiscal_closings (company_id, period_from, period_to, revenue_total, expense_total, net_profit, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO fiscal_closings (company_id, branch_id, period_from, period_to, revenue_total, expense_total, net_profit, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, period_from, period_to, revenueTotal, expenseTotal, netProfit, notes || null);
+      .run(company_id, branch_id || null, period_from, period_to, revenueTotal, expenseTotal, netProfit, notes || null);
     const closingId = closingInfo.lastInsertRowid;
 
     postEntry({
       company_id,
+      branch_id: branch_id || null,
       date: period_to,
       ref_type: 'closing',
       ref_id: closingId,
-      description: `إقفال الفترة من ${period_from} إلى ${period_to}`,
+      description: `إقفال الفترة من ${period_from} إلى ${period_to}${branch_id ? ' (فرع محدد)' : ''}`,
       lines: jLines,
     });
 
