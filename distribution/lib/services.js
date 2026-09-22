@@ -21,6 +21,16 @@ function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
+/**
+ * يتأكد إن صف معين (مورد/عميل/سيارة/فرع...) موجود فعلاً وتابع لنفس المنشأة الحالية،
+ * عشان يمنع أي طلب (بالغلط أو بالتلاعب) يربط مستند بمنشأة تانية عن طريق تمرير id تابع لها.
+ */
+function assertBelongs(table, id, companyId, label) {
+  if (id === undefined || id === null || id === '') throw new Error(`لازم تحدد ${label}`);
+  const row = db.prepare(`SELECT company_id FROM ${table} WHERE id = ?`).get(id);
+  if (!row || row.company_id !== companyId) throw new Error(`${label} غير موجود أو لا ينتمي لهذه المنشأة`);
+}
+
 // ---------------------------------------------------------------------------
 // المنشآت والفروع والشركاء
 // ---------------------------------------------------------------------------
@@ -154,7 +164,7 @@ function createProduct({ company_id, branch_id, name, sku, unit, kind, sale_pric
       });
       const amount = round2(oQty * cost);
       if (amount > 0) {
-        const product = getProduct(id);
+        const product = getProduct(id, company_id);
         postEntry({
           company_id,
           branch_id,
@@ -171,15 +181,16 @@ function createProduct({ company_id, branch_id, name, sku, unit, kind, sale_pric
     }
 
     if (kind === 'manufactured' && Array.isArray(bom) && bom.length > 0) {
-      setBom(id, bom);
+      setBom(id, bom, company_id);
     }
 
     return db.prepare('SELECT * FROM products WHERE id = ?').get(id);
   });
 }
 
-function setBom(productId, items) {
+function setBom(productId, items, companyId) {
   return inTransaction(() => {
+    assertBelongs('products', productId, companyId, 'المنتج');
     db.prepare('DELETE FROM bom_items WHERE product_id = ?').run(productId);
     const insert = db.prepare(
       'INSERT INTO bom_items (product_id, component_id, qty_per_unit) VALUES (?, ?, ?)'
@@ -188,6 +199,7 @@ function setBom(productId, items) {
       if (Number(item.component_id) === Number(productId)) {
         throw new Error('لا يمكن أن يكون المنتج مكوّنًا لنفسه');
       }
+      assertBelongs('products', item.component_id, companyId, 'المكوّن');
       insert.run(productId, item.component_id, Number(item.qty_per_unit) || 0);
     }
     return db
@@ -207,6 +219,7 @@ function setBom(productId, items) {
 function createPurchaseInvoice({ company_id, branch_id, supplier_id, invoice_date, items, paid_amount, paid_from, notes }) {
   return inTransaction(() => {
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف بنود للفاتورة');
+    assertBelongs('suppliers', supplier_id, company_id, 'المورد');
 
     const invoice_no = nextNumber('purchase_invoices', 'PINV');
     let total = 0;
@@ -219,7 +232,7 @@ function createPurchaseInvoice({ company_id, branch_id, supplier_id, invoice_dat
       return { product_id: it.product_id, qty, unit_cost, line_total };
     });
     total = round2(total);
-    const paid = Math.min(round2(Number(paid_amount) || 0), total);
+    const paid = Math.max(0, Math.min(round2(Number(paid_amount) || 0), total));
 
     const info = db
       .prepare(
@@ -244,7 +257,7 @@ function createPurchaseInvoice({ company_id, branch_id, supplier_id, invoice_dat
         ref_type: 'purchase',
         ref_id: invoiceId,
       });
-      const product = getProduct(line.product_id);
+      const product = getProduct(line.product_id, company_id);
       const acc = invAccFor(product);
       invAccTotals[acc] = round2((invAccTotals[acc] || 0) + line.line_total);
     }
@@ -299,6 +312,7 @@ function getPurchaseInvoice(id) {
 function createPurchaseReturn({ company_id, branch_id, supplier_id, purchase_invoice_id, return_date, items, refund_amount, refund_to, notes }) {
   return inTransaction(() => {
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف بنود للمرتجع');
+    assertBelongs('suppliers', supplier_id, company_id, 'المورد');
 
     const return_no = nextNumber('purchase_returns', 'PRET');
     const info = db
@@ -327,7 +341,7 @@ function createPurchaseReturn({ company_id, branch_id, supplier_id, purchase_inv
     for (const it of items) {
       const qty = Number(it.qty);
       if (!(qty > 0)) continue;
-      const stock = getProductWithStock(it.product_id, branch_id);
+      const stock = getProductWithStock(it.product_id, branch_id, company_id);
       if (stock.qty_on_hand < qty) {
         throw new Error(`المخزون غير كافٍ من "${stock.name}" لإرجاعه للمورد (متاح ${stock.qty_on_hand})`);
       }
@@ -349,7 +363,7 @@ function createPurchaseReturn({ company_id, branch_id, supplier_id, purchase_inv
 
     db.prepare('UPDATE purchase_returns SET total = ? WHERE id = ?').run(total, returnId);
 
-    const refund = Math.min(round2(Number(refund_amount) || 0), total);
+    const refund = Math.max(0, Math.min(round2(Number(refund_amount) || 0), total));
     const remaining = round2(total - refund);
     const jLines = Object.entries(invAccTotals).map(([account_code, amount]) => ({ account_code, credit: amount }));
     if (remaining > 0) jLines.push({ account_code: ACC.AP, debit: remaining, party_type: 'supplier', party_id: supplier_id });
@@ -393,7 +407,7 @@ function getPurchaseReturn(id) {
 
 function createProductionOrder({ company_id, branch_id, product_id, qty_produced, order_date, extra_cost, paid_from, notes, items }) {
   return inTransaction(() => {
-    const product = getProduct(product_id);
+    const product = getProduct(product_id, company_id);
     if (product.kind !== 'manufactured') {
       throw new Error('أمر التصنيع لازم يكون لمنتج من نوع "مُصنّع"');
     }
@@ -408,7 +422,7 @@ function createProductionOrder({ company_id, branch_id, product_id, qty_produced
     }
 
     const order_no = nextNumber('production_orders', 'PORD');
-    const extraCost = round2(Number(extra_cost) || 0);
+    const extraCost = Math.max(0, round2(Number(extra_cost) || 0));
     const info = db
       .prepare(
         `INSERT INTO production_orders (company_id, branch_id, order_no, product_id, qty_produced, order_date, extra_cost, paid_from, notes)
@@ -425,7 +439,7 @@ function createProductionOrder({ company_id, branch_id, product_id, qty_produced
     for (const comp of components) {
       const qtyUsed = Number(comp.qty_used);
       if (!(qtyUsed > 0)) continue;
-      const compStock = getProductWithStock(comp.component_id, branch_id);
+      const compStock = getProductWithStock(comp.component_id, branch_id, company_id);
       if (compStock.qty_on_hand < qtyUsed) {
         throw new Error(
           `المخزون غير كافٍ من "${compStock.name}" (متاح ${compStock.qty_on_hand}، مطلوب ${qtyUsed})`
@@ -510,6 +524,9 @@ function createVehicle({ company_id, branch_id, name, ownership, driver_name, mo
 }
 
 function createTrip({ company_id, branch_id, vehicle_id, trip_date, notes }) {
+  const vehicle = db.prepare('SELECT * FROM vehicles WHERE id = ?').get(vehicle_id);
+  if (!vehicle || vehicle.company_id !== company_id) throw new Error('سيارة غير موجودة');
+  if (vehicle.branch_id !== branch_id) throw new Error('السيارة دي مش تابعة للفرع الحالي');
   const trip_no = nextNumber('trips', 'TRIP');
   const info = db
     .prepare('INSERT INTO trips (company_id, branch_id, trip_no, vehicle_id, trip_date, notes) VALUES (?, ?, ?, ?, ?, ?)')
@@ -542,7 +559,7 @@ function addTripLoad({ trip_id, items }) {
     for (const it of items) {
       const qty = Number(it.qty_loaded);
       if (!(qty > 0)) continue;
-      const stock = getProductWithStock(it.product_id, trip.branch_id);
+      const stock = getProductWithStock(it.product_id, trip.branch_id, trip.company_id);
       if (stock.qty_on_hand < qty) {
         throw new Error(`المخزون غير كافٍ من "${stock.name}" (متاح ${stock.qty_on_hand}، مطلوب ${qty})`);
       }
@@ -653,7 +670,7 @@ function addTripReturn({ trip_id, items }) {
       if (!(qty > 0)) continue;
       const remaining = tripRemainingQty(trip_id, it.product_id);
       if (qty > remaining) {
-        const product = getProduct(it.product_id);
+        const product = getProduct(it.product_id, trip.company_id);
         throw new Error(`كمية الإرجاع أكبر من المتبقي في العهدة لـ "${product.name}" (المتبقي ${remaining})`);
       }
       const unitCost = tripLoadUnitCost(trip_id, it.product_id);
@@ -669,7 +686,7 @@ function addTripReturn({ trip_id, items }) {
       insertReturn.run(trip_id, it.product_id, qty, unitCost);
       const value = round2(qty * unitCost);
       totalValue = round2(totalValue + value);
-      const product = getProduct(it.product_id);
+      const product = getProduct(it.product_id, trip.company_id);
       const acc = invAccFor(product);
       invAccTotals[acc] = round2((invAccTotals[acc] || 0) + value);
     }
@@ -702,7 +719,7 @@ function settleTrip({ trip_id, write_off_discrepancy }) {
       .all(trip_id);
 
     const reconciliation = products.map((row) => {
-      const product = getProduct(row.product_id);
+      const product = getProduct(row.product_id, trip.company_id);
       const remaining = tripRemainingQty(trip_id, row.product_id);
       return { product_id: row.product_id, product_name: product.name, remaining };
     });
@@ -774,6 +791,7 @@ function createSalesInvoice({ company_id, branch_id, customer_id, trip_id, invoi
       branch_id = trip.branch_id;
     }
     if (!company_id || !branch_id) throw new Error('لازم تحديد المنشأة والفرع');
+    assertBelongs('customers', customer_id, company_id, 'العميل');
 
     const invoice_no = nextNumber('sales_invoices', 'SINV');
     let total = 0;
@@ -791,13 +809,13 @@ function createSalesInvoice({ company_id, branch_id, customer_id, trip_id, invoi
       if (trip_id) {
         const remaining = tripRemainingQty(trip_id, it.product_id);
         if (qty > remaining) {
-          const product = getProduct(it.product_id);
+          const product = getProduct(it.product_id, company_id);
           throw new Error(`الكمية أكبر من المتاح في عهدة الرحلة لـ "${product.name}" (المتاح ${remaining})`);
         }
         unit_cost = tripLoadUnitCost(trip_id, it.product_id);
-        productKind = getProduct(it.product_id).kind;
+        productKind = getProduct(it.product_id, company_id).kind;
       } else {
-        const stock = getProductWithStock(it.product_id, branch_id);
+        const stock = getProductWithStock(it.product_id, branch_id, company_id);
         if (stock.qty_on_hand < qty) {
           throw new Error(`المخزون غير كافٍ من "${stock.name}" (متاح ${stock.qty_on_hand}، مطلوب ${qty})`);
         }
@@ -811,7 +829,7 @@ function createSalesInvoice({ company_id, branch_id, customer_id, trip_id, invoi
       lineData.push({ product_id: it.product_id, qty, unit_price, unit_cost, line_total, kind: productKind });
     }
 
-    const paid = Math.min(round2(Number(paid_amount) || 0), total);
+    const paid = Math.max(0, Math.min(round2(Number(paid_amount) || 0), total));
     const info = db
       .prepare(
         `INSERT INTO sales_invoices (company_id, branch_id, invoice_no, customer_id, trip_id, invoice_date, paid_amount, paid_to, total, notes)
@@ -897,6 +915,7 @@ function getSalesInvoice(id) {
 function createSalesReturn({ company_id, branch_id, customer_id, sales_invoice_id, return_date, items, refund_amount, refund_from, notes }) {
   return inTransaction(() => {
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف بنود للمرتجع');
+    assertBelongs('customers', customer_id, company_id, 'العميل');
 
     const return_no = nextNumber('sales_returns', 'SRET');
     const info = db
@@ -935,9 +954,9 @@ function createSalesReturn({ company_id, branch_id, customer_id, sales_invoice_i
           .get(sales_invoice_id, it.product_id);
         if (origLine) unit_cost = origLine.unit_cost;
       }
-      const product = getProduct(it.product_id);
+      const product = getProduct(it.product_id, company_id);
       if (unit_cost === null) {
-        const stock = getProductWithStock(it.product_id, branch_id);
+        const stock = getProductWithStock(it.product_id, branch_id, company_id);
         unit_cost = stock.cost_price;
       }
 
@@ -961,7 +980,7 @@ function createSalesReturn({ company_id, branch_id, customer_id, sales_invoice_i
 
     db.prepare('UPDATE sales_returns SET total = ? WHERE id = ?').run(total, returnId);
 
-    const refund = Math.min(round2(Number(refund_amount) || 0), total);
+    const refund = Math.max(0, Math.min(round2(Number(refund_amount) || 0), total));
     const remaining = round2(total - refund);
     const jLines = [{ account_code: ACC.SALES_RETURNS, debit: total }];
     if (remaining > 0) jLines.push({ account_code: ACC.AR, credit: remaining, party_type: 'customer', party_id: customer_id });
@@ -1021,7 +1040,7 @@ function createDamage({ company_id, branch_id, product_id, qty, damage_date, rea
     }
     if (!company_id || !branch_id) throw new Error('لازم تحديد المنشأة والفرع');
 
-    const product = getProduct(product_id);
+    const product = getProduct(product_id, company_id);
     let unit_cost;
     let creditAcc;
     if (trip_id) {
@@ -1032,7 +1051,7 @@ function createDamage({ company_id, branch_id, product_id, qty, damage_date, rea
       unit_cost = tripLoadUnitCost(trip_id, product_id);
       creditAcc = ACC.CUSTODY;
     } else {
-      const stock = getProductWithStock(product_id, branch_id);
+      const stock = getProductWithStock(product_id, branch_id, company_id);
       if (stock.qty_on_hand < qtyNum) {
         throw new Error(`المخزون غير كافٍ من "${stock.name}" (متاح ${stock.qty_on_hand}، مطلوب ${qtyNum})`);
       }
@@ -1087,6 +1106,8 @@ function createStockTransfer({ company_id, from_branch_id, to_branch_id, transfe
   return inTransaction(() => {
     if (from_branch_id === to_branch_id) throw new Error('لازم يكون الفرع المرسل مختلف عن الفرع المستقبل');
     if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تضيف أصناف للتحويل');
+    assertBelongs('branches', from_branch_id, company_id, 'الفرع المرسل');
+    assertBelongs('branches', to_branch_id, company_id, 'الفرع المستقبل');
 
     const transfer_no = nextNumber('stock_transfers', 'TRF');
     const info = db
@@ -1105,7 +1126,7 @@ function createStockTransfer({ company_id, from_branch_id, to_branch_id, transfe
     for (const it of items) {
       const qty = Number(it.qty);
       if (!(qty > 0)) continue;
-      const stock = getProductWithStock(it.product_id, from_branch_id);
+      const stock = getProductWithStock(it.product_id, from_branch_id, company_id);
       if (stock.qty_on_hand < qty) {
         throw new Error(`المخزون غير كافٍ من "${stock.name}" بالفرع المرسل (متاح ${stock.qty_on_hand})`);
       }
@@ -1155,7 +1176,7 @@ function createStockTransfer({ company_id, from_branch_id, to_branch_id, transfe
 
 function createStockAdjustment({ company_id, branch_id, product_id, qty_counted, adjustment_date, reason, notes }) {
   return inTransaction(() => {
-    const stock = getProductWithStock(product_id, branch_id);
+    const stock = getProductWithStock(product_id, branch_id, company_id);
     const qtyBefore = stock.qty_on_hand;
     const qtyCounted = Number(qty_counted);
     const diff = round2(qtyCounted - qtyBefore);
@@ -1257,6 +1278,11 @@ function createVoucher({ company_id, branch_id, voucher_type, party_type, party_
     }
     if (party_type === 'other' && !other_account_code) {
       throw new Error('لازم تحدد الحساب المحاسبي المقابل للطرف الآخر');
+    }
+    const PARTY_TABLE = { customer: 'customers', supplier: 'suppliers', partner: 'partners' };
+    const PARTY_LABEL = { customer: 'العميل', supplier: 'المورد', partner: 'الشريك' };
+    if (party_type !== 'other') {
+      assertBelongs(PARTY_TABLE[party_type], party_id, company_id, PARTY_LABEL[party_type]);
     }
 
     const prefix = voucher_type === 'receipt' ? 'RCV' : 'PAY';

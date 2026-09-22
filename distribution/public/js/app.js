@@ -125,16 +125,25 @@ function wireContextSwitcher() {
   });
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
+let appInitialized = false;
+
+async function startApp() {
   await Context.init();
   renderNav();
   renderContextSwitcher();
-  wireContextSwitcher();
   initClock();
-  window.addEventListener('hashchange', router);
   router();
 
+  if (appInitialized) return;
+  appInitialized = true;
+  wireContextSwitcher();
+  window.addEventListener('hashchange', router);
   document.getElementById('menuToggle').addEventListener('click', () => {
     document.getElementById('sidebar').classList.toggle('open');
   });
+  document.getElementById('logoutBtn').addEventListener('click', () => Auth.logout());
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  Auth.init(startApp);
 });

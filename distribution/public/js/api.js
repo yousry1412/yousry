@@ -12,6 +12,10 @@ const Api = (() => {
     } catch (_) {
       /* بدون محتوى */
     }
+    if (res.status === 401) {
+      if (window.Auth) Auth.handleUnauthenticated();
+      throw new Error((data && data.error) || 'يجب تسجيل الدخول');
+    }
     if (!res.ok) {
       throw new Error((data && data.error) || `خطأ في الاتصال (${res.status})`);
     }

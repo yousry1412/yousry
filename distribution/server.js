@@ -2,13 +2,15 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const apiRouter = require('./routes');
+const { router: authRouter, requireAuth } = require('./routes/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
-app.use('/api', apiRouter);
+app.use('/api/auth', authRouter);
+app.use('/api', requireAuth, apiRouter);
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('*', (req, res) => {

@@ -7,7 +7,9 @@
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div id="app">
+  <div id="authScreen" style="display:none"></div>
+
+  <div id="app" style="display:none">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
         <div class="brand-icon">🚚</div>
@@ -25,6 +27,7 @@
           <select id="branchSelect" title="الفرع"></select>
         </div>
         <div class="topbar-date" id="topDate"></div>
+        <button class="btn secondary small" id="logoutBtn" title="تسجيل الخروج">خروج</button>
       </header>
       <main class="content" id="content"></main>
     </div>
@@ -38,6 +41,7 @@
   <script src="js/context.js"></script>
   <script src="js/api.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/auth.js"></script>
   <script src="js/pages/dashboard.js"></script>
   <script src="js/pages/customers.js"></script>
   <script src="js/pages/suppliers.js"></script>

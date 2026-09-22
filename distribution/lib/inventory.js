@@ -13,9 +13,14 @@ const insertMovementStmt = db.prepare(
    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 );
 
-function getProduct(productId) {
+/**
+ * يرجّع المنتج، والمرجعية companyId إجبارية لأي كود بيتعامل مع منتج جايله id من العميل
+ * (فاتورة، رحلة، تحويل...) عشان يمنع أي منشأة تتعامل مع منتج منشأة تانية بالغلط أو بالتلاعب.
+ */
+function getProduct(productId, companyId) {
   const p = getProductStmt.get(productId);
   if (!p) throw new Error(`منتج غير موجود: ${productId}`);
+  if (companyId && p.company_id !== companyId) throw new Error('هذا المنتج لا ينتمي لهذه المنشأة');
   return p;
 }
 
@@ -30,8 +35,8 @@ function getStock(productId, branchId) {
 }
 
 /** المنتج + رصيده في فرع معين مجمّعين في كائن واحد للاستخدام المريح بالخدمات */
-function getProductWithStock(productId, branchId) {
-  const product = getProduct(productId);
+function getProductWithStock(productId, branchId, companyId) {
+  const product = getProduct(productId, companyId);
   const stock = getStock(productId, branchId);
   return { ...product, qty_on_hand: stock.qty_on_hand, cost_price: stock.cost_price };
 }
