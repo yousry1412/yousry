@@ -181,6 +181,60 @@ Pages.salesNew = async function () {
   });
 };
 
+function salesReturnRowHtml(it) {
+  return `<tr>
+    <td>${UI.escapeHtml(it.product_name)}<input type="hidden" class="sr-product" value="${it.product_id}" /></td>
+    <td class="muted">${UI.num(it.qty)} ${UI.escapeHtml(it.product_unit)}</td>
+    <td><input class="sr-qty" type="number" step="0.01" value="0" max="${it.qty}" /></td>
+    <td><input class="sr-price" type="number" step="0.01" value="${it.unit_price}" /></td>
+  </tr>`;
+}
+
+function openSalesReturnModal(inv) {
+  UI.openModal(
+    `تسجيل مرتجع - فاتورة ${UI.escapeHtml(inv.invoice_no)}`,
+    `<form id="salesReturnForm">
+      <table class="items-table" id="srTable">
+        <thead><tr><th>الصنف</th><th>الكمية المباعة</th><th>الكمية المرتجعة</th><th>سعر الوحدة</th></tr></thead>
+        <tbody>${inv.items.map(salesReturnRowHtml).join('')}</tbody>
+      </table>
+      <div class="form-grid" style="margin-top:14px">
+        <div class="field"><label>التاريخ *</label><input name="return_date" type="date" value="${UI.todayStr()}" required /></div>
+        <div class="field"><label>المبلغ المسترجع نقدًا/بنكًا للعميل</label><input name="refund_amount" type="number" step="0.01" value="0" /></div>
+        <div class="field"><label>من</label><select name="refund_from"><option value="cash">نقدية</option><option value="bank">بنك</option></select></div>
+        <div class="field span-2"><label>ملاحظات</label><input name="notes" /></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="submit">حفظ المرتجع</button>
+        <button class="btn secondary" type="button" onclick="UI.closeModal()">إلغاء</button>
+      </div>
+    </form>`,
+    { wide: true }
+  );
+  document.getElementById('salesReturnForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = Object.fromEntries(fd.entries());
+    payload.customer_id = inv.customer_id;
+    payload.sales_invoice_id = inv.id;
+    payload.items = [...document.querySelectorAll('#srTable tbody tr')]
+      .map((tr) => ({
+        product_id: Number(tr.querySelector('.sr-product').value),
+        qty: Number(tr.querySelector('.sr-qty').value) || 0,
+        unit_price: Number(tr.querySelector('.sr-price').value) || 0,
+      }))
+      .filter((it) => it.qty > 0);
+    if (payload.items.length === 0) return UI.toast('حدد كمية مرتجعة أكبر من صفر', 'error');
+    try {
+      await Api.post('/sales-returns', payload);
+      UI.closeModal();
+      UI.toast('تم تسجيل المرتجع', 'success');
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    }
+  });
+}
+
 Pages.salesDetail = async function (id) {
   const inv = await Api.get(`/sales/${id}`);
   UI.setContent(`
@@ -189,6 +243,8 @@ Pages.salesDetail = async function (id) {
         <h2>فاتورة مبيعات ${UI.escapeHtml(inv.invoice_no)}</h2>
         <div>
           <a class="btn secondary small" href="#/print/sale/${inv.id}" target="_blank">طباعة الفاتورة</a>
+          <button class="btn secondary small" id="sendWhatsappBtn">إرسال واتساب</button>
+          <button class="btn secondary small" id="salesReturnBtn">تسجيل مرتجع</button>
           <a class="btn secondary small" href="#/sales">رجوع</a>
         </div>
       </div>
@@ -213,6 +269,16 @@ Pages.salesDetail = async function (id) {
       ${inv.notes ? `<p class="muted">ملاحظات: ${UI.escapeHtml(inv.notes)}</p>` : ''}
     </div>
   `);
+
+  document.getElementById('salesReturnBtn').addEventListener('click', () => openSalesReturnModal(inv));
+  document.getElementById('sendWhatsappBtn').addEventListener('click', async () => {
+    try {
+      await Api.post(`/sales/${id}/send-whatsapp`, {});
+      UI.toast('تم إرسال الفاتورة على واتساب', 'success');
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    }
+  });
 };
 
 window.Pages = Pages;

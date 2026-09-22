@@ -11,7 +11,9 @@ const NAV = [
   { hash: '#/damages', label: 'التوالف والهالك', icon: '⚠️' },
   { hash: '#/expenses', label: 'المصروفات العامة', icon: '💸' },
   { hash: '#/vouchers', label: 'سندات القبض والصرف', icon: '🧮' },
+  { hash: '#/stock-ops', label: 'تحويل وجرد المخزون', icon: '🔄' },
   { hash: '#/accounting', label: 'الحسابات والتقارير', icon: '📚' },
+  { hash: '#/settings', label: 'المنشآت والفروع والشركاء', icon: '⚙️' },
 ];
 
 const ROUTES = [
@@ -49,6 +51,9 @@ const ROUTES = [
   { re: /^#\/vouchers$/, title: 'سندات القبض والصرف', render: () => Pages.vouchersList() },
 
   { re: /^#\/accounting$/, title: 'الحسابات والتقارير', render: () => Pages.accountingHome() },
+
+  { re: /^#\/stock-ops$/, title: 'تحويل وجرد المخزون', render: () => Pages.stockOpsHome() },
+  { re: /^#\/settings$/, title: 'المنشآت والفروع والشركاء', render: () => Pages.settingsHome() },
 
   { re: /^#\/print\/sale\/(\d+)$/, title: 'طباعة فاتورة', render: (m) => Pages.printSale(m[1]) },
   { re: /^#\/print\/purchase\/(\d+)$/, title: 'طباعة فاتورة شراء', render: (m) => Pages.printPurchase(m[1]) },
@@ -101,8 +106,30 @@ function initClock() {
   el.textContent = new Date().toLocaleDateString('ar-EG', opts);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+function renderContextSwitcher() {
+  const companySelect = document.getElementById('companySelect');
+  const branchSelect = document.getElementById('branchSelect');
+  companySelect.innerHTML = UI.optionsHtml(Context.getCompanies(), 'id', 'name', Context.getCompanyId());
+  branchSelect.innerHTML = UI.optionsHtml(Context.getBranches(), 'id', 'name', Context.getBranchId());
+}
+
+function wireContextSwitcher() {
+  document.getElementById('companySelect').addEventListener('change', async (e) => {
+    await Context.setCompany(e.target.value);
+    renderContextSwitcher();
+    router();
+  });
+  document.getElementById('branchSelect').addEventListener('change', (e) => {
+    Context.setBranch(e.target.value);
+    router();
+  });
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await Context.init();
   renderNav();
+  renderContextSwitcher();
+  wireContextSwitcher();
   initClock();
   window.addEventListener('hashchange', router);
   router();

@@ -15,20 +15,31 @@ db.exec('PRAGMA journal_mode = WAL');
 const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
 db.exec(schema);
 
-function seedAccounts() {
-  const count = db.prepare('SELECT COUNT(*) AS c FROM accounts').get().c;
+function seedChartForCompany(companyId) {
+  const count = db.prepare('SELECT COUNT(*) AS c FROM accounts WHERE company_id = ?').get(companyId).c;
   if (count > 0) return;
   const insert = db.prepare(
-    'INSERT INTO accounts (code, name, type, parent_code, is_postable) VALUES (?, ?, ?, ?, ?)'
+    'INSERT INTO accounts (company_id, code, name, type, parent_code, is_postable, is_system) VALUES (?, ?, ?, ?, ?, ?, 1)'
   );
   for (const acc of CHART_OF_ACCOUNTS) {
-    insert.run(acc.code, acc.name, acc.type, acc.parent_code, acc.is_postable);
+    insert.run(companyId, acc.code, acc.name, acc.type, acc.parent_code, acc.is_postable);
   }
 }
-seedAccounts();
 
-function accountIdByCode(code) {
-  const row = db.prepare('SELECT id FROM accounts WHERE code = ?').get(code);
+function ensureDefaultCompany() {
+  const count = db.prepare('SELECT COUNT(*) AS c FROM companies').get().c;
+  if (count > 0) return;
+  const companyInfo = db
+    .prepare('INSERT INTO companies (name, legal_name) VALUES (?, ?)')
+    .run('الشركة الرئيسية', 'الشركة الرئيسية');
+  const companyId = companyInfo.lastInsertRowid;
+  db.prepare('INSERT INTO branches (company_id, name, is_main) VALUES (?, ?, 1)').run(companyId, 'الفرع الرئيسي');
+  seedChartForCompany(companyId);
+}
+ensureDefaultCompany();
+
+function accountIdByCode(companyId, code) {
+  const row = db.prepare('SELECT id FROM accounts WHERE company_id = ? AND code = ?').get(companyId, code);
   if (!row) throw new Error(`حساب غير موجود بالكود: ${code}`);
   return row.id;
 }
@@ -49,4 +60,4 @@ function inTransaction(fn) {
   }
 }
 
-module.exports = { db, accountIdByCode, inTransaction, DB_PATH };
+module.exports = { db, accountIdByCode, inTransaction, seedChartForCompany, DB_PATH };

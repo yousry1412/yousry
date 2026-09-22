@@ -44,7 +44,7 @@ function voucherFormHtml(customers, suppliers, accounts) {
   `;
 }
 
-function wireVoucherForm(customers, suppliers) {
+function wireVoucherForm(customers, suppliers, partners) {
   const voucherType = document.getElementById('voucherType');
   const partyType = document.getElementById('partyType');
   const partySelectWrap = document.getElementById('partySelectWrap');
@@ -55,8 +55,8 @@ function wireVoucherForm(customers, suppliers) {
   function refreshPartyOptions() {
     const isReceipt = voucherType.value === 'receipt';
     partyType.innerHTML = isReceipt
-      ? '<option value="customer">من عميل</option><option value="other">طرف آخر</option>'
-      : '<option value="supplier">لمورد</option><option value="other">طرف آخر</option>';
+      ? '<option value="customer">من عميل</option><option value="partner">من شريك (رأس مال)</option><option value="other">طرف آخر</option>'
+      : '<option value="supplier">لمورد</option><option value="partner">لشريك (مسحوبات)</option><option value="other">طرف آخر</option>';
     updateFields();
   }
 
@@ -65,9 +65,10 @@ function wireVoucherForm(customers, suppliers) {
     otherWrap.style.display = isOther ? '' : 'none';
     partySelectWrap.style.display = isOther ? 'none' : '';
     if (!isOther) {
-      const isCustomer = partyType.value === 'customer';
-      partyLabel.textContent = isCustomer ? 'العميل *' : 'المورد *';
-      partyIdSelect.innerHTML = UI.optionsHtml(isCustomer ? customers : suppliers, 'id', 'name');
+      const labels = { customer: 'العميل *', supplier: 'المورد *', partner: 'الشريك *' };
+      const lists = { customer: customers, supplier: suppliers, partner: partners };
+      partyLabel.textContent = labels[partyType.value];
+      partyIdSelect.innerHTML = UI.optionsHtml(lists[partyType.value] || [], 'id', 'name');
     }
   }
 
@@ -95,7 +96,7 @@ Pages.vouchersList = async function () {
                   (r) => `<tr>
                   <td>${UI.escapeHtml(r.voucher_no)}</td>
                   <td>${r.voucher_type === 'receipt' ? UI.badge('قبض', 'green') : UI.badge('صرف', 'red')}</td>
-                  <td>${UI.escapeHtml(r.party_name || (r.party_type === 'customer' ? 'عميل #' + r.party_id : r.party_type === 'supplier' ? 'مورد #' + r.party_id : '-'))}</td>
+                  <td>${UI.escapeHtml(r.party_name || (r.party_type === 'customer' ? 'عميل #' + r.party_id : r.party_type === 'supplier' ? 'مورد #' + r.party_id : r.party_type === 'partner' ? 'شريك #' + r.party_id : '-'))}</td>
                   <td>${UI.money(r.amount)}</td>
                   <td>${r.method === 'cash' ? 'نقدية' : 'بنك'}</td>
                   <td>${UI.escapeHtml(r.voucher_date)}</td>
@@ -108,14 +109,15 @@ Pages.vouchersList = async function () {
   `);
 
   document.getElementById('addVoucherBtn').addEventListener('click', async () => {
-    const [customers, suppliers, accounts] = await Promise.all([
+    const [customers, suppliers, partners, accounts] = await Promise.all([
       Api.get('/customers'),
       Api.get('/suppliers'),
+      Api.get('/partners'),
       Api.get('/accounts'),
     ]);
     const postable = accounts.filter((a) => a.is_postable);
     UI.openModal('سند قبض / صرف جديد', voucherFormHtml(customers, suppliers, postable), { wide: true });
-    wireVoucherForm(customers, suppliers);
+    wireVoucherForm(customers, suppliers, partners);
 
     document.getElementById('voucherForm').addEventListener('submit', async (e) => {
       e.preventDefault();

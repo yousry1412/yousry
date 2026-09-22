@@ -146,6 +146,58 @@ Pages.purchaseNew = async function () {
   });
 };
 
+function purchaseReturnRowHtml(it) {
+  return `<tr>
+    <td>${UI.escapeHtml(it.product_name)}<input type="hidden" class="pr-product" value="${it.product_id}" /></td>
+    <td class="muted">${UI.num(it.qty)} ${UI.escapeHtml(it.product_unit)}</td>
+    <td><input class="pr-qty" type="number" step="0.01" value="0" max="${it.qty}" /></td>
+  </tr>`;
+}
+
+function openPurchaseReturnModal(inv) {
+  UI.openModal(
+    `تسجيل مرتجع - فاتورة ${UI.escapeHtml(inv.invoice_no)}`,
+    `<form id="purchaseReturnForm">
+      <table class="items-table" id="prTable">
+        <thead><tr><th>الصنف</th><th>الكمية المشتراة</th><th>الكمية المرتجعة</th></tr></thead>
+        <tbody>${inv.items.map(purchaseReturnRowHtml).join('')}</tbody>
+      </table>
+      <div class="form-grid" style="margin-top:14px">
+        <div class="field"><label>التاريخ *</label><input name="return_date" type="date" value="${UI.todayStr()}" required /></div>
+        <div class="field"><label>المبلغ المسترد نقدًا/بنكًا من المورد</label><input name="refund_amount" type="number" step="0.01" value="0" /></div>
+        <div class="field"><label>إلى</label><select name="refund_to"><option value="cash">نقدية</option><option value="bank">بنك</option></select></div>
+        <div class="field span-2"><label>ملاحظات</label><input name="notes" /></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn" type="submit">حفظ المرتجع</button>
+        <button class="btn secondary" type="button" onclick="UI.closeModal()">إلغاء</button>
+      </div>
+    </form>`,
+    { wide: true }
+  );
+  document.getElementById('purchaseReturnForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const payload = Object.fromEntries(fd.entries());
+    payload.supplier_id = inv.supplier_id;
+    payload.purchase_invoice_id = inv.id;
+    payload.items = [...document.querySelectorAll('#prTable tbody tr')]
+      .map((tr) => ({
+        product_id: Number(tr.querySelector('.pr-product').value),
+        qty: Number(tr.querySelector('.pr-qty').value) || 0,
+      }))
+      .filter((it) => it.qty > 0);
+    if (payload.items.length === 0) return UI.toast('حدد كمية مرتجعة أكبر من صفر', 'error');
+    try {
+      await Api.post('/purchase-returns', payload);
+      UI.closeModal();
+      UI.toast('تم تسجيل المرتجع', 'success');
+    } catch (err) {
+      UI.toast(err.message, 'error');
+    }
+  });
+}
+
 Pages.purchaseDetail = async function (id) {
   const inv = await Api.get(`/purchases/${id}`);
   UI.setContent(`
@@ -154,6 +206,7 @@ Pages.purchaseDetail = async function (id) {
         <h2>فاتورة شراء ${UI.escapeHtml(inv.invoice_no)}</h2>
         <div>
           <a class="btn secondary small" href="#/print/purchase/${inv.id}" target="_blank">طباعة</a>
+          <button class="btn secondary small" id="purchaseReturnBtn">تسجيل مرتجع</button>
           <a class="btn secondary small" href="#/purchases">رجوع</a>
         </div>
       </div>
@@ -178,6 +231,8 @@ Pages.purchaseDetail = async function (id) {
       ${inv.notes ? `<p class="muted">ملاحظات: ${UI.escapeHtml(inv.notes)}</p>` : ''}
     </div>
   `);
+
+  document.getElementById('purchaseReturnBtn').addEventListener('click', () => openPurchaseReturnModal(inv));
 };
 
 window.PurchaseHelpers = { itemRowHtml, wireItemsTable, readItems };

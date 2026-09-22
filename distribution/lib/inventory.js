@@ -1,12 +1,16 @@
 const { db } = require('./db');
 
 const getProductStmt = db.prepare('SELECT * FROM products WHERE id = ?');
+const getStockStmt = db.prepare('SELECT * FROM product_stock WHERE product_id = ? AND branch_id = ?');
+const insertStockStmt = db.prepare(
+  'INSERT INTO product_stock (product_id, branch_id, qty_on_hand, cost_price) VALUES (?, ?, 0, 0)'
+);
 const updateStockStmt = db.prepare(
-  'UPDATE products SET qty_on_hand = ?, cost_price = ? WHERE id = ?'
+  'UPDATE product_stock SET qty_on_hand = ?, cost_price = ? WHERE product_id = ? AND branch_id = ?'
 );
 const insertMovementStmt = db.prepare(
-  `INSERT INTO stock_movements (product_id, movement_date, qty, unit_cost, ref_type, ref_id, notes)
-   VALUES (?, ?, ?, ?, ?, ?, ?)`
+  `INSERT INTO stock_movements (product_id, branch_id, movement_date, qty, unit_cost, ref_type, ref_id, notes)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 );
 
 function getProduct(productId) {
@@ -15,32 +19,47 @@ function getProduct(productId) {
   return p;
 }
 
+/** يرجّع صف مخزون المنتج في فرع معين (بيتنشأ تلقائيًا برصيد صفري لو مش موجود) */
+function getStock(productId, branchId) {
+  let row = getStockStmt.get(productId, branchId);
+  if (!row) {
+    insertStockStmt.run(productId, branchId);
+    row = getStockStmt.get(productId, branchId);
+  }
+  return row;
+}
+
+/** المنتج + رصيده في فرع معين مجمّعين في كائن واحد للاستخدام المريح بالخدمات */
+function getProductWithStock(productId, branchId) {
+  const product = getProduct(productId);
+  const stock = getStock(productId, branchId);
+  return { ...product, qty_on_hand: stock.qty_on_hand, cost_price: stock.cost_price };
+}
+
 /**
- * يسجل حركة مخزنية (دخول أو خروج) ويحدّث الكمية ومتوسط التكلفة المرجح للمنتج.
- * qty: موجب = وارد للمخزون (بتكلفة unitCost المُدخلة)
- *      سالب = منصرف من المخزون (بيُستخدم متوسط التكلفة الحالي تلقائيًا كـ unit_cost المُسجّل)
- * بيرجع unit_cost الفعلي المُستخدم في الحركة (مهم لحساب تكلفة البضاعة المباعة).
+ * يسجل حركة مخزنية (دخول أو خروج) في فرع معين ويحدّث الكمية ومتوسط التكلفة المرجح.
+ * qty: موجب = وارد للمخزون (بتكلفة unit_cost المُدخلة)
+ *      سالب = منصرف من المخزون (بيُستخدم متوسط التكلفة الحالي تلقائيًا)
+ * بيرجع unit_cost الفعلي المُستخدم في الحركة.
  */
-function applyStockMovement({ product_id, date, qty, unit_cost, ref_type, ref_id, notes }) {
-  const product = getProduct(product_id);
+function applyStockMovement({ product_id, branch_id, date, qty, unit_cost, ref_type, ref_id, notes }) {
+  const stock = getStock(product_id, branch_id);
   let effectiveCost = unit_cost;
 
   if (qty > 0) {
-    // وارد: نحسب متوسط تكلفة مرجح جديد
-    const oldQty = product.qty_on_hand;
-    const oldCost = product.cost_price;
+    const oldQty = stock.qty_on_hand;
+    const oldCost = stock.cost_price;
     const newQty = oldQty + qty;
     const newCost = newQty > 0 ? (oldQty * oldCost + qty * unit_cost) / newQty : unit_cost;
-    updateStockStmt.run(newQty, newCost, product_id);
+    updateStockStmt.run(newQty, newCost, product_id, branch_id);
   } else if (qty < 0) {
-    // منصرف: التكلفة المستخدمة هي متوسط التكلفة الحالي وقت الصرف
-    effectiveCost = product.cost_price;
-    const newQty = product.qty_on_hand + qty; // qty سالبة بالفعل
-    updateStockStmt.run(newQty, product.cost_price, product_id);
+    effectiveCost = stock.cost_price;
+    const newQty = stock.qty_on_hand + qty;
+    updateStockStmt.run(newQty, stock.cost_price, product_id, branch_id);
   }
 
-  insertMovementStmt.run(product_id, date, qty, effectiveCost, ref_type, ref_id ?? null, notes || null);
+  insertMovementStmt.run(product_id, branch_id, date, qty, effectiveCost, ref_type, ref_id ?? null, notes || null);
   return effectiveCost;
 }
 
-module.exports = { getProduct, applyStockMovement };
+module.exports = { getProduct, getStock, getProductWithStock, applyStockMovement };

@@ -85,6 +85,21 @@ body {
 .topbar-date { margin-right: auto; color: var(--muted); font-size: 13px; }
 .menu-toggle { display: none; background: none; border: none; font-size: 20px; cursor: pointer; }
 
+.context-switcher { display: flex; gap: 8px; margin-right: 16px; }
+.context-switcher select {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #fafafa;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  max-width: 160px;
+}
+@media (max-width: 860px) {
+  .context-switcher { display: none; }
+}
+
 .content { padding: 22px; flex: 1; }
 
 /* ---------- عناصر عامة ---------- */

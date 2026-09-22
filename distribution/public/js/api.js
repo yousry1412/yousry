@@ -1,6 +1,6 @@
 const Api = (() => {
   async function request(method, url, body) {
-    const opts = { method, headers: {} };
+    const opts = { method, headers: { ...(window.Context ? Context.headers() : {}) } };
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
