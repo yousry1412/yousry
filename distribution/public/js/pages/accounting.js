@@ -8,6 +8,7 @@ const ACCT_TABS = [
   { key: 'inventoryCheck', label: 'مطابقة المخزون' },
   { key: 'salesAccountability', label: 'مسؤولية التحصيل' },
   { key: 'profitability', label: 'الربحية' },
+  { key: 'efficiency', label: 'كفاءة الموظفين والسيارات' },
   { key: 'partners', label: 'حقوق الشركاء' },
   { key: 'cashflow', label: 'التدفقات النقدية' },
   { key: 'closing', label: 'الإقفال المالي' },
@@ -162,6 +163,70 @@ async function renderProfitability(container) {
     document.getElementById('profitFilter').addEventListener('click', async () => {
       const from = document.getElementById('profitFrom').value;
       const to = document.getElementById('profitTo').value;
+      container.innerHTML = await load(from, to);
+      bindFilter();
+    });
+  }
+  container.innerHTML = await load();
+  bindFilter();
+}
+
+async function renderEfficiency(container) {
+  async function load(from, to) {
+    const qs = from && to ? `?from=${from}&to=${to}` : '';
+    const [employees, vehicles] = await Promise.all([
+      Api.get('/reports/efficiency/employees' + qs),
+      Api.get('/reports/efficiency/vehicles' + qs),
+    ]);
+    return `
+      ${dateRangeBarHtml('eff')}
+
+      <h4>كفاءة الموظفين (المسؤولين عن الرحلات)</h4>
+      ${
+        employees.length === 0
+          ? '<div class="empty-state">لا توجد بيانات رحلات في هذه الفترة</div>'
+          : `<div class="table-wrap"><table><thead><tr><th>الموظف</th><th>عدد الرحلات</th><th>إجمالي المبيعات</th><th>إجمالي المصروفات</th><th>الكيلومترات</th><th>صافي النتيجة</th></tr></thead><tbody>
+              ${employees
+                .map(
+                  (e) => `<tr>
+                <td>${UI.escapeHtml(e.driver_name)}</td>
+                <td>${e.trip_count}</td>
+                <td>${UI.money(e.sales)}</td>
+                <td>${UI.money(e.expenses)}</td>
+                <td>${UI.num(e.km_driven)}</td>
+                <td style="color:${e.netResult >= 0 ? 'var(--success)' : 'var(--danger)'}"><strong>${UI.money(e.netResult)}</strong></td>
+              </tr>`
+                )
+                .join('')}
+            </tbody></table></div>`
+      }
+
+      <h4 style="margin-top:22px">كفاءة السيارات</h4>
+      ${
+        vehicles.length === 0
+          ? '<div class="empty-state">لا توجد بيانات رحلات في هذه الفترة</div>'
+          : `<div class="table-wrap"><table><thead><tr><th>السيارة</th><th>عدد الرحلات</th><th>إجمالي المبيعات</th><th>إجمالي المصروفات</th><th>الكيلومترات</th><th>تكلفة/كم</th><th>صافي النتيجة</th></tr></thead><tbody>
+              ${vehicles
+                .map(
+                  (v) => `<tr>
+                <td>${UI.escapeHtml(v.vehicle_name)}</td>
+                <td>${v.trip_count}</td>
+                <td>${UI.money(v.sales)}</td>
+                <td>${UI.money(v.expenses)}</td>
+                <td>${UI.num(v.km_driven)}</td>
+                <td>${v.cost_per_km != null ? UI.money(v.cost_per_km) : '-'}</td>
+                <td style="color:${v.netResult >= 0 ? 'var(--success)' : 'var(--danger)'}"><strong>${UI.money(v.netResult)}</strong></td>
+              </tr>`
+                )
+                .join('')}
+            </tbody></table></div>`
+      }
+    `;
+  }
+  async function bindFilter() {
+    document.getElementById('effFilter').addEventListener('click', async () => {
+      const from = document.getElementById('effFrom').value;
+      const to = document.getElementById('effTo').value;
       container.innerHTML = await load(from, to);
       bindFilter();
     });
@@ -387,15 +452,66 @@ async function renderClosing(container) {
   });
 }
 
+const OPERATION_EXPLAIN = {
+  opening: { label: 'رصيد افتتاحي', body: 'تسجيل رصيد بداية (مدين أو دائن) لعميل/مورد/موظف عند إضافته لأول مرة على النظام - مش عملية بيع أو شراء فعلية، بس نقطة بداية لحساباته.', hash: null },
+  sale: { label: 'فاتورة بيع', body: 'بيع بضاعة لعميل - بتسجل الإيراد والضريبة (لو مفعّلة) وتكلفة البضاعة المباعة، وتحرّك المخزون أو عهدة الرحلة.', hash: (id) => `#/sales/${id}` },
+  sales_return: { label: 'مرتجع بيع', body: 'إرجاع بضاعة من عميل بعد بيعها - بيعكس جزء من الإيراد والتكلفة ويرجّع البضاعة للمخزون.', hash: null },
+  purchase: { label: 'فاتورة شراء', body: 'شراء بضاعة أو مواد خام من مورد - بيزوّد المخزون بالكمية وبيسجل المستحق للمورد أو المدفوع نقدًا/بنك.', hash: (id) => `#/purchases/${id}` },
+  purchase_return: { label: 'مرتجع شراء', body: 'إرجاع بضاعة لمورد بعد شرائها - بينقص المخزون ويقلل المستحق للمورد.', hash: null },
+  production: { label: 'أمر تصنيع', body: 'استهلاك مكوّنات خام لإنتاج منتج مُصنّع - بينقص مخزون المكوّنات ويزوّد مخزون المنتج النهائي بتكلفته المجمّعة.', hash: (id) => `#/production/${id}` },
+  production_in: { label: 'أمر تصنيع (إضافة المنتج النهائي)', body: 'الجزء الخاص بإضافة المنتج النهائي لمخزون التصنيع.', hash: (id) => `#/production/${id}` },
+  production_out: { label: 'أمر تصنيع (صرف المكوّنات)', body: 'الجزء الخاص باستهلاك المكوّنات الخام في أمر التصنيع.', hash: (id) => `#/production/${id}` },
+  trip_load: { label: 'تحميل بضاعة على رحلة', body: 'بضاعة اتحركت من مخزن الفرع لعهدة رحلة توزيع، بعد موافقة السائق رسميًا على استلامها وتسجيل قراءة العداد.', hash: (id) => `#/trips/${id}` },
+  trip_return: { label: 'مرتجع من رحلة توزيع', body: 'بضاعة رجعت من عهدة الرحلة للمخزن (لم تُباع أثناء الرحلة).', hash: (id) => `#/trips/${id}` },
+  trip_expense: { label: 'مصروف على رحلة توزيع', body: 'مصروف تشغيل مرتبط بسيارة/رحلة معينة (وقود، صيانة، رسوم طريق...) - بيدخل في حساب تكلفة تشغيل الرحلة.', hash: (id) => `#/trips/${id}` },
+  damage: { label: 'تسجيل تلف/هالك', body: 'بضاعة اتلفت أو فُقدت (بالمخزن أو أثناء رحلة) - بتتحول لمصروف توالف وبتنقص من المخزون رسميًا.', hash: null },
+  damage_reversal: { label: 'عكس قيد تلف (تصحيح)', body: 'قيد تصحيحي رسمي بيعكس أثر تسجيل تلف سابق كان فيه خطأ - النظام ما بيمسحش القيود الأصلية، بيعكسها بقيد جديد للحفاظ على تتبع كل التعديلات.', hash: null },
+  expense: { label: 'مصروف عام', body: 'مصروف تشغيلي عام للمنشأة (إيجار، رواتب، مرافق...) مش مرتبط برحلة أو سيارة معينة.', hash: null },
+  voucher: { label: 'سند قبض/صرف', body: 'حركة نقدية أو بنكية مباشرة (تحصيل من عميل، سداد لمورد، صرف سلفة موظف...) بدون فاتورة مرتبطة.', hash: null },
+  voucher_reversal: { label: 'عكس سند (تصحيح)', body: 'قيد تصحيحي رسمي بيعكس أثر سند سابق كان فيه خطأ.', hash: null },
+  stock_transfer: { label: 'تحويل مخزون بين الفروع', body: 'نقل بضاعة رسمي من فرع/مخزن لفرع تاني.', hash: null },
+  transfer_in: { label: 'تحويل مخزون (وارد)', body: 'الجزء الخاص باستلام البضاعة المحوّلة في الفرع المستقبِل.', hash: null },
+  transfer_out: { label: 'تحويل مخزون (صادر)', body: 'الجزء الخاص بصرف البضاعة المحوّلة من الفرع المرسِل.', hash: null },
+  adjustment: { label: 'تسوية/جرد مخزون', body: 'تعديل رسمي لكمية صنف في المخزون بعد جرد فعلي، بفارق (زيادة أو عجز) موثّق بسبب.', hash: null },
+  closing: { label: 'قيد إقفال مالي', body: 'قيد تلقائي بيقفل حسابات الإيرادات والمصروفات في نهاية فترة محاسبية وينقل صافي النتيجة لحقوق الملكية.', hash: null },
+};
+
+function operationExplainHtml(entry) {
+  const info = OPERATION_EXPLAIN[entry.ref_type] || { label: entry.ref_type || 'عملية', body: 'لا يوجد شرح تفصيلي مسجّل لهذا النوع من العمليات.', hash: null };
+  const linkHash = info.hash && entry.ref_id ? info.hash(entry.ref_id) : null;
+  return `
+    <p><strong>النوع:</strong> ${UI.escapeHtml(info.label)}</p>
+    <p>${UI.escapeHtml(info.body)}</p>
+    <p class="muted">التاريخ: ${UI.escapeHtml(entry.entry_date)} ${entry.description ? '· ' + UI.escapeHtml(entry.description) : ''}</p>
+    <div class="table-wrap"><table><thead><tr><th>الفرع</th><th>الحساب</th><th>مدين</th><th>دائن</th></tr></thead><tbody>
+      ${entry.lines
+        .map(
+          (l) => `<tr>
+        <td class="muted">${UI.escapeHtml(l.branch_name || '-')}</td>
+        <td>${l.account_code} - ${UI.escapeHtml(l.account_name)}</td>
+        <td>${l.debit ? UI.money(l.debit) : '-'}</td>
+        <td>${l.credit ? UI.money(l.credit) : '-'}</td>
+      </tr>`
+        )
+        .join('')}
+    </tbody></table></div>
+    <div class="modal-actions">
+      ${linkHash ? `<a class="btn" href="${linkHash}" onclick="UI.closeModal()">فتح البطاقة الأصلية</a>` : ''}
+      <button class="btn secondary" type="button" onclick="UI.closeModal()">إغلاق</button>
+    </div>
+  `;
+}
+
 async function renderJournal(container) {
   const entries = await Api.get('/journal?limit=300');
   container.innerHTML = `
+    <p class="muted" style="font-size:13px">اضغط على أي عملية عشان تشوف شرح ليها وتفاصيل قيدها كاملة.</p>
     <div class="table-wrap"><table><thead><tr><th>التاريخ</th><th>البيان</th><th>الفرع</th><th>الحساب</th><th>مدين</th><th>دائن</th></tr></thead><tbody>
       ${entries
-        .map((e) =>
+        .map((e, ei) =>
           e.lines
             .map(
-              (l, i) => `<tr>
+              (l, i) => `<tr class="journal-row" data-entry="${ei}" style="cursor:pointer">
               <td>${i === 0 ? UI.escapeHtml(e.entry_date) : ''}</td>
               <td>${i === 0 ? UI.escapeHtml(e.description || '') : ''}</td>
               <td class="muted">${UI.escapeHtml(l.branch_name || '-')}</td>
@@ -409,6 +525,13 @@ async function renderJournal(container) {
         .join('')}
     </tbody></table></div>
   `;
+  container.querySelectorAll('.journal-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      const entry = entries[Number(row.dataset.entry)];
+      const info = OPERATION_EXPLAIN[entry.ref_type];
+      UI.openModal(`شرح العملية: ${UI.escapeHtml(info ? info.label : entry.ref_type || 'عملية')}`, operationExplainHtml(entry));
+    });
+  });
 }
 
 async function renderAccountsTree(container) {
@@ -442,6 +565,7 @@ const TAB_RENDERERS = {
   inventoryCheck: renderInventoryReconciliation,
   salesAccountability: renderSalesAccountability,
   profitability: renderProfitability,
+  efficiency: renderEfficiency,
   partners: renderPartnersEquity,
   cashflow: renderCashFlow,
   closing: renderClosing,

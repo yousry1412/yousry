@@ -1,7 +1,7 @@
 const { db } = require('./db');
 const { accountBalance } = require('./accounting');
 const { ACC } = require('./accounts');
-const { tripRemainingQty } = require('./services');
+const { tripRemainingQty, tripLoadUnitCost } = require('./services');
 
 function round2(n) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
@@ -514,6 +514,225 @@ function inventoryReconciliation(companyId, branchId) {
     .filter((r) => Math.abs(r.diff) > 0.01);
 
   return { checkedCount: rows.length, mismatches };
+}
+
+// ---------------------------------------------------------------------------
+// نظرة شاملة على المخازن (كل فرع وإيه اللي فيه) + الرقابة عليها
+// ---------------------------------------------------------------------------
+
+function warehousesOverview(companyId) {
+  const branches = db.prepare('SELECT * FROM branches WHERE company_id = ? AND is_active = 1 ORDER BY name').all(companyId);
+  return branches.map((branch) => {
+    const valuation = inventoryValuation(companyId, branch.id);
+    const reconciliation = inventoryReconciliation(companyId, branch.id);
+    const itemsWithStock = valuation.rows.filter((r) => r.qty_on_hand > 0);
+    const lowStock = valuation.rows.filter((r) => r.low_stock && r.qty_on_hand > 0);
+    return {
+      branch_id: branch.id,
+      branch_name: branch.name,
+      items: itemsWithStock,
+      itemCount: itemsWithStock.length,
+      totalValue: valuation.totalValue,
+      lowStockItems: lowStock,
+      mismatches: reconciliation.mismatches,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// نظرة شاملة على عهدة السيارات (كل سيارة وإيه اللي في عهدتها دلوقتي)
+// ---------------------------------------------------------------------------
+
+function vehiclesCustodyOverview(companyId) {
+  const vehicles = db.prepare('SELECT * FROM vehicles WHERE company_id = ? AND is_active = 1 ORDER BY name').all(companyId);
+  return vehicles.map((vehicle) => {
+    const openTrip = db
+      .prepare(`SELECT * FROM trips WHERE vehicle_id = ? AND status = 'open' ORDER BY id DESC LIMIT 1`)
+      .get(vehicle.id);
+    if (!openTrip) {
+      return { vehicle_id: vehicle.id, vehicle_name: vehicle.name, driver_name: vehicle.driver_name, open_trip: null, items: [], totalCostValue: 0, totalSaleValue: 0 };
+    }
+    const products = db
+      .prepare(`SELECT DISTINCT product_id FROM trip_loads WHERE trip_id = ? AND status = 'approved'`)
+      .all(openTrip.id);
+    const items = products
+      .map((row) => {
+        const product = db.prepare('SELECT * FROM products WHERE id = ?').get(row.product_id);
+        const remaining = tripRemainingQty(openTrip.id, row.product_id);
+        const unitCost = tripLoadUnitCost(openTrip.id, row.product_id);
+        return {
+          product_id: row.product_id,
+          product_name: product.name,
+          unit: product.unit,
+          remaining,
+          cost_value: round2(remaining * unitCost),
+          sale_value: round2(remaining * (product.sale_price || 0)),
+        };
+      })
+      .filter((it) => it.remaining > 0);
+    const employee = openTrip.responsible_employee_id
+      ? db.prepare('SELECT name FROM employees WHERE id = ?').get(openTrip.responsible_employee_id)
+      : null;
+    return {
+      vehicle_id: vehicle.id,
+      vehicle_name: vehicle.name,
+      driver_name: employee ? employee.name : vehicle.driver_name,
+      open_trip: { id: openTrip.id, trip_no: openTrip.trip_no, trip_date: openTrip.trip_date },
+      items,
+      totalCostValue: round2(items.reduce((s, it) => s + it.cost_value, 0)),
+      totalSaleValue: round2(items.reduce((s, it) => s + it.sale_value, 0)),
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// كروت التصنيع (تركيبة كل منتج مُصنّع + التكلفة والتسعير والتحويلات)
+// ---------------------------------------------------------------------------
+
+function manufacturingCatalog(companyId, branchId) {
+  const manufactured = db
+    .prepare(`SELECT * FROM products WHERE company_id = ? AND kind = 'manufactured' AND is_active = 1 ORDER BY name`)
+    .all(companyId);
+  return manufactured.map((product) => {
+    const bom = db
+      .prepare(
+        `SELECT b.qty_per_unit, b.component_id, p.name AS component_name, p.unit AS component_unit,
+                COALESCE(ps.cost_price, 0) AS component_cost
+         FROM bom_items b
+         JOIN products p ON p.id = b.component_id
+         LEFT JOIN product_stock ps ON ps.product_id = p.id AND ps.branch_id = ?
+         WHERE b.product_id = ?`
+      )
+      .all(branchId || 0, product.id);
+    const costPerUnit = round2(bom.reduce((s, b) => s + b.qty_per_unit * b.component_cost, 0));
+    const units = db.prepare('SELECT * FROM product_units WHERE product_id = ?').all(product.id);
+    const margin = round2(product.sale_price - costPerUnit);
+    const marginPct = product.sale_price > 0 ? round2((margin / product.sale_price) * 100) : 0;
+    return {
+      product_id: product.id,
+      product_name: product.name,
+      unit: product.unit,
+      sale_price: product.sale_price,
+      cost_per_unit: costPerUnit,
+      margin,
+      margin_pct: marginPct,
+      components: bom,
+      conversions: units,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// كفاءة الموظفين والسيارات (مبني على بيانات الرحلات الموجودة أصلًا)
+// ---------------------------------------------------------------------------
+
+function employeeEfficiency(companyId, { from, to } = {}) {
+  const trips = tripProfitability(companyId, { from, to });
+  const byEmployee = {};
+  trips.forEach((t) => {
+    const key = t.driver_name || 'بدون مسؤول محدد';
+    if (!byEmployee[key]) {
+      byEmployee[key] = { driver_name: key, trip_count: 0, sales: 0, expenses: 0, netResult: 0, km_driven: 0 };
+    }
+    const row = byEmployee[key];
+    row.trip_count += 1;
+    row.sales = round2(row.sales + t.sales);
+    row.expenses = round2(row.expenses + t.expenses);
+    row.netResult = round2(row.netResult + t.netResult);
+    row.km_driven = round2(row.km_driven + (t.km_driven || 0));
+  });
+  return Object.values(byEmployee).sort((a, b) => b.netResult - a.netResult);
+}
+
+function vehicleEfficiency(companyId, { from, to } = {}) {
+  const trips = tripProfitability(companyId, { from, to });
+  const byVehicle = {};
+  trips.forEach((t) => {
+    const key = t.vehicle_name;
+    if (!byVehicle[key]) {
+      byVehicle[key] = { vehicle_name: key, trip_count: 0, sales: 0, expenses: 0, netResult: 0, km_driven: 0 };
+    }
+    const row = byVehicle[key];
+    row.trip_count += 1;
+    row.sales = round2(row.sales + t.sales);
+    row.expenses = round2(row.expenses + t.expenses);
+    row.netResult = round2(row.netResult + t.netResult);
+    row.km_driven = round2(row.km_driven + (t.km_driven || 0));
+  });
+  return Object.values(byVehicle)
+    .map((r) => ({ ...r, cost_per_km: r.km_driven > 0 ? round2(r.expenses / r.km_driven) : null }))
+    .sort((a, b) => b.netResult - a.netResult);
+}
+
+// ---------------------------------------------------------------------------
+// رقابة المصاريف: مصاريف السيارات + ملخص شامل لكل المصاريف حسب البند
+// ---------------------------------------------------------------------------
+
+function vehicleExpensesOverview(companyId, { from, to } = {}) {
+  const conditions = ['t.company_id = ?'];
+  const params = [companyId];
+  if (from && to) {
+    conditions.push('t.trip_date BETWEEN ? AND ?');
+    params.push(from, to);
+  }
+  const rows = db
+    .prepare(
+      `SELECT te.id, te.category, te.amount, te.paid_from, te.notes, te.created_at,
+              t.id AS trip_id, t.trip_no, t.trip_date, v.id AS vehicle_id, v.name AS vehicle_name
+       FROM trip_expenses te
+       JOIN trips t ON t.id = te.trip_id
+       JOIN vehicles v ON v.id = t.vehicle_id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY t.trip_date DESC, te.id DESC`
+    )
+    .all(...params);
+
+  const byVehicle = {};
+  const byCategory = {};
+  rows.forEach((r) => {
+    if (!byVehicle[r.vehicle_id]) byVehicle[r.vehicle_id] = { vehicle_id: r.vehicle_id, vehicle_name: r.vehicle_name, total: 0, count: 0 };
+    byVehicle[r.vehicle_id].total = round2(byVehicle[r.vehicle_id].total + r.amount);
+    byVehicle[r.vehicle_id].count += 1;
+    byCategory[r.category] = round2((byCategory[r.category] || 0) + r.amount);
+  });
+
+  return {
+    rows,
+    byVehicle: Object.values(byVehicle).sort((a, b) => b.total - a.total),
+    byCategory,
+    total: round2(rows.reduce((s, r) => s + r.amount, 0)),
+  };
+}
+
+/** ملخص موحّد لكل أنواع المصاريف (عامة + مصاريف سيارات) مجمّعة حسب البند - رقابة شاملة على كل مصروف في المنشأة */
+function expensesSummary(companyId, { from, to } = {}) {
+  const generalConditions = ['e.company_id = ?'];
+  const generalParams = [companyId];
+  if (from && to) {
+    generalConditions.push('e.expense_date BETWEEN ? AND ?');
+    generalParams.push(from, to);
+  }
+  const general = db
+    .prepare(`SELECT category, COALESCE(SUM(amount),0) AS total FROM expenses e WHERE ${generalConditions.join(' AND ')} GROUP BY category`)
+    .all(...generalParams);
+
+  const vehicleOverview = vehicleExpensesOverview(companyId, { from, to });
+
+  const combined = {};
+  general.forEach((g) => (combined[g.category] = round2((combined[g.category] || 0) + g.total)));
+  Object.entries(vehicleOverview.byCategory).forEach(([cat, amount]) => {
+    const key = `vehicle_${cat}`;
+    combined[key] = round2((combined[key] || 0) + amount);
+  });
+
+  const generalTotal = round2(general.reduce((s, g) => s + g.total, 0));
+  return {
+    generalByCategory: general,
+    generalTotal,
+    vehicleByCategory: vehicleOverview.byCategory,
+    vehicleTotal: vehicleOverview.total,
+    grandTotal: round2(generalTotal + vehicleOverview.total),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1041,6 +1260,13 @@ module.exports = {
   invoiceLocationsReport,
   inventoryValuation,
   inventoryReconciliation,
+  warehousesOverview,
+  vehiclesCustodyOverview,
+  manufacturingCatalog,
+  employeeEfficiency,
+  vehicleEfficiency,
+  vehicleExpensesOverview,
+  expensesSummary,
   tripSettlementReport,
   productProfitability,
   customerProfitability,

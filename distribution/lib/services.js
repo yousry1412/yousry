@@ -36,6 +36,12 @@ function assertBelongs(table, id, companyId, label) {
   if (!row || row.company_id !== companyId) throw new Error(`${label} غير موجود أو لا ينتمي لهذه المنشأة`);
 }
 
+/** بيتحقق إن سجل معين (اتجاب مسبقًا) فعلاً بينتمي للمنشأة الحالية، وبيرجّعه لو تمام - وإلا بيرمي خطأ */
+function assertOwned(row, companyId, notFoundMsg) {
+  if (!row || row.company_id !== companyId) throw new Error(notFoundMsg);
+  return row;
+}
+
 /**
  * يمنع تسجيل أي حركة مالية (فاتورة/سند/تلف/رحلة...) بتاريخ داخل فترة اتقفلت بالفعل
  * (إقفال على مستوى الشركة كلها، أو إقفال خاص بنفس الفرع) - غير كده الإقفال المالي بيبقى
@@ -183,6 +189,120 @@ function createSupplier({ company_id, name, phone, address, notes, opening_balan
     }
     return db.prepare('SELECT * FROM suppliers WHERE id = ?').get(id);
   });
+}
+
+// ---------------------------------------------------------------------------
+// عقود التوريد/الشراء مع الموردين
+// ---------------------------------------------------------------------------
+
+function createSupplierContract({ company_id, supplier_id, title, start_date, end_date, notes, items, created_by_user_id }) {
+  return inTransaction(() => {
+    assertBelongs('suppliers', supplier_id, company_id, 'المورد');
+    if (!title || !title.trim()) throw new Error('لازم تكتب عنوان/رقم مرجعي للعقد');
+    if (!start_date) throw new Error('لازم تحدد تاريخ بداية العقد');
+    if (end_date && end_date < start_date) throw new Error('تاريخ النهاية لازم يكون بعد تاريخ البداية');
+    if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تحدد صنف واحد على الأقل بسعره المتفق عليه');
+
+    const contract_no = nextNumber('supplier_contracts', 'CNT');
+    const info = db
+      .prepare(
+        `INSERT INTO supplier_contracts (company_id, supplier_id, contract_no, title, start_date, end_date, notes, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(company_id, supplier_id, contract_no, title.trim(), start_date, end_date || null, notes || null, created_by_user_id || null);
+    const id = info.lastInsertRowid;
+
+    const insertItem = db.prepare(
+      `INSERT INTO supplier_contract_items (contract_id, product_id, agreed_price, notes) VALUES (?, ?, ?, ?)`
+    );
+    for (const it of items) {
+      const price = Number(it.agreed_price);
+      if (!(price >= 0)) throw new Error('السعر المتفق عليه لازم يكون رقم صحيح');
+      assertBelongs('products', it.product_id, company_id, 'الصنف');
+      insertItem.run(id, it.product_id, price, it.notes || null);
+    }
+    return getSupplierContract(id, company_id);
+  });
+}
+
+function updateSupplierContract(id, company_id, { title, start_date, end_date, notes, items }) {
+  return inTransaction(() => {
+    const contract = assertOwned(db.prepare('SELECT * FROM supplier_contracts WHERE id = ?').get(id), company_id, 'عقد غير موجود');
+    if (!title || !title.trim()) throw new Error('لازم تكتب عنوان/رقم مرجعي للعقد');
+    if (!start_date) throw new Error('لازم تحدد تاريخ بداية العقد');
+    if (end_date && end_date < start_date) throw new Error('تاريخ النهاية لازم يكون بعد تاريخ البداية');
+    db.prepare(
+      `UPDATE supplier_contracts SET title = ?, start_date = ?, end_date = ?, notes = ? WHERE id = ?`
+    ).run(title.trim(), start_date, end_date || null, notes || null, id);
+
+    if (Array.isArray(items)) {
+      db.prepare('DELETE FROM supplier_contract_items WHERE contract_id = ?').run(id);
+      const insertItem = db.prepare(
+        `INSERT INTO supplier_contract_items (contract_id, product_id, agreed_price, notes) VALUES (?, ?, ?, ?)`
+      );
+      for (const it of items) {
+        const price = Number(it.agreed_price);
+        if (!(price >= 0)) throw new Error('السعر المتفق عليه لازم يكون رقم صحيح');
+        assertBelongs('products', it.product_id, company_id, 'الصنف');
+        insertItem.run(id, it.product_id, price, it.notes || null);
+      }
+    }
+    return getSupplierContract(contract.id, company_id);
+  });
+}
+
+function setSupplierContractActive(id, company_id, isActive) {
+  assertOwned(db.prepare('SELECT * FROM supplier_contracts WHERE id = ?').get(id), company_id, 'عقد غير موجود');
+  db.prepare('UPDATE supplier_contracts SET is_active = ? WHERE id = ?').run(isActive ? 1 : 0, id);
+  return getSupplierContract(id, company_id);
+}
+
+function listSupplierContracts(company_id) {
+  const rows = db
+    .prepare(
+      `SELECT sc.*, s.name AS supplier_name,
+              (SELECT COUNT(*) FROM supplier_contract_items sci WHERE sci.contract_id = sc.id) AS item_count
+       FROM supplier_contracts sc JOIN suppliers s ON s.id = sc.supplier_id
+       WHERE sc.company_id = ? ORDER BY sc.id DESC`
+    )
+    .all(company_id);
+  const today = new Date().toISOString().slice(0, 10);
+  return rows.map((r) => ({
+    ...r,
+    is_expired: !!(r.end_date && r.end_date < today),
+  }));
+}
+
+function getSupplierContract(id, company_id) {
+  const contract = assertOwned(
+    db
+      .prepare(`SELECT sc.*, s.name AS supplier_name FROM supplier_contracts sc JOIN suppliers s ON s.id = sc.supplier_id WHERE sc.id = ?`)
+      .get(id),
+    company_id,
+    'عقد غير موجود'
+  );
+  contract.items = db
+    .prepare(
+      `SELECT sci.*, p.name AS product_name, p.unit AS product_unit
+       FROM supplier_contract_items sci JOIN products p ON p.id = sci.product_id WHERE sci.contract_id = ?`
+    )
+    .all(id);
+  return contract;
+}
+
+/** أقرب سعر متفق عليه في عقد نشط وسريان بين هذا المورد وهذا الصنف - للاسترشاد به وقت تسجيل فاتورة شراء */
+function activeContractPrice(company_id, supplier_id, product_id, asOfDate) {
+  const date = asOfDate || new Date().toISOString().slice(0, 10);
+  const row = db
+    .prepare(
+      `SELECT sci.agreed_price, sc.contract_no, sc.title
+       FROM supplier_contract_items sci JOIN supplier_contracts sc ON sc.id = sci.contract_id
+       WHERE sc.company_id = ? AND sc.supplier_id = ? AND sci.product_id = ? AND sc.is_active = 1
+         AND sc.start_date <= ? AND (sc.end_date IS NULL OR sc.end_date >= ?)
+       ORDER BY sc.id DESC LIMIT 1`
+    )
+    .get(company_id, supplier_id, product_id, date, date);
+  return row || null;
 }
 
 function createCustomer({
@@ -2209,6 +2329,13 @@ module.exports = {
   settleTrip,
   getTrip,
   tripRemainingQty,
+  tripLoadUnitCost,
+  createSupplierContract,
+  updateSupplierContract,
+  setSupplierContractActive,
+  listSupplierContracts,
+  getSupplierContract,
+  activeContractPrice,
   recordDriverLocation,
   tripLocationTrail,
   liveTripLocations,

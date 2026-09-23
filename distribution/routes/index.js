@@ -320,6 +320,52 @@ router.put(
 );
 
 // ---------------------------------------------------------------------------
+// عقود التوريد والشراء
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/supplier-contracts',
+  allow(...WH_G),
+  handle((req) => services.listSupplierContracts(ctx(req, { needBranch: false }).company_id))
+);
+router.get(
+  '/supplier-contracts/:id',
+  allow(...WH_G),
+  handle((req) => services.getSupplierContract(Number(req.params.id), ctx(req, { needBranch: false }).company_id))
+);
+router.post(
+  '/supplier-contracts',
+  allow(...WH_G),
+  handle((req) =>
+    services.createSupplierContract({ ...req.body, company_id: ctx(req, { needBranch: false }).company_id, created_by_user_id: req.user.id })
+  )
+);
+router.put(
+  '/supplier-contracts/:id',
+  allow(...WH_G),
+  handle((req) =>
+    services.updateSupplierContract(Number(req.params.id), ctx(req, { needBranch: false }).company_id, req.body)
+  )
+);
+router.put(
+  '/supplier-contracts/:id/active',
+  allow(...WH_G),
+  handle((req) =>
+    services.setSupplierContractActive(Number(req.params.id), ctx(req, { needBranch: false }).company_id, !!req.body.is_active)
+  )
+);
+router.get(
+  '/suppliers/:id/contract-price',
+  allow(...WH_G),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    const productId = Number(req.query.product_id);
+    if (!productId) return null;
+    return services.activeContractPrice(company_id, Number(req.params.id), productId);
+  })
+);
+
+// ---------------------------------------------------------------------------
 // العملاء
 // ---------------------------------------------------------------------------
 
@@ -1077,6 +1123,49 @@ router.get(
   '/reports/inventory-reconciliation',
   allow(...WH_G),
   handle((req) => reports.inventoryReconciliation(ctx(req, { needBranch: false }).company_id, reportBranch(req)))
+);
+router.get(
+  '/reports/warehouses',
+  allow(...WH_G),
+  handle((req) => reports.warehousesOverview(ctx(req, { needBranch: false }).company_id))
+);
+router.get(
+  '/reports/vehicles-custody',
+  allow(...WH_G),
+  handle((req) => reports.vehiclesCustodyOverview(ctx(req, { needBranch: false }).company_id))
+);
+router.get(
+  '/reports/manufacturing-catalog',
+  allow(...WH_G),
+  handle((req) => reports.manufacturingCatalog(ctx(req, { needBranch: false }).company_id, reportBranch(req)))
+);
+router.get(
+  '/reports/efficiency/employees',
+  allow(...FIN),
+  handle((req) =>
+    reports.employeeEfficiency(ctx(req, { needBranch: false }).company_id, { from: req.query.from, to: req.query.to })
+  )
+);
+router.get(
+  '/reports/efficiency/vehicles',
+  allow(...FIN),
+  handle((req) =>
+    reports.vehicleEfficiency(ctx(req, { needBranch: false }).company_id, { from: req.query.from, to: req.query.to })
+  )
+);
+router.get(
+  '/reports/vehicle-expenses',
+  allow(...FIN),
+  handle((req) =>
+    reports.vehicleExpensesOverview(ctx(req, { needBranch: false }).company_id, { from: req.query.from, to: req.query.to })
+  )
+);
+router.get(
+  '/reports/expenses-summary',
+  allow(...FIN),
+  handle((req) =>
+    reports.expensesSummary(ctx(req, { needBranch: false }).company_id, { from: req.query.from, to: req.query.to })
+  )
 );
 router.get(
   '/reports/profitability/products',

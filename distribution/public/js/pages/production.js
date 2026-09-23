@@ -1,8 +1,8 @@
 var Pages = window.Pages || {};
 
-Pages.productionList = async function () {
+async function renderProductionOrdersTab(container) {
   const rows = await Api.get('/production');
-  UI.setContent(`
+  container.innerHTML = `
     <div class="card">
       <div class="card-header">
         <h2>أوامر التصنيع</h2>
@@ -30,7 +30,77 @@ Pages.productionList = async function () {
             </tbody></table></div>`
       }
     </div>
+  `;
+}
+
+function manufacturingCardHtml(item) {
+  return `
+    <div class="card mfg-card">
+      <div class="card-header">
+        <h3>🏷️ ${UI.escapeHtml(item.product_name)}</h3>
+        <span class="${item.margin >= 0 ? 'muted' : ''}" style="color:${item.margin >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight:700">${item.margin_pct}% هامش</span>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>المكوّن</th><th>الكمية اللازمة لوحدة واحدة</th><th>تكلفة الوحدة</th><th>إجمالي</th></tr></thead><tbody>
+        ${
+          item.components.length === 0
+            ? '<tr><td colspan="4" class="muted">لا توجد تركيبة محفوظة لهذا المنتج</td></tr>'
+            : item.components
+                .map(
+                  (c) => `<tr>
+                <td>${UI.escapeHtml(c.component_name)}</td>
+                <td>${UI.num(c.qty_per_unit)} ${UI.escapeHtml(c.component_unit)}</td>
+                <td>${UI.money(c.component_cost)}</td>
+                <td>${UI.money(c.qty_per_unit * c.component_cost)}</td>
+              </tr>`
+                )
+                .join('')
+        }
+      </tbody></table></div>
+      ${
+        item.conversions.length > 0
+          ? `<p class="muted" style="margin-top:8px">وحدات التحويل: ${item.conversions.map((u) => `${UI.escapeHtml(u.unit_name)} = ${UI.num(u.factor)} ${UI.escapeHtml(item.unit)}`).join(' · ')}</p>`
+          : ''
+      }
+      <div class="totals-box"><div class="totals-inner">
+        <div class="totals-row"><span>تكلفة الوحدة (من التركيبة)</span><span>${UI.money(item.cost_per_unit)}</span></div>
+        <div class="totals-row"><span>سعر البيع</span><span>${UI.money(item.sale_price)}</span></div>
+        <div class="totals-row grand"><span>هامش الربح للوحدة</span><span style="color:${item.margin >= 0 ? 'var(--success)' : 'var(--danger)'}">${UI.money(item.margin)}</span></div>
+      </div></div>
+    </div>
+  `;
+}
+
+async function renderManufacturingCardsTab(container) {
+  const catalog = await Api.get('/reports/manufacturing-catalog');
+  container.innerHTML =
+    catalog.length === 0
+      ? '<div class="empty-state">لا توجد منتجات مُصنّعة بعد - أضف منتج من نوع "مُصنّع" وحدد تركيبته من صفحة المنتجات</div>'
+      : `<div class="grid cols-2">${catalog.map(manufacturingCardHtml).join('')}</div>`;
+}
+
+const PRODUCTION_TABS = [
+  { key: 'orders', label: 'أوامر التصنيع', render: renderProductionOrdersTab },
+  { key: 'cards', label: 'كروت الأصناف (التركيبة والتسعير)', render: renderManufacturingCardsTab },
+];
+
+Pages.productionList = async function () {
+  const activeTab = Pages._productionActiveTab || 'orders';
+  UI.setContent(`
+    <div class="tabs">
+      ${PRODUCTION_TABS.map((t) => `<button class="tab-btn ${t.key === activeTab ? 'active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
+    </div>
+    <div id="productionTabContent"><div class="empty-state">جارِ التحميل...</div></div>
   `);
+  async function showTab(key) {
+    Pages._productionActiveTab = key;
+    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === key));
+    const container = document.getElementById('productionTabContent');
+    container.innerHTML = '<div class="empty-state">جارِ التحميل...</div>';
+    const tab = PRODUCTION_TABS.find((t) => t.key === key);
+    await tab.render(container);
+  }
+  document.querySelectorAll('.tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
+  await showTab(activeTab);
 };
 
 function compRowHtml(components, componentId, qty) {

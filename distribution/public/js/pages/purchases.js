@@ -47,7 +47,7 @@ function itemRowHtml(products) {
     <td><select class="it-product">${UI.optionsHtml(products, 'id', 'name')}</select></td>
     <td><select class="it-unit">${first ? unitOptionsHtml(first) : ''}</select></td>
     <td><input class="it-qty" type="number" step="0.01" value="1" /></td>
-    <td><input class="it-cost" type="number" step="0.01" value="0" /></td>
+    <td><input class="it-cost" type="number" step="0.01" value="0" /><div class="contract-hint muted" style="font-size:11px"></div></td>
     <td class="it-total">0.00</td>
     <td><button type="button" class="remove-row">✕</button></td>
   </tr>`;
@@ -153,7 +153,10 @@ Pages.purchaseNew = async function () {
   }
   const ctl = wireItemsTable(tbody, products, recalc);
   recalc();
-  document.getElementById('addRowBtn').addEventListener('click', () => ctl.addRow());
+  document.getElementById('addRowBtn').addEventListener('click', () => {
+    ctl.addRow();
+    showContractHint(tbody.querySelector('tr:last-child'));
+  });
 
   const supplierSelect = document.querySelector('select[name="supplier_id"]');
   function updateGeofenceHint() {
@@ -162,6 +165,36 @@ Pages.purchaseNew = async function () {
   }
   supplierSelect.addEventListener('change', updateGeofenceHint);
   updateGeofenceHint();
+
+  // تلميح سعر العقد: لو المورد الحالي عنده عقد نشط على الصنف المختار، بيوري السعر المتفق
+  // عليه جنب حقل التكلفة (بدون ما يفرض عليه القيمة - المستخدم يقرر يستخدمها أو لا)
+  async function showContractHint(tr) {
+    const supplierId = Number(supplierSelect.value);
+    const productId = Number(tr.querySelector('.it-product').value);
+    const hintEl = tr.querySelector('.contract-hint');
+    hintEl.textContent = '';
+    if (!supplierId || !productId) return;
+    try {
+      const hint = await Api.get(`/suppliers/${supplierId}/contract-price?product_id=${productId}`);
+      if (hint) {
+        hintEl.innerHTML = `عقد "${UI.escapeHtml(hint.title)}": <button type="button" class="link-btn" style="font-size:11px">${UI.money(hint.agreed_price)}</button>`;
+        hintEl.querySelector('button').addEventListener('click', () => {
+          tr.querySelector('.it-cost').value = hint.agreed_price;
+          recalc();
+        });
+      }
+    } catch (_) {
+      /* التلميح اختياري - لو فشل الطلب منتوقفش الفاتورة */
+    }
+  }
+  function refreshAllHints() {
+    tbody.querySelectorAll('tr').forEach(showContractHint);
+  }
+  supplierSelect.addEventListener('change', refreshAllHints);
+  tbody.addEventListener('change', (e) => {
+    if (e.target.classList.contains('it-product')) showContractHint(e.target.closest('tr'));
+  });
+  refreshAllHints();
 
   document.getElementById('purchaseForm').addEventListener('submit', async (e) => {
     e.preventDefault();

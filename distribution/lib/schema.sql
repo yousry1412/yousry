@@ -241,6 +241,32 @@ CREATE TABLE IF NOT EXISTS purchase_return_items (
   line_total REAL NOT NULL
 );
 
+-- ---------- عقود التوريد/الشراء مع الموردين ----------
+-- عقد سعر ثابت (أو شروط) مع مورد معين لصنف أو أكتر، لفترة محددة أو مفتوحة - رقابة على
+-- الأسعار المتفق عليها بدل ما تعتمد على ذاكرة أو ثقة وقت كل فاتورة شراء.
+
+CREATE TABLE IF NOT EXISTS supplier_contracts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  supplier_id INTEGER NOT NULL REFERENCES suppliers(id),
+  contract_no TEXT UNIQUE NOT NULL,
+  title TEXT NOT NULL,
+  start_date TEXT NOT NULL,
+  end_date TEXT, -- فاضي = عقد مفتوح بدون تاريخ نهاية محدد
+  notes TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS supplier_contract_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contract_id INTEGER NOT NULL REFERENCES supplier_contracts(id) ON DELETE CASCADE,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  agreed_price REAL NOT NULL,
+  notes TEXT
+);
+
 -- ---------- التصنيع ----------
 
 CREATE TABLE IF NOT EXISTS production_orders (

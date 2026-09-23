@@ -16,6 +16,8 @@ const NAV = [
   { hash: '#/customers', label: 'العملاء', icon: '👥', roles: ROLE_GROUPS.SALES_G },
   { hash: '#/suppliers', label: 'الموردين', icon: '🏢', roles: ROLE_GROUPS.WH_G },
   { hash: '#/vehicles', label: 'السيارات', icon: '🚙', roles: ROLE_GROUPS.ALL },
+  { hash: '#/warehouses', label: 'المخازن وعهدة السيارات', icon: '🏬', roles: ROLE_GROUPS.WH_G },
+  { hash: '#/contracts', label: 'عقود التوريد والشراء', icon: '📄', roles: ROLE_GROUPS.WH_G },
   { hash: '#/damages', label: 'التوالف والهالك', icon: '⚠️', roles: ROLE_GROUPS.ALL },
   { hash: '#/expenses', label: 'المصروفات العامة', icon: '💸', roles: ROLE_GROUPS.FIN },
   { hash: '#/vouchers', label: 'سندات القبض والصرف', icon: '🧮', roles: ROLE_GROUPS.FIN },
@@ -59,6 +61,8 @@ const ROUTES = [
   { re: /^#\/production\/(\d+)$/, title: 'أمر تصنيع', render: (m) => Pages.productionDetail(m[1]) },
 
   { re: /^#\/vehicles$/, title: 'السيارات', render: () => Pages.vehiclesList() },
+  { re: /^#\/warehouses$/, title: 'المخازن وعهدة السيارات', render: () => Pages.warehousesHome() },
+  { re: /^#\/contracts$/, title: 'عقود التوريد والشراء', render: () => Pages.contractsList() },
 
   { re: /^#\/trips$/, title: 'رحلات التوزيع', render: () => Pages.tripsList() },
   { re: /^#\/trips\/new$/, title: 'رحلة جديدة', render: () => Pages.tripNew() },
