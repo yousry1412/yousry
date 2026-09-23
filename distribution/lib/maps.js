@@ -20,4 +20,13 @@ function saveConfig(companyId, { google_maps_api_key }) {
   return getConfig(companyId);
 }
 
-module.exports = { getConfig, saveConfig };
+/** رابط جوجل مابس قابل للفتح مباشرة لموقع معين - بيشتغل حتى من غير مفتاح API */
+function mapsLink(latitude, longitude) {
+  if (latitude === null || latitude === undefined || longitude === null || longitude === undefined) return null;
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return `https://www.google.com/maps?q=${lat},${lng}`;
+}
+
+module.exports = { getConfig, saveConfig, mapsLink };

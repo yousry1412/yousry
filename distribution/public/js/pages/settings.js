@@ -296,6 +296,11 @@ function userFormHtml(u = {}, branches = []) {
         <div class="field span-2" id="userBranchWrap"><label>الفرع (اختياري - سيبه فاضي لو محتاج يشتغل على كل الفروع)</label>
           <select name="branch_id"><option value="">- كل الفروع -</option>${UI.optionsHtml(branches, 'id', 'name', u.branch_id)}</select>
         </div>
+        <div class="field"><label>رقم هاتف واتساب (لتنبيهات الفواتير الميدانية)</label><input name="phone" type="tel" value="${UI.escapeHtml(u.phone || '')}" /></div>
+        <div class="field" style="flex-direction:row; align-items:center; gap:8px">
+          <input type="checkbox" id="userNotifyInvoices" name="notify_new_invoices" value="1" style="width:auto" ${u.notify_new_invoices ? 'checked' : ''} />
+          <label for="userNotifyInvoices" style="margin:0">تنبيهي على واتساب بأي فاتورة ميدانية جديدة</label>
+        </div>
         ${
           u.id
             ? `<div class="field"><label>الحالة</label>
@@ -331,6 +336,7 @@ function openUserModal(existing, branches, onDone) {
     if (!payload.password) delete payload.password;
     if (!payload.branch_id) delete payload.branch_id;
     payload.is_active = existing ? payload.is_active === '1' : 1;
+    payload.notify_new_invoices = document.getElementById('userNotifyInvoices').checked;
     try {
       if (existing) await Api.put(`/users/${existing.id}`, payload);
       else await Api.post('/users', payload);

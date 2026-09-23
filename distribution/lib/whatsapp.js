@@ -146,6 +146,47 @@ async function sendInvoiceNotification({ companyId, invoice, customerPhone }) {
   }
 }
 
+/**
+ * إشعار المسؤولين (المستخدمين اللي فعّلوا "تنبيهي بالفواتير الميدانية" وعندهم رقم هاتف) لما مندوب/سائق
+ * يسجل فاتورة من الميدان - رقابة إضافية على مبيعات الرحلات بعيدًا عن المخزن أو المكتب.
+ * إرسال نصي حر (مش قالب معتمد) لأنها رسالة داخلية للإدارة مش للعميل، وبيتسجل في نفس سجل واتساب.
+ */
+async function notifyManagersOfInvoice({ companyId, invoice, mapsUrl }) {
+  const config = getConfig(companyId);
+  if (!config || !config.access_token || !config.phone_number_id) return;
+  const managers = db
+    .prepare(
+      `SELECT * FROM users WHERE (company_id = ? OR company_id IS NULL)
+       AND is_active = 1 AND notify_new_invoices = 1 AND phone IS NOT NULL AND phone != ''`
+    )
+    .all(companyId);
+  if (managers.length === 0) return;
+
+  const lines = [
+    `📋 فاتورة ميدانية جديدة`,
+    `العميل: ${invoice.customer_name}`,
+    `رقم الفاتورة: ${invoice.invoice_no}`,
+    `الإجمالي: ${invoice.total.toFixed(2)}`,
+  ];
+  if (mapsUrl) lines.push(`موقع البيع: ${mapsUrl}`);
+  const text = lines.join('\n');
+
+  for (const manager of managers) {
+    const to = normalizePhone(manager.phone, config.default_country_code);
+    try {
+      const result = await sendTextMessage({
+        accessToken: config.access_token,
+        phoneNumberId: config.phone_number_id,
+        to,
+        text,
+      });
+      logAttempt({ company_id: companyId, sales_invoice_id: invoice.id, to_phone: to, status: 'sent', message_id: result?.messages?.[0]?.id });
+    } catch (err) {
+      logAttempt({ company_id: companyId, sales_invoice_id: invoice.id, to_phone: to, status: 'failed', error: err.message });
+    }
+  }
+}
+
 async function sendTestMessage({ companyId, phone, text }) {
   const config = getConfig(companyId);
   if (!config || !config.access_token || !config.phone_number_id) {
@@ -168,4 +209,4 @@ async function sendTestMessage({ companyId, phone, text }) {
   }
 }
 
-module.exports = { getConfig, saveConfig, sendInvoiceNotification, sendTestMessage, normalizePhone };
+module.exports = { getConfig, saveConfig, sendInvoiceNotification, notifyManagersOfInvoice, sendTestMessage, normalizePhone };

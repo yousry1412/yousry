@@ -13,6 +13,15 @@ function customerFormHtml(c = {}) {
             ? ''
             : `<div class="field"><label>رصيد افتتاحي (مستحق عليه)</label><input name="opening_balance" type="number" step="0.01" value="0" /></div>`
         }
+        <div class="field span-2">
+          <label>الموقع الجغرافي (GPS)</label>
+          <div style="display:flex; align-items:center; gap:10px">
+            <button type="button" class="btn secondary small" id="customerGpsBtn">📍 تحديد موقعي الحالي</button>
+            <span class="muted" id="customerGpsStatus" style="font-size:12.5px">${c.latitude ? `مسجّل حاليًا · <a href="${UI.googleMapsLink(c.latitude, c.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>` : 'لسه متسجلش'}</span>
+          </div>
+          <input type="hidden" name="latitude" id="customerLat" value="${c.latitude ?? ''}" />
+          <input type="hidden" name="longitude" id="customerLng" value="${c.longitude ?? ''}" />
+        </div>
         <div class="field span-2"><label>ملاحظات</label><textarea name="notes" rows="2">${UI.escapeHtml(c.notes || '')}</textarea></div>
       </div>
       <div class="modal-actions">
@@ -25,6 +34,18 @@ function customerFormHtml(c = {}) {
 
 function openCustomerModal(existing) {
   UI.openModal(existing ? 'تعديل بيانات عميل' : 'عميل جديد', customerFormHtml(existing || {}));
+  document.getElementById('customerGpsBtn').addEventListener('click', async () => {
+    const status = document.getElementById('customerGpsStatus');
+    status.textContent = 'جارِ تحديد الموقع...';
+    const pos = await UI.getCurrentPosition();
+    if (!pos) {
+      status.textContent = 'تعذّر تحديد الموقع - تأكد من تفعيل خدمة الموقع';
+      return;
+    }
+    document.getElementById('customerLat').value = pos.latitude;
+    document.getElementById('customerLng').value = pos.longitude;
+    status.innerHTML = `تم التحديد الآن · <a href="${UI.googleMapsLink(pos.latitude, pos.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>`;
+  });
   document.getElementById('customerForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);

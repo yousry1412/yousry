@@ -557,6 +557,7 @@ function tripSettlementReport(tripId) {
     const damaged = db
       .prepare('SELECT COALESCE(SUM(qty),0) AS q FROM damages WHERE trip_id=? AND product_id=?')
       .get(tripId, row.product_id).q;
+    const remaining = tripRemainingQty(tripId, row.product_id);
     return {
       product_id: row.product_id,
       product_name: product.name,
@@ -565,9 +566,15 @@ function tripSettlementReport(tripId) {
       sold,
       returned,
       damaged,
-      remaining: tripRemainingQty(tripId, row.product_id),
+      remaining,
+      // قيمة العهدة المتبقية بسعر البيع الحالي - مقياس رقابي لمتابعة السائق، مش رقم محاسبي
+      custody_sale_value: round2(remaining * (product.sale_price || 0)),
     };
   });
+  const custodySaleValueTotal = round2(reconciliation.reduce((s, r) => s + r.custody_sale_value, 0));
+  const custodySaleValueLoaded = round2(
+    db.prepare(`SELECT COALESCE(SUM(sale_value),0) AS s FROM trip_loads WHERE trip_id = ? AND status = 'approved'`).get(tripId).s
+  );
 
   const salesTotal = db
     .prepare('SELECT COALESCE(SUM(total),0) AS s FROM sales_invoices WHERE trip_id = ?')
@@ -598,6 +605,10 @@ function tripSettlementReport(tripId) {
     pendingLoads,
     reconciliation,
     performance: { odometer_start: trip.odometer_start, odometer_end: trip.odometer_end, km_driven: kmDriven, cost_per_km: costPerKm },
+    custody: {
+      sale_value_loaded: custodySaleValueLoaded,
+      sale_value_remaining: custodySaleValueTotal,
+    },
     financials: {
       salesTotal: round2(salesTotal),
       cogsTotal: round2(cogsTotal),

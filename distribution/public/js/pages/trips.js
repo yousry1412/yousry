@@ -168,6 +168,7 @@ function openApproveLoadModal(tripId, pendingLoads, onDone) {
     <form id="approveLoadForm">
       <div class="form-grid">
         <div class="field span-2"><label>قراءة عداد السيارة الآن (قبل التحرك) *</label><input name="odometer_start" type="number" step="1" min="0" required /></div>
+        <div class="field span-2"><label>صورة عداد السيارة *</label><input name="odometer_photo" type="file" accept="image/*" capture="environment" required /></div>
       </div>
       <p class="muted" style="font-size:13px">بمجرد الموافقة، البضاعة دي هتتحرك فعليًا من المخزن لعهدتك ومينفعش يترجع فيها إلا بمرتجع أو تسوية.</p>
       <div class="modal-actions">
@@ -179,8 +180,14 @@ function openApproveLoadModal(tripId, pendingLoads, onDone) {
   document.getElementById('approveLoadForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const photoFile = fd.get('odometer_photo');
+    fd.delete('odometer_photo');
+    const payload = Object.fromEntries(fd.entries());
     try {
-      await Api.post(`/trips/${tripId}/load/approve`, Object.fromEntries(fd.entries()));
+      if (photoFile && photoFile.size > 0) {
+        payload.odometer_start_photo = await compressImageFile(photoFile);
+      }
+      await Api.post(`/trips/${tripId}/load/approve`, payload);
       UI.closeModal();
       UI.toast('تم تأكيد الاستلام - البضاعة بقت في عهدتك', 'success');
       onDone();
@@ -208,6 +215,7 @@ function openSettleModal(tripId, hasStart, onDone) {
     `<form id="settleTripForm">
       <div class="form-grid">
         <div class="field span-2"><label>قراءة عداد السيارة الآن (بعد الرجوع)${hasStart ? ' *' : ''}</label><input name="odometer_end" type="number" step="1" min="0" ${hasStart ? 'required' : ''} /></div>
+        <div class="field span-2"><label>صورة عداد السيارة (اختياري)</label><input name="odometer_photo" type="file" accept="image/*" capture="environment" /></div>
       </div>
       ${!hasStart ? '<p class="muted" style="font-size:13px">مفيش قراءة عداد بداية مسجّلة لهذه الرحلة (لسه من قبل خاصية الموافقة) - تقدر تسيب الحقل فاضي.</p>' : ''}
       <div class="modal-actions">
@@ -219,8 +227,17 @@ function openSettleModal(tripId, hasStart, onDone) {
   document.getElementById('settleTripForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const photoFile = fd.get('odometer_photo');
+    let odometer_end_photo = null;
+    if (photoFile && photoFile.size > 0) {
+      try {
+        odometer_end_photo = await compressImageFile(photoFile);
+      } catch (_) {
+        /* لو فشل ضغط الصورة، نكمّل التسوية من غيرها */
+      }
+    }
     UI.closeModal();
-    onDone(fd.get('odometer_end') || null);
+    onDone(fd.get('odometer_end') || null, odometer_end_photo);
   });
 }
 
@@ -350,6 +367,51 @@ function openCollectModal(tripId, customers, onDone) {
   });
 }
 
+function openNewFieldCustomerModal(onCreated) {
+  UI.openModal(
+    'عميل جديد (من الميدان)',
+    `<form id="fieldCustomerForm">
+      <div class="form-grid">
+        <div class="field span-2"><label>اسم العميل *</label><input name="name" required /></div>
+        <div class="field"><label>الهاتف *</label><input name="phone" type="tel" required /></div>
+        <div class="field"><label>حد الائتمان</label><input name="credit_limit" type="number" step="0.01" value="0" /></div>
+        <div class="field span-2"><label>العنوان</label><input name="address" /></div>
+      </div>
+      <p class="muted" style="font-size:13px" id="fieldCustomerGpsStatus">📍 هيتم تسجيل موقعك الحالي كموقع العميل تلقائيًا - لازم تكون واقف عنده فعلًا.</p>
+      <div class="modal-actions">
+        <button class="btn" type="submit" id="submitFieldCustomer">حفظ العميل</button>
+        <button class="btn secondary" type="button" onclick="UI.closeModal()">إلغاء</button>
+      </div>
+    </form>`
+  );
+  document.getElementById('fieldCustomerForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const submitBtn = document.getElementById('submitFieldCustomer');
+    const statusEl = document.getElementById('fieldCustomerGpsStatus');
+    submitBtn.disabled = true;
+    const pos = await UI.getCurrentPosition();
+    if (!pos) {
+      statusEl.textContent = '⚠️ لازم تفعّل خدمة الموقع في الموبايل عشان تقدر تضيف عميل من الميدان';
+      submitBtn.disabled = false;
+      return;
+    }
+    const fd = new FormData(e.target);
+    const payload = Object.fromEntries(fd.entries());
+    payload.latitude = pos.latitude;
+    payload.longitude = pos.longitude;
+    payload.require_gps = true;
+    try {
+      const customer = await Api.post('/customers', payload);
+      UI.closeModal();
+      UI.toast('تم إضافة العميل', 'success');
+      onCreated(customer);
+    } catch (err) {
+      UI.toast(err.message, 'error');
+      submitBtn.disabled = false;
+    }
+  });
+}
+
 Pages.tripField = async function (id) {
   const [trip, settlement, allProducts, customers, trips, employees] = await Promise.all([
     Api.get(`/trips/${id}`),
@@ -375,7 +437,13 @@ Pages.tripField = async function (id) {
       </div>
 
       <div class="card">
-        <div class="field"><label>العميل</label><select id="fieldCustomer">${UI.optionsHtml(customers, 'id', 'name')}</select></div>
+        <div class="field">
+          <label>العميل</label>
+          <div style="display:flex; gap:8px; align-items:center">
+            <select id="fieldCustomer" style="flex:1">${UI.optionsHtml(customers, 'id', 'name')}</select>
+            <button type="button" class="btn secondary small" id="fieldNewCustomerBtn">+ عميل جديد</button>
+          </div>
+        </div>
         <div class="field" style="margin-top:8px; flex-direction:row; align-items:center; gap:8px">
           <input type="checkbox" id="fieldPaidNow" style="width:auto" /><label for="fieldPaidNow" style="margin:0">تحصيل نقدًا فورًا</label>
         </div>
@@ -480,6 +548,16 @@ Pages.tripField = async function (id) {
     }
   });
 
+  document.getElementById('fieldNewCustomerBtn').addEventListener('click', () => {
+    openNewFieldCustomerModal((customer) => {
+      const select = document.getElementById('fieldCustomer');
+      const opt = document.createElement('option');
+      opt.value = customer.id;
+      opt.textContent = customer.name;
+      select.appendChild(opt);
+      select.value = customer.id;
+    });
+  });
   document.getElementById('fieldReturnBtn').addEventListener('click', () => {
     const loadedWithRemaining = settlement.reconciliation.filter((r) => r.remaining > 0);
     if (loadedWithRemaining.length === 0) return UI.toast('لا توجد كمية متبقية بالعهدة لإرجاعها', 'error');
@@ -535,7 +613,8 @@ Pages.tripDetail = async function (id) {
         <a class="btn secondary small" href="#/trips">رجوع</a>
       </div>
       <p class="muted">السيارة: <strong>${UI.escapeHtml(trip.vehicle_name)}</strong> (${trip.ownership === 'owned' ? 'ملك خاص' : 'مأجورة'}) · المسؤول: <strong>${UI.escapeHtml(trip.responsible_employee_name || '-')}</strong> · التاريخ: ${UI.escapeHtml(trip.trip_date)}
-      ${trip.odometer_start != null ? ` · عداد البداية: ${UI.num(trip.odometer_start)}` : ''}${trip.odometer_end != null ? ` · عداد النهاية: ${UI.num(trip.odometer_end)}` : ''}${settlement.performance.km_driven != null ? ` · المسافة: ${UI.num(settlement.performance.km_driven)} كم` : ''}</p>
+      ${trip.odometer_start != null ? ` · عداد البداية: ${UI.num(trip.odometer_start)}${trip.odometer_start_photo ? ' <button type=\"button\" class=\"link-btn\" id=\"viewOdoStartPhoto\">📷</button>' : ''}` : ''}${trip.odometer_end != null ? ` · عداد النهاية: ${UI.num(trip.odometer_end)}${trip.odometer_end_photo ? ' <button type=\"button\" class=\"link-btn\" id=\"viewOdoEndPhoto\">📷</button>' : ''}` : ''}${settlement.performance.km_driven != null ? ` · المسافة: ${UI.num(settlement.performance.km_driven)} كم` : ''}</p>
+      <p class="muted">💰 قيمة العهدة الحالية بسعر البيع: <strong>${UI.money(settlement.custody.sale_value_remaining)}</strong> (من إجمالي محمّل ${UI.money(settlement.custody.sale_value_loaded)}) - مقياس رقابي بجانب التكلفة</p>
 
       ${
         isOpen
@@ -651,6 +730,12 @@ Pages.tripDetail = async function (id) {
       document.getElementById('tripMap').innerHTML = '<div class="empty-state">تعذّر تحميل مسار الرحلة</div>';
     });
 
+  document.getElementById('viewOdoStartPhoto')?.addEventListener('click', () => {
+    UI.openModal('صورة عداد البداية', `<img src="${trip.odometer_start_photo}" style="max-width:100%; border-radius:8px" />`);
+  });
+  document.getElementById('viewOdoEndPhoto')?.addEventListener('click', () => {
+    UI.openModal('صورة عداد النهاية', `<img src="${trip.odometer_end_photo}" style="max-width:100%; border-radius:8px" />`);
+  });
   document.querySelectorAll('[data-approve-load]').forEach((btn) => {
     btn.addEventListener('click', () => openApproveLoadModal(id, settlement.pendingLoads, () => Pages.tripDetail(id)));
   });
@@ -680,9 +765,13 @@ Pages.tripDetail = async function (id) {
       } else if (!(await UI.confirmAction('هل تريد تسوية وإقفال هذه الرحلة؟'))) {
         return;
       }
-      openSettleModal(id, trip.odometer_start != null, async (odometerEnd) => {
+      openSettleModal(id, trip.odometer_start != null, async (odometerEnd, odometerEndPhoto) => {
         try {
-          await Api.post(`/trips/${id}/settle`, { write_off_discrepancy: writeOff, odometer_end: odometerEnd });
+          await Api.post(`/trips/${id}/settle`, {
+            write_off_discrepancy: writeOff,
+            odometer_end: odometerEnd,
+            odometer_end_photo: odometerEndPhoto,
+          });
           UI.toast('تم إقفال الرحلة', 'success');
           Pages.tripDetail(id);
         } catch (err) {

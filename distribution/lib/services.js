@@ -185,18 +185,36 @@ function createSupplier({ company_id, name, phone, address, notes, opening_balan
   });
 }
 
-function createCustomer({ company_id, name, phone, address, notes, credit_limit, opening_balance }) {
+function createCustomer({
+  company_id, name, phone, address, notes, credit_limit, opening_balance,
+  latitude, longitude, geofence_radius_m, require_gps,
+}) {
   return inTransaction(() => {
     if (!phone || !String(phone).trim()) {
       throw new Error('رقم هاتف العميل إجباري - لازم عشان إرسال الفواتير على واتساب ومطابقة الحسابات');
     }
+    const coord = sanitizeCoord(latitude, longitude);
+    if (require_gps && coord.latitude === null) {
+      throw new Error('لازم تحديد موقع العميل (GPS) - افتح الفاتورة وانت واقف عند العميل عشان يتسجل موقعه بدقة');
+    }
     const ob = round2(Number(opening_balance) || 0);
     const info = db
       .prepare(
-        `INSERT INTO customers (company_id, name, phone, address, notes, credit_limit, opening_balance)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO customers (company_id, name, phone, address, notes, credit_limit, opening_balance, latitude, longitude, geofence_radius_m)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, name, phone || null, address || null, notes || null, Number(credit_limit) || 0, ob);
+      .run(
+        company_id,
+        name,
+        phone || null,
+        address || null,
+        notes || null,
+        Number(credit_limit) || 0,
+        ob,
+        coord.latitude,
+        coord.longitude,
+        geofence_radius_m === undefined || geofence_radius_m === '' || geofence_radius_m === null ? null : round2(Number(geofence_radius_m))
+      );
     const id = info.lastInsertRowid;
     if (ob !== 0) {
       postEntry({
@@ -818,9 +836,10 @@ function addTripLoad({ trip_id, items, created_by_user_id }) {
 }
 
 // موافقة مسؤول الرحلة (السواق) على استلام كل التحميلات المعلّقة - ده اللحظة اللي فعليًا
-// بيتحرك فيها المخزون من المخزن لعهدة الرحلة ويتعمل القيد المحاسبي. قراءة العداد إجبارية
-// وبتتسجل مرة واحدة بس (أول موافقة) عشان تقدر تحسب تكلفة وأداء الرحلة بدقة بعدين.
-function approveTripLoads({ trip_id, odometer_start, approved_by_user_id }) {
+// بيتحرك فيها المخزون من المخزن لعهدة الرحلة ويتعمل القيد المحاسبي. قراءة العداد وصورته إجبارية
+// وبتتسجل مرة واحدة بس (أول موافقة) عشان تقدر تحسب تكلفة وأداء الرحلة بدقة بعدين، وتكون دليل مصور
+// لو حصل خلاف على قراءة العداد.
+function approveTripLoads({ trip_id, odometer_start, odometer_start_photo, approved_by_user_id }) {
   return inTransaction(() => {
     const trip = requireOpenTrip(trip_id);
     assertPeriodOpen(trip.company_id, trip.branch_id, trip.trip_date);
@@ -830,13 +849,14 @@ function approveTripLoads({ trip_id, odometer_start, approved_by_user_id }) {
     if (trip.odometer_start == null) {
       const odo = Number(odometer_start);
       if (!(odo >= 0)) throw new Error('لازم تسجل قراءة عداد السيارة قبل الموافقة على استلام التحميل');
-      db.prepare('UPDATE trips SET odometer_start = ? WHERE id = ?').run(odo, trip_id);
+      if (!odometer_start_photo) throw new Error('لازم تصور عداد السيارة قبل الموافقة على استلام التحميل');
+      db.prepare('UPDATE trips SET odometer_start = ?, odometer_start_photo = ? WHERE id = ?').run(odo, odometer_start_photo, trip_id);
     }
 
     const invAccTotals = {};
     let totalValue = 0;
     const updateLoad = db.prepare(
-      `UPDATE trip_loads SET status = 'approved', unit_cost = ?, approved_by_user_id = ?, approved_at = datetime('now') WHERE id = ?`
+      `UPDATE trip_loads SET status = 'approved', unit_cost = ?, sale_value = ?, approved_by_user_id = ?, approved_at = datetime('now') WHERE id = ?`
     );
     for (const load of pending) {
       const stock = getProductWithStock(load.product_id, trip.branch_id, trip.company_id);
@@ -851,7 +871,10 @@ function approveTripLoads({ trip_id, odometer_start, approved_by_user_id }) {
         ref_type: 'trip_load',
         ref_id: trip_id,
       });
-      updateLoad.run(effectiveCost, approved_by_user_id || null, load.id);
+      // قيمة العهدة بسعر البيع - مقياس رقابي إضافي بجانب القيد المحاسبي (اللي بيفضل بسعر التكلفة عشان
+      // ميبوظش حساب الأرباح)، بيوضح للمسؤول عن الرحلة قد إيه قيمة اللي معاه لو اتباع بالكامل.
+      const saleValue = round2(load.qty_loaded * (stock.sale_price || 0));
+      updateLoad.run(effectiveCost, saleValue, approved_by_user_id || null, load.id);
       const value = round2(load.qty_loaded * effectiveCost);
       totalValue = round2(totalValue + value);
       const acc = invAccFor(stock);
@@ -1023,7 +1046,7 @@ function addTripReturn({ trip_id, items, created_by_user_id }) {
   });
 }
 
-function settleTrip({ trip_id, write_off_discrepancy, odometer_end }) {
+function settleTrip({ trip_id, write_off_discrepancy, odometer_end, odometer_end_photo }) {
   return inTransaction(() => {
     const trip = requireOpenTrip(trip_id);
     const pendingCount = db
@@ -1065,7 +1088,7 @@ function settleTrip({ trip_id, write_off_discrepancy, odometer_end }) {
       if (trip.odometer_start != null && !(odo >= trip.odometer_start)) {
         throw new Error(`قراءة عداد النهاية لازم تكون أكبر من أو تساوي قراءة البداية (${trip.odometer_start})`);
       }
-      db.prepare('UPDATE trips SET odometer_end = ? WHERE id = ?').run(odo, trip_id);
+      db.prepare('UPDATE trips SET odometer_end = ?, odometer_end_photo = ? WHERE id = ?').run(odo, odometer_end_photo || null, trip_id);
       if (trip.odometer_start != null) km_driven = round2(odo - trip.odometer_start);
     }
 

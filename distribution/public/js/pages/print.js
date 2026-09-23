@@ -52,6 +52,7 @@ Pages.printSale = async function (id) {
       </div></div>
 
       ${inv.notes ? `<p>ملاحظات: ${UI.escapeHtml(inv.notes)}</p>` : ''}
+      ${inv.latitude ? `<p class="no-print">📍 <a href="${UI.googleMapsLink(inv.latitude, inv.longitude)}" target="_blank" rel="noopener">موقع البيع على خرائط جوجل</a></p>` : ''}
 
       <div style="display:flex; justify-content:space-between; margin-top:50px;">
         <div>توقيع المندوب: ____________________</div>

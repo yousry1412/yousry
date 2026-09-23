@@ -344,13 +344,25 @@ router.put(
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     assertOwned(db.prepare('SELECT * FROM customers WHERE id = ?').get(req.params.id), company_id, 'عميل غير موجود');
-    const { name, phone, address, notes, credit_limit, is_active } = req.body;
+    const { name, phone, address, notes, credit_limit, is_active, latitude, longitude, geofence_radius_m } = req.body;
     if (!phone || !String(phone).trim()) {
       throw new Error('رقم هاتف العميل إجباري - لازم عشان إرسال الفواتير على واتساب ومطابقة الحسابات');
     }
+    const coord = services.sanitizeCoord(latitude, longitude);
     db.prepare(
-      'UPDATE customers SET name=?, phone=?, address=?, notes=?, credit_limit=?, is_active=? WHERE id=?'
-    ).run(name, phone || null, address || null, notes || null, Number(credit_limit) || 0, is_active ? 1 : 0, req.params.id);
+      `UPDATE customers SET name=?, phone=?, address=?, notes=?, credit_limit=?, is_active=?, latitude=?, longitude=?, geofence_radius_m=? WHERE id=?`
+    ).run(
+      name,
+      phone || null,
+      address || null,
+      notes || null,
+      Number(credit_limit) || 0,
+      is_active ? 1 : 0,
+      coord.latitude,
+      coord.longitude,
+      geofence_radius_m === undefined || geofence_radius_m === '' || geofence_radius_m === null ? null : Number(geofence_radius_m),
+      req.params.id
+    );
     return db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
   })
 );
@@ -655,6 +667,7 @@ router.post(
     return services.approveTripLoads({
       trip_id: Number(req.params.id),
       odometer_start: req.body.odometer_start,
+      odometer_start_photo: req.body.odometer_start_photo,
       approved_by_user_id: req.user.id,
     });
   })
@@ -697,6 +710,7 @@ router.post(
       trip_id: Number(req.params.id),
       write_off_discrepancy: !!req.body.write_off_discrepancy,
       odometer_end: req.body.odometer_end,
+      odometer_end_photo: req.body.odometer_end_photo,
     });
   })
 );
@@ -749,7 +763,8 @@ router.get(
   allow(...SALES_G),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
-    return assertOwned(services.getSalesInvoice(Number(req.params.id)), company_id, 'فاتورة غير موجودة');
+    const invoice = assertOwned(services.getSalesInvoice(Number(req.params.id)), company_id, 'فاتورة غير موجودة');
+    return { ...invoice, maps_url: maps.mapsLink(invoice.latitude, invoice.longitude) };
   })
 );
 router.post(
@@ -765,7 +780,13 @@ router.post(
         .sendInvoiceNotification({ companyId: invoice.company_id, invoice, customerPhone: invoice.customer_phone })
         .catch(() => {});
     }
-    return invoice;
+    // فاتورة اتسجلت من الميدان (مربوطة برحلة) - رقابة إضافية بإشعار المسؤولين اللي فعّلوا التنبيه
+    // ومرفق معاها رابط موقع البيع على خرائط جوجل لو اتسجل إحداثيات وقت البيع
+    if (invoice.trip_id) {
+      const mapsUrl = maps.mapsLink(invoice.latitude, invoice.longitude);
+      whatsapp.notifyManagersOfInvoice({ companyId: invoice.company_id, invoice, mapsUrl }).catch(() => {});
+    }
+    return { ...invoice, maps_url: maps.mapsLink(invoice.latitude, invoice.longitude) };
   })
 );
 router.post(

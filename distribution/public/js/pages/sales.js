@@ -339,6 +339,7 @@ Pages.salesDetail = async function (id) {
         <div class="totals-row grand"><span>المتبقي (على العميل)</span><span>${UI.money(inv.total - inv.paid_amount)}</span></div>
       </div></div>
       ${inv.notes ? `<p class="muted">ملاحظات: ${UI.escapeHtml(inv.notes)}</p>` : ''}
+      ${inv.latitude ? `<p class="muted">📍 <a href="${UI.googleMapsLink(inv.latitude, inv.longitude)}" target="_blank" rel="noopener">فتح موقع البيع في خرائط جوجل</a></p>` : ''}
     </div>
 
     ${

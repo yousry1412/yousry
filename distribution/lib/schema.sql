@@ -115,6 +115,9 @@ CREATE TABLE IF NOT EXISTS customers (
   notes TEXT,
   credit_limit REAL NOT NULL DEFAULT 0,
   opening_balance REAL NOT NULL DEFAULT 0,
+  latitude REAL,
+  longitude REAL,
+  geofence_radius_m REAL,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -289,6 +292,8 @@ CREATE TABLE IF NOT EXISTS trips (
   status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','settled')),
   odometer_start REAL,
   odometer_end REAL,
+  odometer_start_photo TEXT,
+  odometer_end_photo TEXT,
   notes TEXT,
   settled_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -300,6 +305,7 @@ CREATE TABLE IF NOT EXISTS trip_loads (
   product_id INTEGER NOT NULL REFERENCES products(id),
   qty_loaded REAL NOT NULL,
   unit_cost REAL NOT NULL,
+  sale_value REAL,
   status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')),
   approved_by_user_id INTEGER REFERENCES users(id),
   approved_at TEXT,
@@ -574,6 +580,8 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL CHECK(role IN ('owner','accountant','sales','warehouse')),
+  phone TEXT,
+  notify_new_invoices INTEGER NOT NULL DEFAULT 0,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

@@ -141,6 +141,15 @@ ensureColumn('trip_loads', 'status', "status TEXT NOT NULL DEFAULT 'approved'");
 ensureColumn('trip_loads', 'approved_by_user_id', 'approved_by_user_id INTEGER REFERENCES users(id)');
 ensureColumn('trip_loads', 'approved_at', 'approved_at TEXT');
 ensureColumn('trip_loads', 'rejected_reason', 'rejected_reason TEXT');
+// قيمة العهدة بسعر البيع - مقياس رقابي إضافي بجانب التكلفة (مش جزء من القيد المحاسبي)، بيفضل فاضي للتحميلات القديمة
+ensureColumn('trip_loads', 'sale_value', 'sale_value REAL');
+ensureColumn('trips', 'odometer_start_photo', 'odometer_start_photo TEXT');
+ensureColumn('trips', 'odometer_end_photo', 'odometer_end_photo TEXT');
+ensureColumn('customers', 'latitude', 'latitude REAL');
+ensureColumn('customers', 'longitude', 'longitude REAL');
+ensureColumn('customers', 'geofence_radius_m', 'geofence_radius_m REAL');
+ensureColumn('users', 'phone', 'phone TEXT');
+ensureColumn('users', 'notify_new_invoices', "notify_new_invoices INTEGER NOT NULL DEFAULT 0");
 dropCheckConstraintIfPresent(
   'trip_expenses',
   "paid_from IN ('cash','bank')",
