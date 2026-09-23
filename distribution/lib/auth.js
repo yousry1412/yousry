@@ -36,7 +36,7 @@ function setupOwner({ username, password }) {
   return createUser({ username, password, role: 'owner', company_id: null, branch_id: null });
 }
 
-function createUser({ username, password, role, company_id, branch_id, phone, notify_new_invoices }) {
+function createUser({ username, password, role, company_id, branch_id, phone, notify_new_invoices, commission_pct }) {
   username = String(username || '').trim();
   if (username.length < 3) throw new Error('اسم المستخدم لازم يكون 3 حروف على الأقل');
   if (!password || String(password).length < 6) {
@@ -50,15 +50,16 @@ function createUser({ username, password, role, company_id, branch_id, phone, no
     throw new Error('لازم تسجل رقم هاتف المستخدم عشان تقدر تفعّل تنبيهات الفواتير الميدانية على واتساب');
   }
 
+  const commission = commission_pct === undefined || commission_pct === '' || commission_pct === null ? null : Number(commission_pct);
   const info = db
     .prepare(
-      `INSERT INTO users (company_id, branch_id, username, password_hash, role, phone, notify_new_invoices) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO users (company_id, branch_id, username, password_hash, role, phone, notify_new_invoices, commission_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(company_id || null, branch_id || null, username, hashPassword(String(password)), role, phone || null, notify_new_invoices ? 1 : 0);
+    .run(company_id || null, branch_id || null, username, hashPassword(String(password)), role, phone || null, notify_new_invoices ? 1 : 0, commission);
   return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid));
 }
 
-function updateUser(id, { role, company_id, branch_id, is_active, password, phone, notify_new_invoices }) {
+function updateUser(id, { role, company_id, branch_id, is_active, password, phone, notify_new_invoices, commission_pct }) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!user) throw new Error('مستخدم غير موجود');
   if (role && !ROLES.includes(role)) throw new Error('صلاحية غير معروفة');
@@ -68,13 +69,14 @@ function updateUser(id, { role, company_id, branch_id, is_active, password, phon
   const nextPhone = phone !== undefined ? (phone || null) : user.phone;
   const nextNotify = notify_new_invoices !== undefined ? (notify_new_invoices ? 1 : 0) : user.notify_new_invoices;
   const nextActive = is_active !== undefined ? (is_active ? 1 : 0) : user.is_active;
+  const nextCommission = commission_pct !== undefined ? (commission_pct === '' || commission_pct === null ? null : Number(commission_pct)) : user.commission_pct;
   if (nextNotify && (!nextPhone || !String(nextPhone).trim())) {
     throw new Error('لازم تسجل رقم هاتف المستخدم عشان تقدر تفعّل تنبيهات الفواتير الميدانية على واتساب');
   }
 
   db.prepare(
-    'UPDATE users SET role = ?, company_id = ?, branch_id = ?, is_active = ?, phone = ?, notify_new_invoices = ? WHERE id = ?'
-  ).run(nextRole, nextCompany, nextRole === 'owner' ? null : branch_id ?? user.branch_id, nextActive, nextPhone, nextNotify, id);
+    'UPDATE users SET role = ?, company_id = ?, branch_id = ?, is_active = ?, phone = ?, notify_new_invoices = ?, commission_pct = ? WHERE id = ?'
+  ).run(nextRole, nextCompany, nextRole === 'owner' ? null : branch_id ?? user.branch_id, nextActive, nextPhone, nextNotify, nextCommission, id);
 
   if (password) {
     if (String(password).length < 6) throw new Error('كلمة السر لازم تكون 6 حروف أو أرقام على الأقل');

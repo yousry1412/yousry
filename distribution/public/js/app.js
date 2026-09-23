@@ -14,6 +14,7 @@ const NAV = [
   { hash: '#/production', label: 'أوامر التصنيع', icon: '🏭', roles: ROLE_GROUPS.WH_G },
   { hash: '#/products', label: 'المنتجات والمخزون', icon: '📦', roles: ROLE_GROUPS.ALL },
   { hash: '#/customers', label: 'العملاء', icon: '👥', roles: ROLE_GROUPS.SALES_G },
+  { hash: '#/customer-pricing', label: 'قوائم أسعار العملاء', icon: '💲', roles: ROLE_GROUPS.SALES_G },
   { hash: '#/suppliers', label: 'الموردين', icon: '🏢', roles: ROLE_GROUPS.WH_G },
   { hash: '#/vehicles', label: 'السيارات', icon: '🚙', roles: ROLE_GROUPS.ALL },
   { hash: '#/warehouses', label: 'المخازن وعهدة السيارات', icon: '🏬', roles: ROLE_GROUPS.WH_G },
@@ -45,6 +46,7 @@ const ROUTES = [
 
   { re: /^#\/customers$/, title: 'العملاء', render: () => Pages.customersList() },
   { re: /^#\/customers\/(\d+)$/, title: 'كشف حساب عميل', render: (m) => Pages.customerStatement(m[1]) },
+  { re: /^#\/customer-pricing$/, title: 'قوائم أسعار العملاء', render: () => Pages.customerPricingList() },
 
   { re: /^#\/suppliers$/, title: 'الموردين', render: () => Pages.suppliersList() },
   { re: /^#\/suppliers\/(\d+)$/, title: 'كشف حساب مورد', render: (m) => Pages.supplierStatement(m[1]) },

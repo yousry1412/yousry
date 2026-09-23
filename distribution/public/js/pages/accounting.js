@@ -9,6 +9,7 @@ const ACCT_TABS = [
   { key: 'salesAccountability', label: 'مسؤولية التحصيل' },
   { key: 'profitability', label: 'الربحية' },
   { key: 'efficiency', label: 'كفاءة الموظفين والسيارات' },
+  { key: 'commissions', label: 'عمولات المندوبين' },
   { key: 'partners', label: 'حقوق الشركاء' },
   { key: 'cashflow', label: 'التدفقات النقدية' },
   { key: 'closing', label: 'الإقفال المالي' },
@@ -227,6 +228,43 @@ async function renderEfficiency(container) {
     document.getElementById('effFilter').addEventListener('click', async () => {
       const from = document.getElementById('effFrom').value;
       const to = document.getElementById('effTo').value;
+      container.innerHTML = await load(from, to);
+      bindFilter();
+    });
+  }
+  container.innerHTML = await load();
+  bindFilter();
+}
+
+async function renderCommissions(container) {
+  async function load(from, to) {
+    const qs = from && to ? `?from=${from}&to=${to}` : '';
+    const rows = await Api.get('/reports/commissions' + qs);
+    return `
+      ${dateRangeBarHtml('comm')}
+      ${
+        rows.length === 0
+          ? '<div class="empty-state">لا يوجد مستخدمين لهم نسبة عمولة مسجّلة - أضفها من صفحة المستخدمين (الإعدادات)</div>'
+          : `<div class="table-wrap"><table><thead><tr><th>المستخدم</th><th>نسبة العمولة</th><th>عدد الفواتير</th><th>إجمالي المبيعات</th><th>العمولة المستحقة</th></tr></thead><tbody>
+              ${rows
+                .map(
+                  (r) => `<tr>
+                <td>${UI.escapeHtml(r.username)}</td>
+                <td>${r.commission_pct}%</td>
+                <td>${r.invoice_count}</td>
+                <td>${UI.money(r.total_sales)}</td>
+                <td><strong>${UI.money(r.commission_earned)}</strong></td>
+              </tr>`
+                )
+                .join('')}
+            </tbody></table></div>`
+      }
+    `;
+  }
+  async function bindFilter() {
+    document.getElementById('commFilter').addEventListener('click', async () => {
+      const from = document.getElementById('commFrom').value;
+      const to = document.getElementById('commTo').value;
       container.innerHTML = await load(from, to);
       bindFilter();
     });
@@ -566,6 +604,7 @@ const TAB_RENDERERS = {
   salesAccountability: renderSalesAccountability,
   profitability: renderProfitability,
   efficiency: renderEfficiency,
+  commissions: renderCommissions,
   partners: renderPartnersEquity,
   cashflow: renderCashFlow,
   closing: renderClosing,

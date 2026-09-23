@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS products (
   kind TEXT NOT NULL CHECK(kind IN ('trade','raw_material','manufactured')),
   sale_price REAL NOT NULL DEFAULT 0,
   reorder_level REAL NOT NULL DEFAULT 0,
+  track_expiry INTEGER NOT NULL DEFAULT 0, -- منتج بيتلف (زي الدجاج الطازج) ولازم تتبع تاريخ صلاحيته
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -241,6 +242,25 @@ CREATE TABLE IF NOT EXISTS purchase_return_items (
   line_total REAL NOT NULL
 );
 
+-- ---------- تتبع دفعات (batches) الأصناف اللي بتتلف - رقابة صلاحية بجانب المخزون العادي ----------
+-- طبقة معلوماتية موازية للمخزون (مش بديلة له) - بتتبع الكمية المتبقية من كل دفعة وتاريخ صلاحيتها
+-- عشان تنبّه بالصلاحيات القريبة أو المنتهية، من غير ما تلمس محرك تكلفة المخزون (متوسط مرجّح) الأساسي.
+
+CREATE TABLE IF NOT EXISTS product_batches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  branch_id INTEGER NOT NULL REFERENCES branches(id),
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  batch_no TEXT,
+  production_date TEXT,
+  expiry_date TEXT NOT NULL,
+  qty_received REAL NOT NULL,
+  qty_remaining REAL NOT NULL,
+  purchase_invoice_id INTEGER REFERENCES purchase_invoices(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_product_batches_lookup ON product_batches(product_id, branch_id, expiry_date);
+
 -- ---------- عقود التوريد/الشراء مع الموردين ----------
 -- عقد سعر ثابت (أو شروط) مع مورد معين لصنف أو أكتر، لفترة محددة أو مفتوحة - رقابة على
 -- الأسعار المتفق عليها بدل ما تعتمد على ذاكرة أو ثقة وقت كل فاتورة شراء.
@@ -266,6 +286,44 @@ CREATE TABLE IF NOT EXISTS supplier_contract_items (
   agreed_price REAL NOT NULL,
   notes TEXT
 );
+
+-- ---------- قوائم أسعار خاصة بالعملاء (تسعير تفضيلي/بالجملة متفق عليه) ----------
+
+CREATE TABLE IF NOT EXISTS customer_price_lists (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  customer_id INTEGER NOT NULL REFERENCES customers(id),
+  list_no TEXT UNIQUE NOT NULL,
+  title TEXT NOT NULL,
+  start_date TEXT NOT NULL,
+  end_date TEXT,
+  notes TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_by_user_id INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS customer_price_list_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  list_id INTEGER NOT NULL REFERENCES customer_price_lists(id) ON DELETE CASCADE,
+  product_id INTEGER NOT NULL REFERENCES products(id),
+  price REAL NOT NULL,
+  notes TEXT
+);
+
+-- ---------- سجل نشاط إداري (رقابة "مين عمل إيه" على العمليات الإدارية الحساسة) ----------
+
+CREATE TABLE IF NOT EXISTS activity_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER REFERENCES companies(id),
+  user_id INTEGER REFERENCES users(id),
+  action TEXT NOT NULL,
+  entity_type TEXT,
+  entity_id INTEGER,
+  description TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_activity_log_company ON activity_log(company_id, created_at);
 
 -- ---------- التصنيع ----------
 
@@ -608,6 +666,7 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL CHECK(role IN ('owner','accountant','sales','warehouse')),
   phone TEXT,
   notify_new_invoices INTEGER NOT NULL DEFAULT 0,
+  commission_pct REAL, -- نسبة عمولة المندوب/السائق من مبيعاته (فاضي = بدون عمولة)
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

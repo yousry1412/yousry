@@ -42,6 +42,41 @@ function assertOwned(row, companyId, notFoundMsg) {
   return row;
 }
 
+// ---------------------------------------------------------------------------
+// تتبع دفعات الصلاحية (FEFO) - طبقة معلوماتية موازية لمحرك تكلفة المخزون،
+// مش بديلة له ومش بتأثر على أي قيد محاسبي. بتستخدم بس لتنبيهات الصلاحية.
+// ---------------------------------------------------------------------------
+
+/** تسجيل دفعة جديدة (وارد) لصنف بيتتبّع صلاحيته - بتتنادى وقت الشراء لو المستخدم دخل تاريخ صلاحية */
+function receiveBatch({ company_id, branch_id, product_id, batch_no, production_date, expiry_date, qty, purchase_invoice_id }) {
+  if (!expiry_date) return;
+  db.prepare(
+    `INSERT INTO product_batches (company_id, branch_id, product_id, batch_no, production_date, expiry_date, qty_received, qty_remaining, purchase_invoice_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(company_id, branch_id, product_id, batch_no || null, production_date || null, expiry_date, qty, qty, purchase_invoice_id || null);
+}
+
+/**
+ * بتستهلك الكمية المطلوبة من أقدم الدفعات صلاحية أولاً (FEFO) - بأفضل جهد ممكن.
+ * لو مفيش دفعات كافية مسجّلة (صنف مش متتبّع، أو مخزون قديم من قبل تفعيل الخاصية)،
+ * بتستهلك اللي لاقياه بس ومتوقفش أو ترمي خطأ - الطبقة دي معلوماتية بحتة.
+ */
+function consumeBatchesFEFO(product_id, branch_id, qty) {
+  let remaining = qty;
+  const batches = db
+    .prepare(
+      `SELECT * FROM product_batches WHERE product_id = ? AND branch_id = ? AND qty_remaining > 0 ORDER BY expiry_date ASC, id ASC`
+    )
+    .all(product_id, branch_id);
+  const updateStmt = db.prepare('UPDATE product_batches SET qty_remaining = ? WHERE id = ?');
+  for (const batch of batches) {
+    if (remaining <= 0) break;
+    const take = Math.min(batch.qty_remaining, remaining);
+    updateStmt.run(round2(batch.qty_remaining - take), batch.id);
+    remaining = round2(remaining - take);
+  }
+}
+
 /**
  * يمنع تسجيل أي حركة مالية (فاتورة/سند/تلف/رحلة...) بتاريخ داخل فترة اتقفلت بالفعل
  * (إقفال على مستوى الشركة كلها، أو إقفال خاص بنفس الفرع) - غير كده الإقفال المالي بيبقى
@@ -305,6 +340,117 @@ function activeContractPrice(company_id, supplier_id, product_id, asOfDate) {
   return row || null;
 }
 
+// ---------------------------------------------------------------------------
+// قوائم أسعار خاصة بالعملاء (تسعير تفضيلي/بالجملة متفق عليه)
+// ---------------------------------------------------------------------------
+
+function createCustomerPriceList({ company_id, customer_id, title, start_date, end_date, notes, items, created_by_user_id }) {
+  return inTransaction(() => {
+    assertBelongs('customers', customer_id, company_id, 'العميل');
+    if (!title || !title.trim()) throw new Error('لازم تكتب عنوان لقائمة الأسعار');
+    if (!start_date) throw new Error('لازم تحدد تاريخ بداية السريان');
+    if (end_date && end_date < start_date) throw new Error('تاريخ النهاية لازم يكون بعد تاريخ البداية');
+    if (!Array.isArray(items) || items.length === 0) throw new Error('لازم تحدد صنف واحد على الأقل بسعره');
+
+    const list_no = nextNumber('customer_price_lists', 'CPL');
+    const info = db
+      .prepare(
+        `INSERT INTO customer_price_lists (company_id, customer_id, list_no, title, start_date, end_date, notes, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(company_id, customer_id, list_no, title.trim(), start_date, end_date || null, notes || null, created_by_user_id || null);
+    const id = info.lastInsertRowid;
+
+    const insertItem = db.prepare(
+      `INSERT INTO customer_price_list_items (list_id, product_id, price, notes) VALUES (?, ?, ?, ?)`
+    );
+    for (const it of items) {
+      const price = Number(it.price);
+      if (!(price >= 0)) throw new Error('السعر لازم يكون رقم صحيح');
+      assertBelongs('products', it.product_id, company_id, 'الصنف');
+      insertItem.run(id, it.product_id, price, it.notes || null);
+    }
+    return getCustomerPriceList(id, company_id);
+  });
+}
+
+function updateCustomerPriceList(id, company_id, { title, start_date, end_date, notes, items }) {
+  return inTransaction(() => {
+    const list = assertOwned(db.prepare('SELECT * FROM customer_price_lists WHERE id = ?').get(id), company_id, 'قائمة أسعار غير موجودة');
+    if (!title || !title.trim()) throw new Error('لازم تكتب عنوان لقائمة الأسعار');
+    if (!start_date) throw new Error('لازم تحدد تاريخ بداية السريان');
+    if (end_date && end_date < start_date) throw new Error('تاريخ النهاية لازم يكون بعد تاريخ البداية');
+    db.prepare(
+      `UPDATE customer_price_lists SET title = ?, start_date = ?, end_date = ?, notes = ? WHERE id = ?`
+    ).run(title.trim(), start_date, end_date || null, notes || null, id);
+
+    if (Array.isArray(items)) {
+      db.prepare('DELETE FROM customer_price_list_items WHERE list_id = ?').run(id);
+      const insertItem = db.prepare(
+        `INSERT INTO customer_price_list_items (list_id, product_id, price, notes) VALUES (?, ?, ?, ?)`
+      );
+      for (const it of items) {
+        const price = Number(it.price);
+        if (!(price >= 0)) throw new Error('السعر لازم يكون رقم صحيح');
+        assertBelongs('products', it.product_id, company_id, 'الصنف');
+        insertItem.run(id, it.product_id, price, it.notes || null);
+      }
+    }
+    return getCustomerPriceList(list.id, company_id);
+  });
+}
+
+function setCustomerPriceListActive(id, company_id, isActive) {
+  assertOwned(db.prepare('SELECT * FROM customer_price_lists WHERE id = ?').get(id), company_id, 'قائمة أسعار غير موجودة');
+  db.prepare('UPDATE customer_price_lists SET is_active = ? WHERE id = ?').run(isActive ? 1 : 0, id);
+  return getCustomerPriceList(id, company_id);
+}
+
+function listCustomerPriceLists(company_id) {
+  const rows = db
+    .prepare(
+      `SELECT cpl.*, c.name AS customer_name,
+              (SELECT COUNT(*) FROM customer_price_list_items cpli WHERE cpli.list_id = cpl.id) AS item_count
+       FROM customer_price_lists cpl JOIN customers c ON c.id = cpl.customer_id
+       WHERE cpl.company_id = ? ORDER BY cpl.id DESC`
+    )
+    .all(company_id);
+  const today = new Date().toISOString().slice(0, 10);
+  return rows.map((r) => ({ ...r, is_expired: !!(r.end_date && r.end_date < today) }));
+}
+
+function getCustomerPriceList(id, company_id) {
+  const list = assertOwned(
+    db
+      .prepare(`SELECT cpl.*, c.name AS customer_name FROM customer_price_lists cpl JOIN customers c ON c.id = cpl.customer_id WHERE cpl.id = ?`)
+      .get(id),
+    company_id,
+    'قائمة أسعار غير موجودة'
+  );
+  list.items = db
+    .prepare(
+      `SELECT cpli.*, p.name AS product_name, p.unit AS product_unit
+       FROM customer_price_list_items cpli JOIN products p ON p.id = cpli.product_id WHERE cpli.list_id = ?`
+    )
+    .all(id);
+  return list;
+}
+
+/** أقرب سعر متفق عليه لعميل معين على صنف معين، من قائمة أسعار نشطة وسارية - للاسترشاد به وقت البيع */
+function activeCustomerPrice(company_id, customer_id, product_id, asOfDate) {
+  const date = asOfDate || new Date().toISOString().slice(0, 10);
+  const row = db
+    .prepare(
+      `SELECT cpli.price, cpl.list_no, cpl.title
+       FROM customer_price_list_items cpli JOIN customer_price_lists cpl ON cpl.id = cpli.list_id
+       WHERE cpl.company_id = ? AND cpl.customer_id = ? AND cpli.product_id = ? AND cpl.is_active = 1
+         AND cpl.start_date <= ? AND (cpl.end_date IS NULL OR cpl.end_date >= ?)
+       ORDER BY cpl.id DESC LIMIT 1`
+    )
+    .get(company_id, customer_id, product_id, date, date);
+  return row || null;
+}
+
 function createCustomer({
   company_id, name, phone, address, notes, credit_limit, opening_balance,
   latitude, longitude, geofence_radius_m, require_gps,
@@ -377,15 +523,15 @@ function listProductCategories(companyId) {
 // المنتجات و BOM ووحدات القياس
 // ---------------------------------------------------------------------------
 
-function createProduct({ company_id, branch_id, category_id, name, sku, unit, kind, sale_price, cost_price, reorder_level, opening_qty, bom }) {
+function createProduct({ company_id, branch_id, category_id, name, sku, unit, kind, sale_price, cost_price, reorder_level, opening_qty, bom, track_expiry }) {
   return inTransaction(() => {
     if (category_id) assertBelongs('product_categories', category_id, company_id, 'التصنيف');
     const info = db
       .prepare(
-        `INSERT INTO products (company_id, category_id, name, sku, unit, kind, sale_price, reorder_level)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO products (company_id, category_id, name, sku, unit, kind, sale_price, reorder_level, track_expiry)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, category_id || null, name, sku || null, unit || 'وحدة', kind, Number(sale_price) || 0, Number(reorder_level) || 0);
+      .run(company_id, category_id || null, name, sku || null, unit || 'وحدة', kind, Number(sale_price) || 0, Number(reorder_level) || 0, track_expiry ? 1 : 0);
     const id = info.lastInsertRowid;
 
     const oQty = round2(Number(opening_qty) || 0);
@@ -545,6 +691,9 @@ function createPurchaseInvoice({
         line_total,
         unit_id: factor === 1 ? null : it.unit_id,
         unit_qty: factor === 1 ? null : enteredQty,
+        batch_no: it.batch_no || null,
+        production_date: it.production_date || null,
+        expiry_date: it.expiry_date || null,
       };
     });
     subtotal = round2(subtotal);
@@ -584,6 +733,18 @@ function createPurchaseInvoice({
       const product = getProduct(line.product_id, company_id);
       const acc = invAccFor(product);
       invAccTotals[acc] = round2((invAccTotals[acc] || 0) + line.line_total);
+      if (product.track_expiry && line.expiry_date) {
+        receiveBatch({
+          company_id,
+          branch_id,
+          product_id: line.product_id,
+          batch_no: line.batch_no,
+          production_date: line.production_date,
+          expiry_date: line.expiry_date,
+          qty: line.qty,
+          purchase_invoice_id: invoiceId,
+        });
+      }
     }
 
     const jLines = Object.entries(invAccTotals).map(([account_code, amount]) => ({
@@ -999,6 +1160,7 @@ function approveTripLoads({ trip_id, odometer_start, odometer_start_photo, appro
       totalValue = round2(totalValue + value);
       const acc = invAccFor(stock);
       invAccTotals[acc] = round2((invAccTotals[acc] || 0) + value);
+      if (stock.track_expiry) consumeBatchesFEFO(load.product_id, trip.branch_id, load.qty_loaded);
     }
 
     if (totalValue > 0) {
@@ -1416,6 +1578,8 @@ function createSalesInvoice({
           ref_type: 'sale',
           ref_id: invoiceId,
         });
+        const product = getProduct(line.product_id, company_id);
+        if (product.track_expiry) consumeBatchesFEFO(line.product_id, branch_id, line.qty);
       }
       const value = round2(line.qty * line.unit_cost);
       const acc = trip_id ? ACC.CUSTODY : PRODUCT_KIND_TO_INVENTORY_ACC[line.kind];
@@ -2330,12 +2494,20 @@ module.exports = {
   getTrip,
   tripRemainingQty,
   tripLoadUnitCost,
+  receiveBatch,
+  consumeBatchesFEFO,
   createSupplierContract,
   updateSupplierContract,
   setSupplierContractActive,
   listSupplierContracts,
   getSupplierContract,
   activeContractPrice,
+  createCustomerPriceList,
+  updateCustomerPriceList,
+  setCustomerPriceListActive,
+  listCustomerPriceLists,
+  getCustomerPriceList,
+  activeCustomerPrice,
   recordDriverLocation,
   tripLocationTrail,
   liveTripLocations,

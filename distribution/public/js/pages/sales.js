@@ -51,7 +51,7 @@ function saleRowHtml(products) {
     <td><select class="it-product">${UI.optionsHtml(products, 'id', 'label')}</select></td>
     <td><select class="it-unit">${first ? saleUnitOptionsHtml(first) : ''}</select></td>
     <td><input class="it-qty" type="number" step="0.01" value="1" /></td>
-    <td><input class="it-price" type="number" step="0.01" value="0" /></td>
+    <td><input class="it-price" type="number" step="0.01" value="0" /><div class="customer-price-hint muted" style="font-size:11px"></div></td>
     <td class="it-total">0.00</td>
     <td><button type="button" class="remove-row">✕</button></td>
   </tr>`;
@@ -149,11 +149,28 @@ Pages.salesNew = async function () {
     const sel = tr.querySelector('.it-product');
     const unitSel = tr.querySelector('.it-unit');
     const priceInput = tr.querySelector('.it-price');
-    const applyDefaultPrice = () => {
+    const priceHintEl = tr.querySelector('.customer-price-hint');
+    const applyDefaultPrice = async () => {
       const p = products.find((x) => x.id === Number(sel.value));
       const factor = p && unitSel.value ? Number((p.units || []).find((u) => String(u.id) === unitSel.value)?.factor) || 1 : 1;
       if (p) priceInput.value = round2ui(p.sale_price * factor);
+      if (priceHintEl) priceHintEl.textContent = '';
       recalc();
+      // لو للعميل ده سعر خاص متفق عليه على الصنف ده، نطبّقه تلقائيًا بدل السعر العام
+      // (وده بالظبط الهدف من قوائم أسعار العملاء - منع نسيان سعر متفق عليه وقت البيع)
+      const customerId = Number(customerSelect.value);
+      if (p && customerId && factor === 1) {
+        try {
+          const hint = await Api.get(`/customers/${customerId}/price?product_id=${p.id}`);
+          if (hint) {
+            priceInput.value = hint.price;
+            if (priceHintEl) priceHintEl.textContent = `سعر خاص (${hint.title}): ${UI.money(hint.price)}`;
+            recalc();
+          }
+        } catch (_) {
+          /* التلميح اختياري */
+        }
+      }
     };
     sel.addEventListener('change', () => {
       const p = products.find((x) => x.id === Number(sel.value));
@@ -162,6 +179,7 @@ Pages.salesNew = async function () {
     });
     unitSel.addEventListener('change', applyDefaultPrice);
     tr.querySelectorAll('input').forEach((inp) => inp.addEventListener('input', recalc));
+    tr._refreshPrice = applyDefaultPrice;
     applyDefaultPrice();
   }
 
@@ -209,7 +227,10 @@ Pages.salesNew = async function () {
 
   tbody.querySelectorAll('tr').forEach(bindRow);
   recalc();
-  customerSelect.addEventListener('change', recalc);
+  customerSelect.addEventListener('change', () => {
+    tbody.querySelectorAll('tr').forEach((tr) => tr._refreshPrice && tr._refreshPrice());
+    recalc();
+  });
   paidInput.addEventListener('input', recalc);
 
   document.getElementById('addRowBtn').addEventListener('click', () => {

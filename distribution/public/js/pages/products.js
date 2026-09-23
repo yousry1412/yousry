@@ -34,6 +34,10 @@ function productFormHtml(categories) {
         <div class="field"><label>تكلفة الوحدة (تقديرية)</label><input name="cost_price" type="number" step="0.01" value="0" /></div>
         <div class="field"><label>حد إعادة الطلب</label><input name="reorder_level" type="number" step="0.01" value="0" /></div>
         <div class="field"><label>الكمية الافتتاحية بالمخزون</label><input name="opening_qty" type="number" step="0.01" value="0" /></div>
+        <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
+          <input type="checkbox" id="productTrackExpiry" name="track_expiry" value="1" style="width:auto" />
+          <label for="productTrackExpiry" style="margin:0">صنف بيتلف وليه تاريخ صلاحية (زي الدجاج الطازج) - تتبّع دفعاته وتنبيهات صلاحيتها</label>
+        </div>
       </div>
       <p class="muted" style="font-size:12.5px">لو المنتج "مُصنّع" تقدر تحدد تركيبة المكونات (BOM)، ولو محتاج وحدات قياس
         إضافية أكبر (زي كرتونة) تقدر تضيفها، كل ده بعد إضافة المنتج من صفحة تفاصيله.</p>
@@ -158,10 +162,39 @@ Pages.productDetail = async function (id) {
           <div class="field"><label>الوحدة الأساسية (الصغرى)</label><input name="unit" value="${UI.escapeHtml(p.unit)}" /></div>
           <div class="field"><label>سعر البيع</label><input name="sale_price" type="number" step="0.01" value="${p.sale_price}" /></div>
           <div class="field"><label>حد إعادة الطلب</label><input name="reorder_level" type="number" step="0.01" value="${p.reorder_level}" /></div>
+          <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
+            <input type="checkbox" id="editTrackExpiry" style="width:auto" ${p.track_expiry ? 'checked' : ''} />
+            <label for="editTrackExpiry" style="margin:0">صنف بيتلف وليه تاريخ صلاحية - تتبّع دفعاته وتنبيهات صلاحيتها</label>
+          </div>
         </div>
         <div class="modal-actions"><button class="btn" type="submit">حفظ التعديلات</button></div>
       </form>
     </div>
+
+    ${
+      p.track_expiry
+        ? `<div class="card">
+            <div class="card-header"><h3>دفعات الصلاحية المسجّلة</h3></div>
+            ${
+              (p.batches || []).length === 0
+                ? '<div class="empty-state">لا توجد دفعات مسجّلة بعد - هتتسجل تلقائيًا لما تحدد تاريخ صلاحية عند شراء الصنف</div>'
+                : `<div class="table-wrap"><table><thead><tr><th>رقم الدفعة</th><th>تاريخ الإنتاج</th><th>تاريخ الصلاحية</th><th>الكمية المستلمة</th><th>المتبقي</th></tr></thead><tbody>
+                    ${p.batches
+                      .map(
+                        (b) => `<tr class="${b.qty_remaining > 0 && b.expiry_date < UI.todayStr() ? 'low-stock-row' : ''}">
+                      <td>${UI.escapeHtml(b.batch_no || '-')}</td>
+                      <td>${UI.escapeHtml(b.production_date || '-')}</td>
+                      <td>${UI.escapeHtml(b.expiry_date)}</td>
+                      <td>${UI.num(b.qty_received)}</td>
+                      <td>${UI.num(b.qty_remaining)}</td>
+                    </tr>`
+                      )
+                      .join('')}
+                  </tbody></table></div>`
+            }
+          </div>`
+        : ''
+    }
 
     <div class="card">
       <div class="card-header"><h3>وحدات القياس الإضافية (أكبر من الوحدة الأساسية)</h3></div>
@@ -240,6 +273,7 @@ Pages.productDetail = async function (id) {
     const fd = new FormData(e.target);
     const payload = Object.fromEntries(fd.entries());
     payload.is_active = 1;
+    payload.track_expiry = document.getElementById('editTrackExpiry').checked;
     try {
       await Api.put(`/products/${id}`, payload);
       UI.toast('تم حفظ التعديلات', 'success');

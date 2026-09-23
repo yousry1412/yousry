@@ -3,6 +3,7 @@ var Pages = window.Pages || {};
 const WH_TABS = [
   { key: 'branches', label: 'المخازن الثابتة' },
   { key: 'vehicles', label: 'عهدة السيارات' },
+  { key: 'expiry', label: 'تنبيهات الصلاحية' },
 ];
 
 function operationExplainModal(kind, data) {
@@ -141,7 +142,34 @@ async function renderVehiclesCustodyTab(container) {
   );
 }
 
-const WH_RENDERERS = { branches: renderBranchesTab, vehicles: renderVehiclesCustodyTab };
+async function renderExpiryTab(container) {
+  const alerts = await Api.get('/reports/expiry-alerts?days=14');
+  if (alerts.length === 0) {
+    container.innerHTML = '<div class="empty-state">مفيش دفعات قربت أو انتهت صلاحيتها خلال الـ14 يوم الجايين 👍</div>';
+    return;
+  }
+  container.innerHTML = `
+    <div class="card">
+      <div class="card-header"><h3>دفعات قربت أو انتهت صلاحيتها (خلال 14 يوم)</h3></div>
+      <div class="table-wrap"><table><thead><tr><th>الصنف</th><th>المخزن</th><th>رقم الدفعة</th><th>تاريخ الصلاحية</th><th>الكمية المتبقية</th><th>الحالة</th></tr></thead><tbody>
+        ${alerts
+          .map(
+            (a) => `<tr class="${a.is_expired ? 'low-stock-row' : ''}">
+          <td>${UI.escapeHtml(a.product_name)}</td>
+          <td>${UI.escapeHtml(a.branch_name)}</td>
+          <td>${UI.escapeHtml(a.batch_no || '-')}</td>
+          <td>${UI.escapeHtml(a.expiry_date)}</td>
+          <td>${UI.num(a.qty_remaining)} ${UI.escapeHtml(a.product_unit)}</td>
+          <td>${a.is_expired ? UI.badge('منتهية الصلاحية', 'red') : UI.badge('قربت تنتهي', 'orange')}</td>
+        </tr>`
+          )
+          .join('')}
+      </tbody></table></div>
+    </div>
+  `;
+}
+
+const WH_RENDERERS = { branches: renderBranchesTab, vehicles: renderVehiclesCustodyTab, expiry: renderExpiryTab };
 
 Pages.warehousesHome = async function () {
   const activeTab = Pages._whActiveTab || 'branches';

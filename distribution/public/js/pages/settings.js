@@ -8,6 +8,7 @@ const SETTINGS_TABS = [
   { key: 'accounts', label: 'شجرة الحسابات' },
   { key: 'whatsapp', label: 'واتساب' },
   { key: 'maps', label: 'الخرائط' },
+  { key: 'activity', label: 'سجل النشاط' },
 ];
 
 const USER_ROLE_LABELS = {
@@ -297,6 +298,7 @@ function userFormHtml(u = {}, branches = []) {
           <select name="branch_id"><option value="">- كل الفروع -</option>${UI.optionsHtml(branches, 'id', 'name', u.branch_id)}</select>
         </div>
         <div class="field"><label>رقم هاتف واتساب (لتنبيهات الفواتير الميدانية)</label><input name="phone" type="tel" value="${UI.escapeHtml(u.phone || '')}" /></div>
+        <div class="field"><label>نسبة عمولة على المبيعات % (اختياري)</label><input name="commission_pct" type="number" step="0.01" min="0" max="100" value="${u.commission_pct ?? ''}" /></div>
         <div class="field" style="flex-direction:row; align-items:center; gap:8px">
           <input type="checkbox" id="userNotifyInvoices" name="notify_new_invoices" value="1" style="width:auto" ${u.notify_new_invoices ? 'checked' : ''} />
           <label for="userNotifyInvoices" style="margin:0">تنبيهي على واتساب بأي فاتورة ميدانية جديدة</label>
@@ -536,6 +538,48 @@ async function renderMapsTab() {
   });
 }
 
+const ACTIVITY_ACTION_LABELS = {
+  login: 'تسجيل دخول',
+  login_failed: 'محاولة دخول فاشلة',
+  create_user: 'إنشاء مستخدم',
+  update_user: 'تعديل مستخدم',
+  create_supplier_contract: 'إنشاء عقد توريد',
+  update_supplier_contract: 'تعديل عقد توريد',
+  activate_supplier_contract: 'تفعيل عقد توريد',
+  deactivate_supplier_contract: 'إيقاف عقد توريد',
+  create_customer_price_list: 'إنشاء قائمة أسعار عميل',
+  update_customer_price_list: 'تعديل قائمة أسعار عميل',
+  activate_customer_price_list: 'تفعيل قائمة أسعار عميل',
+  deactivate_customer_price_list: 'إيقاف قائمة أسعار عميل',
+  reverse_damage: 'عكس قيد تلف',
+  reverse_voucher: 'عكس سند',
+};
+
+async function renderActivityTab() {
+  const rows = await Api.get('/activity-log?limit=300');
+  const container = document.getElementById('settingsTabContent');
+  container.innerHTML = `
+    <div class="card-header"><h3>سجل النشاط الإداري</h3></div>
+    <p class="muted" style="font-size:13px">تسجيل لحظي لعمليات الدخول والتعديلات الإدارية الحساسة (مستخدمين، عقود، قوائم أسعار، عكس قيود) - "مين عمل إيه وإمتى".</p>
+    ${
+      rows.length === 0
+        ? '<div class="empty-state">لا يوجد نشاط مسجّل بعد</div>'
+        : `<div class="table-wrap"><table><thead><tr><th>الوقت</th><th>المستخدم</th><th>العملية</th><th>التفاصيل</th></tr></thead><tbody>
+            ${rows
+              .map(
+                (r) => `<tr class="${r.action === 'login_failed' ? 'low-stock-row' : ''}">
+              <td class="muted">${UI.formatDateTime(r.created_at)}</td>
+              <td>${UI.escapeHtml(r.username || '-')}</td>
+              <td>${ACTIVITY_ACTION_LABELS[r.action] || UI.escapeHtml(r.action)}</td>
+              <td>${UI.escapeHtml(r.description || '-')}</td>
+            </tr>`
+              )
+              .join('')}
+          </tbody></table></div>`
+    }
+  `;
+}
+
 const SETTINGS_RENDERERS = {
   companies: renderCompaniesTab,
   branches: renderBranchesTab,
@@ -544,6 +588,7 @@ const SETTINGS_RENDERERS = {
   accounts: renderAccountsTab,
   whatsapp: renderWhatsappTab,
   maps: renderMapsTab,
+  activity: renderActivityTab,
 };
 
 Pages.settingsHome = async function () {

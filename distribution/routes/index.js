@@ -5,6 +5,7 @@ const reports = require('../lib/reports');
 const whatsapp = require('../lib/whatsapp');
 const maps = require('../lib/maps');
 const auth = require('../lib/auth');
+const { logActivity, listActivityLog } = require('../lib/activity');
 
 const router = express.Router();
 
@@ -231,13 +232,24 @@ router.post(
   allow(...OWNER),
   handle((req) => {
     const company_id = req.body.role === 'owner' ? null : req.body.company_id || req.companyId;
-    return auth.createUser({ ...req.body, company_id });
+    const user = auth.createUser({ ...req.body, company_id });
+    logActivity({ company_id, user_id: req.user.id, action: 'create_user', entity_type: 'user', entity_id: user.id, description: `إنشاء مستخدم "${user.username}" بصلاحية ${user.role} بمعرفة ${req.user.username}` });
+    return user;
   })
+);
+router.get(
+  '/activity-log',
+  allow(...OWNER),
+  handle((req) => listActivityLog(req.companyId, { limit: req.query.limit }))
 );
 router.put(
   '/users/:id',
   allow(...OWNER),
-  handle((req) => auth.updateUser(Number(req.params.id), req.body))
+  handle((req) => {
+    const user = auth.updateUser(Number(req.params.id), req.body);
+    logActivity({ company_id: user.company_id || req.companyId, user_id: req.user.id, action: 'update_user', entity_type: 'user', entity_id: user.id, description: `تعديل بيانات مستخدم "${user.username}" بمعرفة ${req.user.username}` });
+    return user;
+  })
 );
 
 // ---------------------------------------------------------------------------
@@ -336,23 +348,32 @@ router.get(
 router.post(
   '/supplier-contracts',
   allow(...WH_G),
-  handle((req) =>
-    services.createSupplierContract({ ...req.body, company_id: ctx(req, { needBranch: false }).company_id, created_by_user_id: req.user.id })
-  )
+  handle((req) => {
+    const company_id = ctx(req, { needBranch: false }).company_id;
+    const contract = services.createSupplierContract({ ...req.body, company_id, created_by_user_id: req.user.id });
+    logActivity({ company_id, user_id: req.user.id, action: 'create_supplier_contract', entity_type: 'supplier_contract', entity_id: contract.id, description: `إنشاء عقد "${contract.title}" مع المورد "${contract.supplier_name}" بمعرفة ${req.user.username}` });
+    return contract;
+  })
 );
 router.put(
   '/supplier-contracts/:id',
   allow(...WH_G),
-  handle((req) =>
-    services.updateSupplierContract(Number(req.params.id), ctx(req, { needBranch: false }).company_id, req.body)
-  )
+  handle((req) => {
+    const company_id = ctx(req, { needBranch: false }).company_id;
+    const contract = services.updateSupplierContract(Number(req.params.id), company_id, req.body);
+    logActivity({ company_id, user_id: req.user.id, action: 'update_supplier_contract', entity_type: 'supplier_contract', entity_id: contract.id, description: `تعديل عقد "${contract.title}" بمعرفة ${req.user.username}` });
+    return contract;
+  })
 );
 router.put(
   '/supplier-contracts/:id/active',
   allow(...WH_G),
-  handle((req) =>
-    services.setSupplierContractActive(Number(req.params.id), ctx(req, { needBranch: false }).company_id, !!req.body.is_active)
-  )
+  handle((req) => {
+    const company_id = ctx(req, { needBranch: false }).company_id;
+    const contract = services.setSupplierContractActive(Number(req.params.id), company_id, !!req.body.is_active);
+    logActivity({ company_id, user_id: req.user.id, action: contract.is_active ? 'activate_supplier_contract' : 'deactivate_supplier_contract', entity_type: 'supplier_contract', entity_id: contract.id, description: `${contract.is_active ? 'تفعيل' : 'إيقاف'} عقد "${contract.title}" بمعرفة ${req.user.username}` });
+    return contract;
+  })
 );
 router.get(
   '/suppliers/:id/contract-price',
@@ -410,6 +431,61 @@ router.put(
       req.params.id
     );
     return db.prepare('SELECT * FROM customers WHERE id=?').get(req.params.id);
+  })
+);
+
+// ---------------------------------------------------------------------------
+// قوائم أسعار العملاء
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/customer-price-lists',
+  allow(...SALES_G),
+  handle((req) => services.listCustomerPriceLists(ctx(req, { needBranch: false }).company_id))
+);
+router.get(
+  '/customer-price-lists/:id',
+  allow(...SALES_G),
+  handle((req) => services.getCustomerPriceList(Number(req.params.id), ctx(req, { needBranch: false }).company_id))
+);
+router.post(
+  '/customer-price-lists',
+  allow(...SALES_G),
+  handle((req) => {
+    const company_id = ctx(req, { needBranch: false }).company_id;
+    const list = services.createCustomerPriceList({ ...req.body, company_id, created_by_user_id: req.user.id });
+    logActivity({ company_id, user_id: req.user.id, action: 'create_customer_price_list', entity_type: 'customer_price_list', entity_id: list.id, description: `إنشاء قائمة أسعار "${list.title}" للعميل "${list.customer_name}" بمعرفة ${req.user.username}` });
+    return list;
+  })
+);
+router.put(
+  '/customer-price-lists/:id',
+  allow(...SALES_G),
+  handle((req) => {
+    const company_id = ctx(req, { needBranch: false }).company_id;
+    const list = services.updateCustomerPriceList(Number(req.params.id), company_id, req.body);
+    logActivity({ company_id, user_id: req.user.id, action: 'update_customer_price_list', entity_type: 'customer_price_list', entity_id: list.id, description: `تعديل قائمة أسعار "${list.title}" بمعرفة ${req.user.username}` });
+    return list;
+  })
+);
+router.put(
+  '/customer-price-lists/:id/active',
+  allow(...SALES_G),
+  handle((req) => {
+    const company_id = ctx(req, { needBranch: false }).company_id;
+    const list = services.setCustomerPriceListActive(Number(req.params.id), company_id, !!req.body.is_active);
+    logActivity({ company_id, user_id: req.user.id, action: list.is_active ? 'activate_customer_price_list' : 'deactivate_customer_price_list', entity_type: 'customer_price_list', entity_id: list.id, description: `${list.is_active ? 'تفعيل' : 'إيقاف'} قائمة أسعار "${list.title}" بمعرفة ${req.user.username}` });
+    return list;
+  })
+);
+router.get(
+  '/customers/:id/price',
+  allow(...SALES_G),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    const productId = Number(req.query.product_id);
+    if (!productId) return null;
+    return services.activeCustomerPrice(company_id, Number(req.params.id), productId);
   })
 );
 
@@ -485,6 +561,11 @@ router.get(
     product.movements = db
       .prepare('SELECT * FROM stock_movements WHERE product_id=? AND branch_id=? ORDER BY id DESC LIMIT 200')
       .all(req.params.id, branch_id);
+    if (product.track_expiry) {
+      product.batches = db
+        .prepare('SELECT * FROM product_batches WHERE product_id=? AND branch_id=? ORDER BY expiry_date ASC')
+        .all(req.params.id, branch_id);
+    }
     return product;
   })
 );
@@ -502,11 +583,11 @@ router.put(
   handle((req) => {
     const { company_id } = ctx(req);
     assertOwned(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id), company_id, 'منتج غير موجود');
-    const { name, sku, unit, category_id, sale_price, reorder_level, is_active } = req.body;
+    const { name, sku, unit, category_id, sale_price, reorder_level, is_active, track_expiry } = req.body;
     if (category_id) assertOwned(db.prepare('SELECT * FROM product_categories WHERE id=?').get(category_id), company_id, 'تصنيف غير موجود');
     db.prepare(
-      'UPDATE products SET name=?, sku=?, unit=?, category_id=?, sale_price=?, reorder_level=?, is_active=? WHERE id=?'
-    ).run(name, sku || null, unit || 'وحدة', category_id || null, Number(sale_price) || 0, Number(reorder_level) || 0, is_active ? 1 : 0, req.params.id);
+      'UPDATE products SET name=?, sku=?, unit=?, category_id=?, sale_price=?, reorder_level=?, is_active=?, track_expiry=? WHERE id=?'
+    ).run(name, sku || null, unit || 'وحدة', category_id || null, Number(sale_price) || 0, Number(reorder_level) || 0, is_active ? 1 : 0, track_expiry ? 1 : 0, req.params.id);
     return db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   })
 );
@@ -901,7 +982,9 @@ router.post(
   allow(...FIN),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
-    return services.reverseDamage(Number(req.params.id), company_id, { ...req.body, reversed_by_user_id: req.user.id });
+    const result = services.reverseDamage(Number(req.params.id), company_id, { ...req.body, reversed_by_user_id: req.user.id });
+    logActivity({ company_id, user_id: req.user.id, action: 'reverse_damage', entity_type: 'damage', entity_id: Number(req.params.id), description: `عكس قيد تلف رقم ${req.params.id} بمعرفة ${req.user.username} - السبب: ${req.body.reason || '-'}` });
+    return result;
   })
 );
 
@@ -1034,7 +1117,9 @@ router.post(
   allow(...FIN),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
-    return services.reverseVoucher(Number(req.params.id), company_id, { ...req.body, reversed_by_user_id: req.user.id });
+    const result = services.reverseVoucher(Number(req.params.id), company_id, { ...req.body, reversed_by_user_id: req.user.id });
+    logActivity({ company_id, user_id: req.user.id, action: 'reverse_voucher', entity_type: 'voucher', entity_id: Number(req.params.id), description: `عكس سند رقم ${req.params.id} بمعرفة ${req.user.username} - السبب: ${req.body.reason || '-'}` });
+    return result;
   })
 );
 
@@ -1166,6 +1251,18 @@ router.get(
   handle((req) =>
     reports.expensesSummary(ctx(req, { needBranch: false }).company_id, { from: req.query.from, to: req.query.to })
   )
+);
+router.get(
+  '/reports/commissions',
+  allow(...FIN),
+  handle((req) =>
+    reports.commissionReport(ctx(req, { needBranch: false }).company_id, { from: req.query.from, to: req.query.to })
+  )
+);
+router.get(
+  '/reports/expiry-alerts',
+  allow(...WH_G),
+  handle((req) => reports.expiryAlerts(ctx(req, { needBranch: false }).company_id, { days: req.query.days }))
 );
 router.get(
   '/reports/profitability/products',

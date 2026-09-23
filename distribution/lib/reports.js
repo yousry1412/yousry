@@ -665,6 +665,61 @@ function vehicleEfficiency(companyId, { from, to } = {}) {
 }
 
 // ---------------------------------------------------------------------------
+// عمولات المندوبين/السائقين على المبيعات
+// ---------------------------------------------------------------------------
+
+function commissionReport(companyId, { from, to } = {}) {
+  const users = db
+    .prepare(`SELECT * FROM users WHERE (company_id = ? OR company_id IS NULL) AND commission_pct IS NOT NULL AND is_active = 1`)
+    .all(companyId);
+  if (users.length === 0) return [];
+
+  const conditions = ['sv.company_id = ?', 'sv.created_by_user_id = ?'];
+  if (from && to) conditions.push('sv.invoice_date BETWEEN ? AND ?');
+
+  return users.map((u) => {
+    const params = from && to ? [companyId, u.id, from, to] : [companyId, u.id];
+    const row = db
+      .prepare(
+        `SELECT COUNT(*) AS invoice_count, COALESCE(SUM(subtotal),0) AS total_sales
+         FROM sales_invoices sv WHERE ${conditions.join(' AND ')}`
+      )
+      .get(...params);
+    const commission = round2(row.total_sales * (u.commission_pct / 100));
+    return {
+      user_id: u.id,
+      username: u.username,
+      commission_pct: u.commission_pct,
+      invoice_count: row.invoice_count,
+      total_sales: round2(row.total_sales),
+      commission_earned: commission,
+    };
+  }).sort((a, b) => b.commission_earned - a.commission_earned);
+}
+
+// ---------------------------------------------------------------------------
+// تنبيهات الصلاحية (FEFO) - دفعات قربت أو انتهت صلاحيتها
+// ---------------------------------------------------------------------------
+
+function expiryAlerts(companyId, { days } = {}) {
+  const horizon = new Date();
+  horizon.setDate(horizon.getDate() + (Number(days) || 7));
+  const horizonDate = horizon.toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = db
+    .prepare(
+      `SELECT pb.*, p.name AS product_name, p.unit AS product_unit, b.name AS branch_name
+       FROM product_batches pb
+       JOIN products p ON p.id = pb.product_id
+       JOIN branches b ON b.id = pb.branch_id
+       WHERE pb.company_id = ? AND pb.qty_remaining > 0.004 AND pb.expiry_date <= ?
+       ORDER BY pb.expiry_date ASC`
+    )
+    .all(companyId, horizonDate);
+  return rows.map((r) => ({ ...r, is_expired: r.expiry_date < today }));
+}
+
+// ---------------------------------------------------------------------------
 // رقابة المصاريف: مصاريف السيارات + ملخص شامل لكل المصاريف حسب البند
 // ---------------------------------------------------------------------------
 
@@ -1267,6 +1322,8 @@ module.exports = {
   vehicleEfficiency,
   vehicleExpensesOverview,
   expensesSummary,
+  expiryAlerts,
+  commissionReport,
   tripSettlementReport,
   productProfitability,
   customerProfitability,

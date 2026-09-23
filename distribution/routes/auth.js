@@ -1,6 +1,7 @@
 const express = require('express');
 const auth = require('../lib/auth');
 const { parseCookies, setCookie, clearCookie } = require('../lib/cookies');
+const { logActivity } = require('../lib/activity');
 
 const router = express.Router();
 const COOKIE_NAME = 'sid';
@@ -64,11 +65,13 @@ router.post('/login', (req, res) => {
   const user = auth.authenticate(req.body.username, req.body.password);
   if (!user) {
     recordFailure(key);
+    logActivity({ action: 'login_failed', entity_type: 'user', description: `محاولة دخول فاشلة باسم "${req.body.username || ''}" من ${req.ip}` });
     return res.status(401).json({ error: 'اسم المستخدم أو كلمة السر غير صحيحة' });
   }
   clearAttempts(key);
   const { token } = auth.createSession(user.id);
   setCookie(res, COOKIE_NAME, token, { maxAgeSeconds: auth.SESSION_DAYS * 86400, secure: req.secure });
+  logActivity({ company_id: user.company_id, user_id: user.id, action: 'login', entity_type: 'user', entity_id: user.id, description: `تسجيل دخول من ${req.ip}` });
   res.json({ ok: true, user: auth.publicUser(user) });
 });
 

@@ -150,6 +150,8 @@ ensureColumn('customers', 'longitude', 'longitude REAL');
 ensureColumn('customers', 'geofence_radius_m', 'geofence_radius_m REAL');
 ensureColumn('users', 'phone', 'phone TEXT');
 ensureColumn('users', 'notify_new_invoices', "notify_new_invoices INTEGER NOT NULL DEFAULT 0");
+ensureColumn('products', 'track_expiry', "track_expiry INTEGER NOT NULL DEFAULT 0");
+ensureColumn('users', 'commission_pct', 'commission_pct REAL');
 dropCheckConstraintIfPresent(
   'trip_expenses',
   "paid_from IN ('cash','bank')",

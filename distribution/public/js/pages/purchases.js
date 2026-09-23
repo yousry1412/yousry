@@ -44,7 +44,12 @@ function unitOptionsHtml(product) {
 function itemRowHtml(products) {
   const first = products[0];
   return `<tr>
-    <td><select class="it-product">${UI.optionsHtml(products, 'id', 'name')}</select></td>
+    <td><select class="it-product">${UI.optionsHtml(products, 'id', 'name')}</select>
+      <div class="it-expiry-fields" style="display:none; margin-top:6px; flex-direction:column; gap:4px">
+        <input class="it-batch-no" placeholder="رقم الدفعة (اختياري)" style="font-size:12px; padding:4px 6px" />
+        <input class="it-expiry-date" type="date" title="تاريخ الصلاحية" style="font-size:12px; padding:4px 6px" />
+      </div>
+    </td>
     <td><select class="it-unit">${first ? unitOptionsHtml(first) : ''}</select></td>
     <td><input class="it-qty" type="number" step="0.01" value="1" /></td>
     <td><input class="it-cost" type="number" step="0.01" value="0" /><div class="contract-hint muted" style="font-size:11px"></div></td>
@@ -54,6 +59,11 @@ function itemRowHtml(products) {
 }
 
 function wireItemsTable(tbody, products, onChange) {
+  function updateExpiryVisibility(tr) {
+    const p = products.find((x) => x.id === Number(tr.querySelector('.it-product').value));
+    const wrap = tr.querySelector('.it-expiry-fields');
+    wrap.style.display = p && p.track_expiry ? 'flex' : 'none';
+  }
   function bindRow(tr) {
     tr.querySelector('.remove-row').addEventListener('click', () => {
       tr.remove();
@@ -62,9 +72,11 @@ function wireItemsTable(tbody, products, onChange) {
     tr.querySelector('.it-product').addEventListener('change', (e) => {
       const p = products.find((x) => x.id === Number(e.target.value));
       tr.querySelector('.it-unit').innerHTML = p ? unitOptionsHtml(p) : '';
+      updateExpiryVisibility(tr);
       onChange();
     });
     tr.querySelectorAll('input, select').forEach((inp) => inp.addEventListener('input', onChange));
+    updateExpiryVisibility(tr);
   }
   tbody.querySelectorAll('tr').forEach(bindRow);
   return {
@@ -85,6 +97,8 @@ function readItems(tbody) {
     unit_id: tr.querySelector('.it-unit').value || null,
     qty: Number(tr.querySelector('.it-qty').value) || 0,
     unit_cost: Number(tr.querySelector('.it-cost').value) || 0,
+    batch_no: tr.querySelector('.it-batch-no').value || null,
+    expiry_date: tr.querySelector('.it-expiry-date').value || null,
   }));
 }
 
