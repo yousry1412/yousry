@@ -595,6 +595,10 @@ CREATE TABLE IF NOT EXISTS employees (
   job_title TEXT,
   salary REAL NOT NULL DEFAULT 0,
   hire_date TEXT,
+  passport_number TEXT,
+  residency_number TEXT,
+  passport_photo TEXT,
+  residency_photo TEXT,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
