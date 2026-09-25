@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS products (
   sale_price REAL NOT NULL DEFAULT 0,
   reorder_level REAL NOT NULL DEFAULT 0,
   track_expiry INTEGER NOT NULL DEFAULT 0, -- منتج بيتلف (زي الدجاج الطازج) ولازم تتبع تاريخ صلاحيته
+  photo TEXT,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -358,7 +359,11 @@ CREATE TABLE IF NOT EXISTS vehicles (
   branch_id INTEGER NOT NULL REFERENCES branches(id),
   name TEXT NOT NULL,
   ownership TEXT NOT NULL CHECK(ownership IN ('owned','rented')),
-  driver_name TEXT,
+  driver_name TEXT, -- نسخة معروضة من اسم السائق الافتراضي، بتتحدّث تلقائيًا من default_driver_id
+  default_driver_id INTEGER REFERENCES employees(id), -- السائق الافتراضي كحساب موظف حقيقي، مش اسم نصي
+  plate_number TEXT,
+  capacity TEXT, -- وصف حجم/حمولة السيارة (مثلًا "3 طن" أو "دبل كابينة")
+  photo TEXT,
   monthly_rent REAL NOT NULL DEFAULT 0,
   notes TEXT,
   is_active INTEGER NOT NULL DEFAULT 1,
@@ -599,6 +604,7 @@ CREATE TABLE IF NOT EXISTS employees (
   residency_number TEXT,
   passport_photo TEXT,
   residency_photo TEXT,
+  photo TEXT, -- صورة شخصية (بروفايل) للموظف - مختلفة عن صور المستندات
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

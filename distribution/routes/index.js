@@ -600,11 +600,23 @@ router.put(
   handle((req) => {
     const { company_id } = ctx(req);
     assertOwned(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id), company_id, 'منتج غير موجود');
-    const { name, sku, unit, category_id, sale_price, reorder_level, is_active, track_expiry } = req.body;
+    const { name, sku, unit, category_id, sale_price, reorder_level, is_active, track_expiry, photo } = req.body;
     if (category_id) assertOwned(db.prepare('SELECT * FROM product_categories WHERE id=?').get(category_id), company_id, 'تصنيف غير موجود');
+    const existingProduct = db.prepare('SELECT photo FROM products WHERE id=?').get(req.params.id);
     db.prepare(
-      'UPDATE products SET name=?, sku=?, unit=?, category_id=?, sale_price=?, reorder_level=?, is_active=?, track_expiry=? WHERE id=?'
-    ).run(name, sku || null, unit || 'وحدة', category_id || null, Number(sale_price) || 0, Number(reorder_level) || 0, is_active ? 1 : 0, track_expiry ? 1 : 0, req.params.id);
+      'UPDATE products SET name=?, sku=?, unit=?, category_id=?, sale_price=?, reorder_level=?, is_active=?, track_expiry=?, photo=? WHERE id=?'
+    ).run(
+      name,
+      sku || null,
+      unit || 'وحدة',
+      category_id || null,
+      Number(sale_price) || 0,
+      Number(reorder_level) || 0,
+      is_active ? 1 : 0,
+      track_expiry ? 1 : 0,
+      photo !== undefined ? photo || null : existingProduct.photo,
+      req.params.id
+    );
     return db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
   })
 );
@@ -720,7 +732,13 @@ router.get(
   allow(...ALL_ROLES),
   handle((req) => {
     const { company_id, branch_id } = ctx(req);
-    return db.prepare('SELECT * FROM vehicles WHERE company_id = ? AND branch_id = ? ORDER BY id DESC').all(company_id, branch_id);
+    return db
+      .prepare(
+        `SELECT v.*, e.photo AS driver_photo FROM vehicles v
+         LEFT JOIN employees e ON e.id = v.default_driver_id
+         WHERE v.company_id = ? AND v.branch_id = ? ORDER BY v.id DESC`
+      )
+      .all(company_id, branch_id);
   })
 );
 router.post(
@@ -734,10 +752,24 @@ router.put(
   handle((req) => {
     const { company_id } = ctx(req);
     assertOwned(db.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id), company_id, 'سيارة غير موجودة');
-    const { name, ownership, driver_name, monthly_rent, notes, is_active } = req.body;
+    const { name, ownership, default_driver_id, plate_number, capacity, photo, monthly_rent, notes, is_active } = req.body;
+    const driverName = services.resolveDriverName(company_id, default_driver_id);
+    const existing = db.prepare('SELECT photo FROM vehicles WHERE id=?').get(req.params.id);
     db.prepare(
-      'UPDATE vehicles SET name=?, ownership=?, driver_name=?, monthly_rent=?, notes=?, is_active=? WHERE id=?'
-    ).run(name, ownership, driver_name || null, Number(monthly_rent) || 0, notes || null, is_active ? 1 : 0, req.params.id);
+      'UPDATE vehicles SET name=?, ownership=?, driver_name=?, default_driver_id=?, plate_number=?, capacity=?, photo=?, monthly_rent=?, notes=?, is_active=? WHERE id=?'
+    ).run(
+      name,
+      ownership,
+      driverName,
+      default_driver_id || null,
+      plate_number || null,
+      capacity || null,
+      photo !== undefined ? photo || null : existing.photo,
+      Number(monthly_rent) || 0,
+      notes || null,
+      is_active ? 1 : 0,
+      req.params.id
+    );
     return db.prepare('SELECT * FROM vehicles WHERE id=?').get(req.params.id);
   })
 );

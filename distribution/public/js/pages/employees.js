@@ -18,6 +18,7 @@ function employeeFormHtml(e = {}) {
         <div class="field"><label>تاريخ التعيين</label><input name="hire_date" type="date" value="${UI.escapeHtml(e.hire_date || '')}" /></div>
         <div class="field"><label>رقم الجواز (اختياري)</label><input name="passport_number" value="${UI.escapeHtml(e.passport_number || '')}" /></div>
         <div class="field"><label>رقم الإقامة (اختياري)</label><input name="residency_number" value="${UI.escapeHtml(e.residency_number || '')}" /></div>
+        ${photoField('photo_file', 'الصورة الشخصية', e.photo)}
         ${photoField('passport_photo_file', 'صورة الجواز', e.passport_photo)}
         ${photoField('residency_photo_file', 'صورة الإقامة', e.residency_photo)}
       </div>
@@ -31,7 +32,11 @@ function employeeFormHtml(e = {}) {
 
 function openEmployeeModal(existing) {
   UI.openModal(existing ? 'تعديل بيانات موظف' : 'موظف جديد', employeeFormHtml(existing || {}));
-  const photos = { passport_photo_file: existing && existing.passport_photo, residency_photo_file: existing && existing.residency_photo };
+  const photos = {
+    photo_file: existing && existing.photo,
+    passport_photo_file: existing && existing.passport_photo,
+    residency_photo_file: existing && existing.residency_photo,
+  };
   document.querySelectorAll('[data-view-photo]').forEach((btn) =>
     btn.addEventListener('click', () => {
       UI.openModal('عرض الصورة', `<img src="${photos[btn.dataset.viewPhoto]}" style="max-width:100%; border-radius:8px" />`);
@@ -40,13 +45,16 @@ function openEmployeeModal(existing) {
   document.getElementById('employeeForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const photoFile = fd.get('photo_file');
     const passportFile = fd.get('passport_photo_file');
     const residencyFile = fd.get('residency_photo_file');
+    fd.delete('photo_file');
     fd.delete('passport_photo_file');
     fd.delete('residency_photo_file');
     const payload = Object.fromEntries(fd.entries());
     payload.is_active = 1;
     try {
+      if (photoFile && photoFile.size > 0) payload.photo = await compressImageFile(photoFile);
       if (passportFile && passportFile.size > 0) payload.passport_photo = await compressImageFile(passportFile);
       if (residencyFile && residencyFile.size > 0) payload.residency_photo = await compressImageFile(residencyFile);
       if (existing) await Api.put(`/employees/${existing.id}`, payload);

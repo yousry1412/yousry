@@ -162,29 +162,29 @@ function createCustomAccount({ company_id, code, name, type, parent_code, is_pos
 
 function createEmployee({
   company_id, branch_id, name, phone, job_title, salary, hire_date,
-  passport_number, residency_number, passport_photo, residency_photo,
+  passport_number, residency_number, passport_photo, residency_photo, photo,
 }) {
   const info = db
     .prepare(
-      `INSERT INTO employees (company_id, branch_id, name, phone, job_title, salary, hire_date, passport_number, residency_number, passport_photo, residency_photo)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO employees (company_id, branch_id, name, phone, job_title, salary, hire_date, passport_number, residency_number, passport_photo, residency_photo, photo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       company_id, branch_id || null, name, phone || null, job_title || null, round2(Number(salary) || 0), hire_date || null,
-      passport_number || null, residency_number || null, passport_photo || null, residency_photo || null
+      passport_number || null, residency_number || null, passport_photo || null, residency_photo || null, photo || null
     );
   return db.prepare('SELECT * FROM employees WHERE id = ?').get(info.lastInsertRowid);
 }
 
 function updateEmployee(id, companyId, {
   name, phone, job_title, salary, hire_date, branch_id, is_active,
-  passport_number, residency_number, passport_photo, residency_photo,
+  passport_number, residency_number, passport_photo, residency_photo, photo,
 }) {
   const existing = db.prepare('SELECT * FROM employees WHERE id = ?').get(id);
   if (!existing || existing.company_id !== companyId) throw new Error('موظف غير موجود');
   db.prepare(
     `UPDATE employees SET name=?, phone=?, job_title=?, salary=?, hire_date=?, branch_id=?, is_active=?,
-       passport_number=?, residency_number=?, passport_photo=?, residency_photo=? WHERE id=?`
+       passport_number=?, residency_number=?, passport_photo=?, residency_photo=?, photo=? WHERE id=?`
   ).run(
     name ?? existing.name,
     phone ?? existing.phone,
@@ -197,6 +197,7 @@ function updateEmployee(id, companyId, {
     residency_number ?? existing.residency_number,
     passport_photo ?? existing.passport_photo,
     residency_photo ?? existing.residency_photo,
+    photo ?? existing.photo,
     id
   );
   return db.prepare('SELECT * FROM employees WHERE id = ?').get(id);
@@ -537,15 +538,15 @@ function listProductCategories(companyId) {
 // المنتجات و BOM ووحدات القياس
 // ---------------------------------------------------------------------------
 
-function createProduct({ company_id, branch_id, category_id, name, sku, unit, kind, sale_price, cost_price, reorder_level, opening_qty, bom, track_expiry }) {
+function createProduct({ company_id, branch_id, category_id, name, sku, unit, kind, sale_price, cost_price, reorder_level, opening_qty, bom, track_expiry, photo }) {
   return inTransaction(() => {
     if (category_id) assertBelongs('product_categories', category_id, company_id, 'التصنيف');
     const info = db
       .prepare(
-        `INSERT INTO products (company_id, category_id, name, sku, unit, kind, sale_price, reorder_level, track_expiry)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO products (company_id, category_id, name, sku, unit, kind, sale_price, reorder_level, track_expiry, photo)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, category_id || null, name, sku || null, unit || 'وحدة', kind, Number(sale_price) || 0, Number(reorder_level) || 0, track_expiry ? 1 : 0);
+      .run(company_id, category_id || null, name, sku || null, unit || 'وحدة', kind, Number(sale_price) || 0, Number(reorder_level) || 0, track_expiry ? 1 : 0, photo || null);
     const id = info.lastInsertRowid;
 
     const oQty = round2(Number(opening_qty) || 0);
@@ -1017,13 +1018,21 @@ function getProductionOrder(id) {
 // السيارات والرحلات
 // ---------------------------------------------------------------------------
 
-function createVehicle({ company_id, branch_id, name, ownership, driver_name, monthly_rent, notes }) {
+/** السائق بيتحدد كموظف حقيقي (default_driver_id)، ومنه بنشتق driver_name المعروض تلقائيًا */
+function resolveDriverName(companyId, defaultDriverId) {
+  if (!defaultDriverId) return null;
+  assertBelongs('employees', defaultDriverId, companyId, 'السائق');
+  return db.prepare('SELECT name FROM employees WHERE id = ?').get(defaultDriverId).name;
+}
+
+function createVehicle({ company_id, branch_id, name, ownership, default_driver_id, plate_number, capacity, photo, monthly_rent, notes }) {
+  const driverName = resolveDriverName(company_id, default_driver_id);
   const info = db
     .prepare(
-      `INSERT INTO vehicles (company_id, branch_id, name, ownership, driver_name, monthly_rent, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO vehicles (company_id, branch_id, name, ownership, driver_name, default_driver_id, plate_number, capacity, photo, monthly_rent, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(company_id, branch_id, name, ownership, driver_name || null, Number(monthly_rent) || 0, notes || null);
+    .run(company_id, branch_id, name, ownership, driverName, default_driver_id || null, plate_number || null, capacity || null, photo || null, Number(monthly_rent) || 0, notes || null);
   return db.prepare('SELECT * FROM vehicles WHERE id = ?').get(info.lastInsertRowid);
 }
 
@@ -2498,6 +2507,7 @@ module.exports = {
   createProductionOrder,
   getProductionOrder,
   createVehicle,
+  resolveDriverName,
   createTrip,
   addTripLoad,
   approveTripLoads,

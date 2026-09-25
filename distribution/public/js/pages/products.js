@@ -38,6 +38,7 @@ function productFormHtml(categories) {
           <input type="checkbox" id="productTrackExpiry" name="track_expiry" value="1" style="width:auto" />
           <label for="productTrackExpiry" style="margin:0">صنف بيتلف وليه تاريخ صلاحية (زي الدجاج الطازج) - تتبّع دفعاته وتنبيهات صلاحيتها</label>
         </div>
+        <div class="field span-2"><label>صورة المنتج (اختياري)</label><input type="file" name="photo_file" accept="image/*" /></div>
       </div>
       <p class="muted" style="font-size:12.5px">لو المنتج "مُصنّع" تقدر تحدد تركيبة المكونات (BOM)، ولو محتاج وحدات قياس
         إضافية أكبر (زي كرتونة) تقدر تضيفها، كل ده بعد إضافة المنتج من صفحة تفاصيله.</p>
@@ -54,8 +55,11 @@ function openProductModal(categories) {
   document.getElementById('productForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const photoFile = fd.get('photo_file');
+    fd.delete('photo_file');
     const payload = Object.fromEntries(fd.entries());
     try {
+      if (photoFile && photoFile.size > 0) payload.photo = await compressImageFile(photoFile);
       const p = await Api.post('/products', payload);
       UI.closeModal();
       UI.toast('تم إضافة المنتج', 'success');
@@ -107,11 +111,12 @@ Pages.productsList = async function () {
         products.length === 0
           ? '<div class="empty-state">لا يوجد منتجات بعد</div>'
           : `<div class="table-wrap"><table><thead><tr>
-              <th>المنتج</th><th>التصنيف</th><th>النوع</th><th>المتاح</th><th>تكلفة الوحدة</th><th>سعر البيع</th><th>قيمة المخزون</th><th></th>
+              <th></th><th>المنتج</th><th>التصنيف</th><th>النوع</th><th>المتاح</th><th>تكلفة الوحدة</th><th>سعر البيع</th><th>قيمة المخزون</th><th></th>
             </tr></thead><tbody>
               ${products
                 .map(
                   (p) => `<tr>
+                  <td>${p.photo ? `<img src="${p.photo}" style="width:34px; height:34px; object-fit:cover; border-radius:6px" />` : '-'}</td>
                   <td><a href="#/products/${p.id}">${UI.escapeHtml(p.name)}</a></td>
                   <td class="muted">${UI.escapeHtml(p.category_name || '-')}</td>
                   <td>${UI.badge(KIND_LABELS[p.kind], KIND_BADGE[p.kind])}</td>
@@ -166,6 +171,11 @@ Pages.productDetail = async function (id) {
           <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
             <input type="checkbox" id="editTrackExpiry" style="width:auto" ${p.track_expiry ? 'checked' : ''} />
             <label for="editTrackExpiry" style="margin:0">صنف بيتلف وليه تاريخ صلاحية - تتبّع دفعاته وتنبيهات صلاحيتها</label>
+          </div>
+          <div class="field span-2">
+            <label>صورة المنتج (اختياري)</label>
+            <input type="file" name="photo_file" accept="image/*" />
+            ${p.photo ? `<div style="margin-top:6px"><img src="${p.photo}" style="max-width:120px; border-radius:8px" /></div>` : ''}
           </div>
         </div>
         <div class="modal-actions"><button class="btn" type="submit">حفظ التعديلات</button></div>
@@ -272,10 +282,13 @@ Pages.productDetail = async function (id) {
   document.getElementById('editProductForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const photoFile = fd.get('photo_file');
+    fd.delete('photo_file');
     const payload = Object.fromEntries(fd.entries());
     payload.is_active = 1;
     payload.track_expiry = document.getElementById('editTrackExpiry').checked;
     try {
+      if (photoFile && photoFile.size > 0) payload.photo = await compressImageFile(photoFile);
       await Api.put(`/products/${id}`, payload);
       UI.toast('تم حفظ التعديلات', 'success');
       Pages.productDetail(id);

@@ -157,6 +157,12 @@ ensureColumn('employees', 'passport_number', 'passport_number TEXT');
 ensureColumn('employees', 'residency_number', 'residency_number TEXT');
 ensureColumn('employees', 'passport_photo', 'passport_photo TEXT');
 ensureColumn('employees', 'residency_photo', 'residency_photo TEXT');
+ensureColumn('employees', 'photo', 'photo TEXT');
+ensureColumn('products', 'photo', 'photo TEXT');
+ensureColumn('vehicles', 'default_driver_id', 'default_driver_id INTEGER REFERENCES employees(id)');
+ensureColumn('vehicles', 'plate_number', 'plate_number TEXT');
+ensureColumn('vehicles', 'capacity', 'capacity TEXT');
+ensureColumn('vehicles', 'photo', 'photo TEXT');
 dropCheckConstraintIfPresent(
   'trip_expenses',
   "paid_from IN ('cash','bank')",
