@@ -12,5 +12,5 @@ services:
         value: 22.20.0
     disk:
       name: distribution-data
-      mountPath: /opt/render/project/src/distribution/data
+      mountPath: /var/data
       sizeGB: 1

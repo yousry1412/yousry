@@ -3,10 +3,20 @@ const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const { CHART_OF_ACCOUNTS } = require('./accounts');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+// على Render، القرص الدائم (Persistent Disk) بيتوصّل على المسار /var/data - لو موجود
+// (يعني شغالين على سيرفر فيه قرص دائم متاح)، نحفظ قاعدة البيانات جواه عشان البيانات
+// متتمسحش لما السيرفر يعيد التشغيل أو ينتقل لجهاز تاني. غير كده (تشغيل محلي على جهازك)
+// نرجع للمسار الافتراضي القديم data/app.db جوه فولدر المشروع.
+const RENDER_DISK_DIR = '/var/data';
+const LOCAL_DATA_DIR = path.join(__dirname, '..', 'data');
 
-const DB_PATH = path.join(DATA_DIR, 'app.db');
+let DB_PATH;
+if (fs.existsSync(RENDER_DISK_DIR)) {
+  DB_PATH = path.join(RENDER_DISK_DIR, 'distribution.sqlite');
+} else {
+  if (!fs.existsSync(LOCAL_DATA_DIR)) fs.mkdirSync(LOCAL_DATA_DIR, { recursive: true });
+  DB_PATH = path.join(LOCAL_DATA_DIR, 'app.db');
+}
 const db = new DatabaseSync(DB_PATH);
 
 db.exec('PRAGMA foreign_keys = ON');
