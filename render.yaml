@@ -7,6 +7,9 @@ services:
     rootDir: distribution
     buildCommand: npm install
     startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 22.9.0
     disk:
       name: distribution-data
       mountPath: /opt/render/project/src/distribution/data
