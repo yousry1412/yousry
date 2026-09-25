@@ -194,6 +194,9 @@ ensureColumn('companies', 'income_tax_enabled', 'income_tax_enabled INTEGER NOT 
 ensureColumn('companies', 'income_tax_rate', 'income_tax_rate REAL NOT NULL DEFAULT 0');
 ensureColumn('purchase_invoices', 'wht_amount', 'wht_amount REAL NOT NULL DEFAULT 0');
 ensureColumn('sales_invoices', 'stamp_duty_amount', 'stamp_duty_amount REAL NOT NULL DEFAULT 0');
+ensureColumn('chat_messages', 'attachment_data', 'attachment_data TEXT');
+ensureColumn('chat_messages', 'attachment_name', 'attachment_name TEXT');
+ensureColumn('chat_messages', 'attachment_mime', 'attachment_mime TEXT');
 dropCheckConstraintIfPresent(
   'trip_expenses',
   "paid_from IN ('cash','bank')",

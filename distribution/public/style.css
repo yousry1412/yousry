@@ -514,6 +514,55 @@ tbody tr:hover { background: #f8fafc; }
   font-family: inherit;
   font-size: 14px;
 }
+.chat-attach-btn { flex-shrink: 0; padding: 10px 14px; font-size: 17px; }
+
+.chat-attachment-img {
+  display: block;
+  max-width: 220px;
+  max-height: 220px;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  object-fit: cover;
+}
+.chat-attachment-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  text-decoration: none;
+  color: inherit;
+  font-size: 13px;
+}
+.chat-bubble.own .chat-attachment-file { background: rgba(255,255,255,0.18); color: #fff; }
+.chat-attachment-icon { font-size: 18px; }
+.chat-attachment-name { flex: 1; word-break: break-all; }
+.chat-attachment-dl { font-size: 12px; opacity: 0.85; white-space: nowrap; }
+
+.chat-attach-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f0f1f4;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.chat-attach-preview img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; }
+.chat-attach-preview-icon { font-size: 22px; }
+.chat-attach-preview-name { flex: 1; word-break: break-all; }
+.chat-attach-remove {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--muted);
+  padding: 2px 6px;
+}
 
 @media (max-width: 600px) {
   .chat-card { height: calc(100vh - 220px); }

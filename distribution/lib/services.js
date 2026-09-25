@@ -2575,14 +2575,29 @@ function getFiscalClosing(id) {
 // شات الفريق - شات واحد لكل منشأة، معروض لكل الفريق بصرف النظر عن الفرع
 // ---------------------------------------------------------------------------
 
-function sendChatMessage({ company_id, sender_user_id, mentioned_user_id, body }) {
+const CHAT_ATTACHMENT_MAX_BYTES = 6 * 1024 * 1024; // 6 ميجابايت للملف الأصلي (قبل تضخّم base64)
+
+function sendChatMessage({ company_id, sender_user_id, mentioned_user_id, body, attachment_data, attachment_name, attachment_mime }) {
   const text = (body || '').trim();
-  if (!text) throw new Error('لازم تكتب نص الرسالة');
+  if (!text && !attachment_data) throw new Error('لازم تكتب نص أو ترفق ملف');
   if (text.length > 2000) throw new Error('الرسالة طويلة جدًا (٢٠٠٠ حرف كحد أقصى)');
+  if (attachment_data) {
+    if (typeof attachment_data !== 'string' || !attachment_data.startsWith('data:')) {
+      throw new Error('صيغة المرفق غير صحيحة');
+    }
+    // طول نص base64 تقريبًا 4/3 حجم البيانات الحقيقي - تقدير كافٍ لرفض الملفات الكبيرة بدري
+    const approxBytes = attachment_data.length * 0.75;
+    if (approxBytes > CHAT_ATTACHMENT_MAX_BYTES) {
+      throw new Error('حجم المرفق كبير جدًا (٦ ميجابايت كحد أقصى)');
+    }
+  }
   if (mentioned_user_id) assertBelongs('users', mentioned_user_id, company_id, 'الشخص الموجّهة له الرسالة');
   const info = db
-    .prepare('INSERT INTO chat_messages (company_id, sender_user_id, mentioned_user_id, body) VALUES (?, ?, ?, ?)')
-    .run(company_id, sender_user_id, mentioned_user_id || null, text);
+    .prepare(
+      `INSERT INTO chat_messages (company_id, sender_user_id, mentioned_user_id, body, attachment_data, attachment_name, attachment_mime)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(company_id, sender_user_id, mentioned_user_id || null, text, attachment_data || null, attachment_name || null, attachment_mime || null);
   return getChatMessage(info.lastInsertRowid);
 }
 

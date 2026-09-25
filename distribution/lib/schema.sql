@@ -740,7 +740,10 @@ CREATE TABLE IF NOT EXISTS chat_messages (
   company_id INTEGER NOT NULL REFERENCES companies(id),
   sender_user_id INTEGER NOT NULL REFERENCES users(id),
   mentioned_user_id INTEGER REFERENCES users(id),
-  body TEXT NOT NULL,
+  body TEXT NOT NULL, -- ممكن تفضى لو الرسالة مرفق بس من غير نص
+  attachment_data TEXT, -- data URI (base64) - صورة أو ملف، مخزّن مباشر زي باقي صور النظام
+  attachment_name TEXT, -- الاسم الأصلي للملف (لعرضه ولتحميله باسمه الحقيقي)
+  attachment_mime TEXT, -- نوع الملف - بيحدد نعرضه كصورة ولا كارت تحميل عادي
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_company ON chat_messages(company_id, id);

@@ -1526,6 +1526,9 @@ router.post(
       sender_user_id: req.user.id,
       mentioned_user_id: req.body.mentioned_user_id || null,
       body: req.body.body,
+      attachment_data: req.body.attachment_data || null,
+      attachment_name: req.body.attachment_name || null,
+      attachment_mime: req.body.attachment_mime || null,
     });
   })
 );
