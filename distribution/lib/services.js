@@ -96,13 +96,18 @@ function assertPeriodOpen(companyId, branchId, date) {
 // المنشآت والفروع والشركاء
 // ---------------------------------------------------------------------------
 
-function createCompany({ name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude, vat_enabled, vat_rate, geofence_radius_m }) {
+function createCompany({
+  name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude,
+  vat_enabled, vat_rate, wht_enabled, wht_rate, stamp_duty_enabled, stamp_duty_rate, income_tax_enabled, income_tax_rate,
+  geofence_radius_m,
+}) {
   return inTransaction(() => {
     const coord = sanitizeCoord(latitude, longitude);
     const info = db
       .prepare(
-        `INSERT INTO companies (name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude, vat_enabled, vat_rate, geofence_radius_m)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO companies (name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude,
+           vat_enabled, vat_rate, wht_enabled, wht_rate, stamp_duty_enabled, stamp_duty_rate, income_tax_enabled, income_tax_rate, geofence_radius_m)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         name,
@@ -117,6 +122,12 @@ function createCompany({ name, legal_name, tax_number, phone, address, public_ur
         coord.longitude,
         toBool(vat_enabled) ? 1 : 0,
         round2(Number(vat_rate) || 0),
+        toBool(wht_enabled) ? 1 : 0,
+        round2(Number(wht_rate) || 0),
+        toBool(stamp_duty_enabled) ? 1 : 0,
+        round2(Number(stamp_duty_rate) || 0),
+        toBool(income_tax_enabled) ? 1 : 0,
+        round2(Number(income_tax_rate) || 0),
         round2(Number(geofence_radius_m) || 300)
       );
     const companyId = info.lastInsertRowid;
@@ -126,11 +137,17 @@ function createCompany({ name, legal_name, tax_number, phone, address, public_ur
   });
 }
 
-function updateCompany(id, { name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude, vat_enabled, vat_rate, geofence_radius_m }) {
+function updateCompany(id, {
+  name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude,
+  vat_enabled, vat_rate, wht_enabled, wht_rate, stamp_duty_enabled, stamp_duty_rate, income_tax_enabled, income_tax_rate,
+  geofence_radius_m,
+}) {
   const coord = sanitizeCoord(latitude, longitude);
   db.prepare(
     `UPDATE companies SET name = ?, legal_name = ?, tax_number = ?, phone = ?, address = ?, public_url = ?,
-       country = ?, currency = ?, latitude = ?, longitude = ?, vat_enabled = ?, vat_rate = ?, geofence_radius_m = ?
+       country = ?, currency = ?, latitude = ?, longitude = ?, vat_enabled = ?, vat_rate = ?,
+       wht_enabled = ?, wht_rate = ?, stamp_duty_enabled = ?, stamp_duty_rate = ?, income_tax_enabled = ?, income_tax_rate = ?,
+       geofence_radius_m = ?
      WHERE id = ?`
   ).run(
     name,
@@ -145,6 +162,12 @@ function updateCompany(id, { name, legal_name, tax_number, phone, address, publi
     coord.longitude,
     toBool(vat_enabled) ? 1 : 0,
     round2(Number(vat_rate) || 0),
+    toBool(wht_enabled) ? 1 : 0,
+    round2(Number(wht_rate) || 0),
+    toBool(stamp_duty_enabled) ? 1 : 0,
+    round2(Number(stamp_duty_rate) || 0),
+    toBool(income_tax_enabled) ? 1 : 0,
+    round2(Number(income_tax_rate) || 0),
     round2(Number(geofence_radius_m) || 300),
     id
   );
@@ -769,18 +792,23 @@ function createPurchaseInvoice({
     subtotal = round2(subtotal);
     const vat_amount = company.vat_enabled ? round2(subtotal * (company.vat_rate / 100)) : 0;
     const total = round2(subtotal + vat_amount);
-    const paid = Math.max(0, Math.min(round2(Number(paid_amount) || 0), total));
+    // ضريبة الخصم والإضافة (WHT): بتتحسب على قيمة الفاتورة قبل الضريبة وبتتحجز من مستحقات
+    // المورد لصالح مصلحة الضرائب - يعني المورد بياخد أقل من "total" بمقدارها، والمنشأة بتفضل
+    // مديونة بيها للمصلحة (حساب مستقل عن حساب المورد نفسه).
+    const wht_amount = company.wht_enabled ? round2(subtotal * (company.wht_rate / 100)) : 0;
+    const netPayable = round2(total - wht_amount);
+    const paid = Math.max(0, Math.min(round2(Number(paid_amount) || 0), netPayable));
     const coord = sanitizeCoord(latitude, longitude);
 
     const info = db
       .prepare(
         `INSERT INTO purchase_invoices
-         (company_id, branch_id, invoice_no, supplier_id, invoice_date, paid_amount, paid_from, subtotal, vat_amount, total, notes, latitude, longitude, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (company_id, branch_id, invoice_no, supplier_id, invoice_date, paid_amount, paid_from, subtotal, vat_amount, wht_amount, total, notes, latitude, longitude, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         company_id, branch_id, invoice_no, supplier_id, invoice_date, paid, paid_from || 'cash',
-        subtotal, vat_amount, total, notes || null, coord.latitude, coord.longitude, created_by_user_id || null
+        subtotal, vat_amount, wht_amount, total, notes || null, coord.latitude, coord.longitude, created_by_user_id || null
       );
     const invoiceId = info.lastInsertRowid;
 
@@ -823,7 +851,8 @@ function createPurchaseInvoice({
     }));
     if (vat_amount > 0) jLines.push({ account_code: ACC.VAT_INPUT, debit: vat_amount });
     if (paid > 0) jLines.push({ account_code: cashOrBank(paid_from), credit: paid });
-    const remaining = round2(total - paid);
+    if (wht_amount > 0) jLines.push({ account_code: ACC.WHT_PAYABLE, credit: wht_amount });
+    const remaining = round2(netPayable - paid);
     if (remaining > 0) {
       jLines.push({
         account_code: ACC.AP,
@@ -1587,7 +1616,8 @@ function createSalesInvoice({
     }
 
     const vat_amount = company.vat_enabled ? round2(subtotal * (company.vat_rate / 100)) : 0;
-    const total = round2(subtotal + vat_amount);
+    const stamp_duty_amount = company.stamp_duty_enabled ? round2(subtotal * (company.stamp_duty_rate / 100)) : 0;
+    const total = round2(subtotal + vat_amount + stamp_duty_amount);
     const paid = Math.max(0, Math.min(round2(Number(paid_amount) || 0), total));
     const remainingOnInvoice = round2(total - paid);
 
@@ -1619,8 +1649,8 @@ function createSalesInvoice({
     const info = db
       .prepare(
         `INSERT INTO sales_invoices
-         (company_id, branch_id, invoice_no, customer_id, trip_id, invoice_date, paid_amount, paid_to, subtotal, vat_amount, total, notes, latitude, longitude, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (company_id, branch_id, invoice_no, customer_id, trip_id, invoice_date, paid_amount, paid_to, subtotal, vat_amount, stamp_duty_amount, total, notes, latitude, longitude, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         company_id,
@@ -1633,6 +1663,7 @@ function createSalesInvoice({
         paid_to || 'cash',
         subtotal,
         vat_amount,
+        stamp_duty_amount,
         total,
         notes || null,
         coord.latitude,
@@ -1683,6 +1714,7 @@ function createSalesInvoice({
     }
     jLines.push({ account_code: ACC.SALES, credit: subtotal });
     if (vat_amount > 0) jLines.push({ account_code: ACC.VAT_OUTPUT, credit: vat_amount });
+    if (stamp_duty_amount > 0) jLines.push({ account_code: ACC.STAMP_DUTY_PAYABLE, credit: stamp_duty_amount });
     if (totalCost > 0) {
       jLines.push({ account_code: ACC.COGS, debit: totalCost });
       for (const [account_code, amount] of Object.entries(cogsAccTotals)) {

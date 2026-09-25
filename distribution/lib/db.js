@@ -176,6 +176,14 @@ ensureColumn('branches', 'latitude', 'latitude REAL');
 ensureColumn('branches', 'longitude', 'longitude REAL');
 ensureColumn('products', 'storage_method', 'storage_method TEXT');
 ensureColumn('products', 'default_branch_id', 'default_branch_id INTEGER REFERENCES branches(id)');
+ensureColumn('companies', 'wht_enabled', 'wht_enabled INTEGER NOT NULL DEFAULT 0');
+ensureColumn('companies', 'wht_rate', 'wht_rate REAL NOT NULL DEFAULT 0');
+ensureColumn('companies', 'stamp_duty_enabled', 'stamp_duty_enabled INTEGER NOT NULL DEFAULT 0');
+ensureColumn('companies', 'stamp_duty_rate', 'stamp_duty_rate REAL NOT NULL DEFAULT 0');
+ensureColumn('companies', 'income_tax_enabled', 'income_tax_enabled INTEGER NOT NULL DEFAULT 0');
+ensureColumn('companies', 'income_tax_rate', 'income_tax_rate REAL NOT NULL DEFAULT 0');
+ensureColumn('purchase_invoices', 'wht_amount', 'wht_amount REAL NOT NULL DEFAULT 0');
+ensureColumn('sales_invoices', 'stamp_duty_amount', 'stamp_duty_amount REAL NOT NULL DEFAULT 0');
 dropCheckConstraintIfPresent(
   'trip_expenses',
   "paid_from IN ('cash','bank')",

@@ -64,8 +64,21 @@ function companyFormHtml(c = {}) {
         <div class="field"><label>رمز العملة</label><input name="currency" id="companyCurrencyInput" value="${UI.escapeHtml(c.currency || COUNTRY_CURRENCY[c.country || 'مصر'])}" /></div>
         <div class="field"><label>خاضعة لضريبة القيمة المضافة؟</label><select name="vat_enabled"><option value="0" ${!c.vat_enabled ? 'selected' : ''}>لا</option><option value="1" ${c.vat_enabled ? 'selected' : ''}>نعم</option></select></div>
         <div class="field"><label>نسبة الضريبة %</label><input name="vat_rate" type="number" step="0.01" value="${c.vat_rate ?? 0}" /></div>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>خاضعة لضريبة الخصم والإضافة (WHT)؟</label><select name="wht_enabled"><option value="0" ${!c.wht_enabled ? 'selected' : ''}>لا</option><option value="1" ${c.wht_enabled ? 'selected' : ''}>نعم</option></select></div>
+        <div class="field"><label>نسبة الخصم والإضافة %</label><input name="wht_rate" type="number" step="0.01" value="${c.wht_rate ?? 0}" /></div>
+        <div class="field"><label>خاضعة لضريبة الدمغة؟</label><select name="stamp_duty_enabled"><option value="0" ${!c.stamp_duty_enabled ? 'selected' : ''}>لا</option><option value="1" ${c.stamp_duty_enabled ? 'selected' : ''}>نعم</option></select></div>
+        <div class="field"><label>نسبة ضريبة الدمغة %</label><input name="stamp_duty_rate" type="number" step="0.01" value="${c.stamp_duty_rate ?? 0}" /></div>
+        <div class="field"><label>خاضعة لضريبة الدخل السنوية؟</label><select name="income_tax_enabled"><option value="0" ${!c.income_tax_enabled ? 'selected' : ''}>لا</option><option value="1" ${c.income_tax_enabled ? 'selected' : ''}>نعم</option></select></div>
+        <div class="field"><label>نسبة ضريبة الدخل %</label><input name="income_tax_rate" type="number" step="0.01" value="${c.income_tax_rate ?? 0}" /></div>
         <div class="field"><label>نطاق الرقابة الجغرافية الافتراضي (متر)</label><input name="geofence_radius_m" type="number" step="1" value="${c.geofence_radius_m ?? 300}" /></div>
       </div>
+      <p class="muted" style="font-size:12px">
+        ضريبة الخصم والإضافة: بتتحجز آليًا من مستحقات المورد عند تسجيل فاتورة الشراء، وبتفضل مديونية على المنشأة لحين توريدها للمصلحة.
+        ضريبة الدمغة: بتُضاف آليًا على فاتورة البيع كمبلغ منفصل عن الضريبة المضافة.
+        ضريبة الدخل السنوية: نسبة تقديرية بتظهر كبند تقديري في قائمة الدخل بس، ومحتاجة مراجعة المحاسب عند التوريد الفعلي - مفيش قيود محاسبية آلية بيها.
+      </p>
       <p class="muted" style="font-size:12px">نطاق الرقابة الجغرافية: أقصى مسافة (بالمتر) مسموح بيها بين موقع تسجيل فاتورة الشراء وموقع المورد المسجّل، عشان تتأكد إن الفاتورة اتسجلت فعليًا عند المورد. تقدر تخصص نطاق مختلف لكل مورد من صفحة الموردين.</p>
       <div class="modal-actions">
         <button type="submit" class="btn">${c.id ? 'حفظ التعديلات' : 'إضافة المنشأة'}</button>

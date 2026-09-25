@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS companies (
   currency TEXT NOT NULL DEFAULT 'ج.م', -- مشتقة من الدولة تلقائيًا، وقت اختيار الدولة - قابلة للتعديل يدويًا
   vat_enabled INTEGER NOT NULL DEFAULT 0,
   vat_rate REAL NOT NULL DEFAULT 0,
+  wht_enabled INTEGER NOT NULL DEFAULT 0, -- ضريبة الخصم والإضافة تحت الحساب - بتتخصم من مستحقات المورد وتتوّرد للمصلحة
+  wht_rate REAL NOT NULL DEFAULT 0,
+  stamp_duty_enabled INTEGER NOT NULL DEFAULT 0, -- ضريبة الدمغة - بتتضاف على فاتورة البيع
+  stamp_duty_rate REAL NOT NULL DEFAULT 0,
+  income_tax_enabled INTEGER NOT NULL DEFAULT 0, -- ضريبة الدخل السنوية على الأرباح - نسبة تقديرية للتقارير فقط، مفيش قيود آلية بيها
+  income_tax_rate REAL NOT NULL DEFAULT 0,
   latitude REAL,
   longitude REAL,
   geofence_radius_m REAL NOT NULL DEFAULT 300,
@@ -207,6 +213,7 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
   paid_from TEXT NOT NULL DEFAULT 'cash' CHECK(paid_from IN ('cash','bank')),
   subtotal REAL NOT NULL DEFAULT 0,
   vat_amount REAL NOT NULL DEFAULT 0,
+  wht_amount REAL NOT NULL DEFAULT 0, -- ضريبة خصم وإضافة محجوزة من مستحقات المورد لصالح المصلحة
   total REAL NOT NULL DEFAULT 0,
   latitude REAL,
   longitude REAL,
@@ -449,6 +456,7 @@ CREATE TABLE IF NOT EXISTS sales_invoices (
   paid_to TEXT NOT NULL DEFAULT 'cash' CHECK(paid_to IN ('cash','bank')),
   subtotal REAL NOT NULL DEFAULT 0,
   vat_amount REAL NOT NULL DEFAULT 0,
+  stamp_duty_amount REAL NOT NULL DEFAULT 0, -- ضريبة الدمغة المضافة على الفاتورة
   total REAL NOT NULL DEFAULT 0,
   notes TEXT,
   latitude REAL,

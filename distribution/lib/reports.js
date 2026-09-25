@@ -76,7 +76,24 @@ function incomeStatement(companyId, { from, to, branchId } = {}) {
   const expense = round2(lines.filter((l) => l.type === 'expense').reduce((s, l) => s + l.amount, 0));
   const netProfit = round2(revenue - expense);
 
-  return { lines: lines.filter((l) => l.amount !== 0), revenue, expense, netProfit, from, to };
+  // ضريبة الدخل التقديرية: بند إعلامي بس لمساعدة صاحب المنشأة يقدّر التزامه الضريبي السنوي -
+  // مفيش قيد محاسبي آلي بيه، لأن القيمة الفعلية المستحقة للمصلحة بتتحدد بالإقرار الضريبي
+  // الرسمي مش بنسبة ثابتة على الربح المحاسبي، فالترحيل الفعلي محتاج مراجعة وقيد يدوي من المحاسب.
+  const company = db.prepare('SELECT income_tax_enabled, income_tax_rate FROM companies WHERE id = ?').get(companyId);
+  const estimatedIncomeTax = company && company.income_tax_enabled && netProfit > 0
+    ? round2(netProfit * (company.income_tax_rate / 100))
+    : 0;
+
+  return {
+    lines: lines.filter((l) => l.amount !== 0),
+    revenue,
+    expense,
+    netProfit,
+    estimatedIncomeTax,
+    netProfitAfterEstimatedTax: round2(netProfit - estimatedIncomeTax),
+    from,
+    to,
+  };
 }
 
 // ---------------------------------------------------------------------------
