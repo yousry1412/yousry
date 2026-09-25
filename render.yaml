@@ -9,7 +9,7 @@ services:
     startCommand: npm start
     envVars:
       - key: NODE_VERSION
-        value: 22.9.0
+        value: 22.20.0
     disk:
       name: distribution-data
       mountPath: /opt/render/project/src/distribution/data

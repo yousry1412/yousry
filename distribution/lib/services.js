@@ -160,21 +160,31 @@ function createCustomAccount({ company_id, code, name, type, parent_code, is_pos
 // الموظفون (HR)
 // ---------------------------------------------------------------------------
 
-function createEmployee({ company_id, branch_id, name, phone, job_title, salary, hire_date }) {
+function createEmployee({
+  company_id, branch_id, name, phone, job_title, salary, hire_date,
+  passport_number, residency_number, passport_photo, residency_photo,
+}) {
   const info = db
     .prepare(
-      `INSERT INTO employees (company_id, branch_id, name, phone, job_title, salary, hire_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO employees (company_id, branch_id, name, phone, job_title, salary, hire_date, passport_number, residency_number, passport_photo, residency_photo)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(company_id, branch_id || null, name, phone || null, job_title || null, round2(Number(salary) || 0), hire_date || null);
+    .run(
+      company_id, branch_id || null, name, phone || null, job_title || null, round2(Number(salary) || 0), hire_date || null,
+      passport_number || null, residency_number || null, passport_photo || null, residency_photo || null
+    );
   return db.prepare('SELECT * FROM employees WHERE id = ?').get(info.lastInsertRowid);
 }
 
-function updateEmployee(id, companyId, { name, phone, job_title, salary, hire_date, branch_id, is_active }) {
+function updateEmployee(id, companyId, {
+  name, phone, job_title, salary, hire_date, branch_id, is_active,
+  passport_number, residency_number, passport_photo, residency_photo,
+}) {
   const existing = db.prepare('SELECT * FROM employees WHERE id = ?').get(id);
   if (!existing || existing.company_id !== companyId) throw new Error('موظف غير موجود');
   db.prepare(
-    `UPDATE employees SET name=?, phone=?, job_title=?, salary=?, hire_date=?, branch_id=?, is_active=? WHERE id=?`
+    `UPDATE employees SET name=?, phone=?, job_title=?, salary=?, hire_date=?, branch_id=?, is_active=?,
+       passport_number=?, residency_number=?, passport_photo=?, residency_photo=? WHERE id=?`
   ).run(
     name ?? existing.name,
     phone ?? existing.phone,
@@ -183,6 +193,10 @@ function updateEmployee(id, companyId, { name, phone, job_title, salary, hire_da
     hire_date ?? existing.hire_date,
     branch_id === undefined ? existing.branch_id : branch_id || null,
     is_active === undefined ? existing.is_active : (toBool(is_active) ? 1 : 0),
+    passport_number ?? existing.passport_number,
+    residency_number ?? existing.residency_number,
+    passport_photo ?? existing.passport_photo,
+    residency_photo ?? existing.residency_photo,
     id
   );
   return db.prepare('SELECT * FROM employees WHERE id = ?').get(id);

@@ -152,6 +152,11 @@ ensureColumn('users', 'phone', 'phone TEXT');
 ensureColumn('users', 'notify_new_invoices', "notify_new_invoices INTEGER NOT NULL DEFAULT 0");
 ensureColumn('products', 'track_expiry', "track_expiry INTEGER NOT NULL DEFAULT 0");
 ensureColumn('users', 'commission_pct', 'commission_pct REAL');
+// بيانات الجواز والإقامة اختيارية - مش كل الموظفين أجانب أو محتاجين إقامة
+ensureColumn('employees', 'passport_number', 'passport_number TEXT');
+ensureColumn('employees', 'residency_number', 'residency_number TEXT');
+ensureColumn('employees', 'passport_photo', 'passport_photo TEXT');
+ensureColumn('employees', 'residency_photo', 'residency_photo TEXT');
 dropCheckConstraintIfPresent(
   'trip_expenses',
   "paid_from IN ('cash','bank')",
