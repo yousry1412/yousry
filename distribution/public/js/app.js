@@ -8,29 +8,68 @@ const ROLE_GROUPS = {
   PARTNER_G: ['owner', 'accountant', 'partner'],
 };
 
-const NAV = [
-  { hash: '#/dashboard', label: 'لوحة التحكم', icon: '📊', roles: ROLE_GROUPS.PARTNER_G },
-  { hash: '#/sales', label: 'فواتير المبيعات', icon: '🧾', roles: ROLE_GROUPS.SALES_G },
-  { hash: '#/trips', label: 'رحلات التوزيع', icon: '🚚', roles: ROLE_GROUPS.ALL },
-  { hash: '#/purchases', label: 'فواتير الشراء', icon: '🛒', roles: ROLE_GROUPS.WH_G },
-  { hash: '#/production', label: 'أوامر التصنيع', icon: '🏭', roles: ROLE_GROUPS.WH_G },
-  { hash: '#/products', label: 'المنتجات والمخزون', icon: '📦', roles: ROLE_GROUPS.ALL },
-  { hash: '#/customers', label: 'العملاء', icon: '👥', roles: ROLE_GROUPS.SALES_G },
-  { hash: '#/customer-pricing', label: 'قوائم أسعار العملاء', icon: '💲', roles: ROLE_GROUPS.SALES_G },
-  { hash: '#/suppliers', label: 'الموردين', icon: '🏢', roles: ROLE_GROUPS.WH_G },
-  { hash: '#/vehicles', label: 'السيارات', icon: '🚙', roles: ROLE_GROUPS.ALL },
-  { hash: '#/warehouses', label: 'المخازن وعهدة السيارات', icon: '🏬', roles: ROLE_GROUPS.WH_G },
-  { hash: '#/contracts', label: 'عقود التوريد والشراء', icon: '📄', roles: ROLE_GROUPS.WH_G },
-  { hash: '#/damages', label: 'التوالف والهالك', icon: '⚠️', roles: ROLE_GROUPS.ALL },
-  { hash: '#/expenses', label: 'المصروفات العامة', icon: '💸', roles: ROLE_GROUPS.FIN },
-  { hash: '#/vouchers', label: 'سندات القبض والصرف', icon: '🧮', roles: ROLE_GROUPS.FIN },
-  { hash: '#/treasury', label: 'الخزنة الرئيسية', icon: '🏦', roles: ROLE_GROUPS.FIN },
-  { hash: '#/employees', label: 'الموظفون (سلف وعهدات)', icon: '🧑‍💼', roles: ROLE_GROUPS.FIN },
-  { hash: '#/stock-ops', label: 'تحويل وجرد المخزون', icon: '🔄', roles: ROLE_GROUPS.WH_G },
-  { hash: '#/accounting', label: 'الحسابات والتقارير', icon: '📚', roles: ROLE_GROUPS.PARTNER_G },
-  { hash: '#/maps', label: 'الخريطة', icon: '🗺️', roles: ROLE_GROUPS.FIN },
-  { hash: '#/settings', label: 'المنشآت والفروع والشركاء', icon: '⚙️', roles: ROLE_GROUPS.OWNER },
+// القائمة الجانبية مقسّمة لمجموعات منطقية عشان تقلل الزحمة - كل مجموعة قابلة للطي
+// وبتفتح تلقائي لو فيها الصفحة النشطة حاليًا. العناصر المستقلة (standalone) بتظهر
+// كرابط عادي من غير تجميع.
+const NAV_GROUPS = [
+  { standalone: true, hash: '#/dashboard', label: 'لوحة التحكم', icon: '📊', roles: ROLE_GROUPS.PARTNER_G },
+  {
+    label: 'المبيعات والعملاء',
+    icon: '🧾',
+    items: [
+      { hash: '#/sales', label: 'فواتير المبيعات', icon: '🧾', roles: ROLE_GROUPS.SALES_G },
+      { hash: '#/customers', label: 'العملاء', icon: '👥', roles: ROLE_GROUPS.SALES_G },
+      { hash: '#/customer-pricing', label: 'قوائم أسعار العملاء', icon: '💲', roles: ROLE_GROUPS.SALES_G },
+    ],
+  },
+  {
+    label: 'المشتريات والموردين',
+    icon: '🛒',
+    items: [
+      { hash: '#/purchases', label: 'فواتير الشراء', icon: '🛒', roles: ROLE_GROUPS.WH_G },
+      { hash: '#/suppliers', label: 'الموردين', icon: '🏢', roles: ROLE_GROUPS.WH_G },
+      { hash: '#/contracts', label: 'عقود التوريد والشراء', icon: '📄', roles: ROLE_GROUPS.WH_G },
+    ],
+  },
+  {
+    label: 'المخزون والتصنيع',
+    icon: '📦',
+    items: [
+      { hash: '#/products', label: 'المنتجات والمخزون', icon: '📦', roles: ROLE_GROUPS.ALL },
+      { hash: '#/production', label: 'أوامر التصنيع', icon: '🏭', roles: ROLE_GROUPS.WH_G },
+      { hash: '#/stock-ops', label: 'تحويل وجرد المخزون', icon: '🔄', roles: ROLE_GROUPS.WH_G },
+      { hash: '#/damages', label: 'التوالف والهالك', icon: '⚠️', roles: ROLE_GROUPS.ALL },
+    ],
+  },
+  {
+    label: 'التوزيع والسيارات',
+    icon: '🚚',
+    items: [
+      { hash: '#/trips', label: 'رحلات التوزيع', icon: '🚚', roles: ROLE_GROUPS.ALL },
+      { hash: '#/vehicles', label: 'السيارات', icon: '🚙', roles: ROLE_GROUPS.ALL },
+      { hash: '#/warehouses', label: 'المخازن وعهدة السيارات', icon: '🏬', roles: ROLE_GROUPS.WH_G },
+      { hash: '#/maps', label: 'الخريطة', icon: '🗺️', roles: ROLE_GROUPS.FIN },
+    ],
+  },
+  {
+    label: 'الحسابات والمالية',
+    icon: '📚',
+    items: [
+      { hash: '#/vouchers', label: 'سندات القبض والصرف', icon: '🧮', roles: ROLE_GROUPS.FIN },
+      { hash: '#/treasury', label: 'الخزنة الرئيسية', icon: '🏦', roles: ROLE_GROUPS.PARTNER_G },
+      { hash: '#/expenses', label: 'المصروفات العامة', icon: '💸', roles: ROLE_GROUPS.FIN },
+      { hash: '#/accounting', label: 'الحسابات والتقارير', icon: '📚', roles: ROLE_GROUPS.PARTNER_G },
+    ],
+  },
+  { standalone: true, hash: '#/employees', label: 'الموظفون (سلف وعهدات)', icon: '🧑‍💼', roles: ROLE_GROUPS.FIN },
+  { standalone: true, hash: '#/settings', label: 'المنشآت والفروع والشركاء', icon: '⚙️', roles: ROLE_GROUPS.OWNER },
 ];
+
+function flatNavItems() {
+  const flat = [];
+  NAV_GROUPS.forEach((g) => (g.standalone ? flat.push(g) : flat.push(...g.items)));
+  return flat;
+}
 
 function currentRole() {
   const user = Auth.getUser();
@@ -39,7 +78,7 @@ function currentRole() {
 
 function firstAllowedHash() {
   const role = currentRole();
-  const item = NAV.find((n) => n.roles.includes(role));
+  const item = flatNavItems().find((n) => n.roles.includes(role));
   return item ? item.hash : '#/dashboard';
 }
 
@@ -94,22 +133,40 @@ const ROUTES = [
   { re: /^#\/print\/purchase\/(\d+)$/, title: 'طباعة فاتورة شراء', render: (m) => Pages.printPurchase(m[1]) },
 ];
 
+function navLinkHtml(item) {
+  return `<a class="nav-item" data-hash="${item.hash}" href="${item.hash}">
+      <span class="nav-icon">${item.icon}</span><span>${item.label}</span>
+    </a>`;
+}
+
 function renderNav() {
   const role = currentRole();
+  const currentHash = location.hash || '#/dashboard';
   const nav = document.getElementById('nav');
-  nav.innerHTML = NAV.filter((item) => item.roles.includes(role))
-    .map(
-      (item) => `<a class="nav-item" data-hash="${item.hash}" href="${item.hash}">
-      <span class="nav-icon">${item.icon}</span><span>${item.label}</span>
-    </a>`
-    )
-    .join('');
+  nav.innerHTML = NAV_GROUPS.map((g) => {
+    if (g.standalone) {
+      return g.roles.includes(role) ? navLinkHtml(g) : '';
+    }
+    const visibleItems = g.items.filter((it) => it.roles.includes(role));
+    if (visibleItems.length === 0) return '';
+    const containsActive = visibleItems.some((it) => currentHash.indexOf(it.hash) === 0);
+    return `
+      <details class="nav-group" ${containsActive ? 'open' : ''}>
+        <summary><span class="nav-icon">${g.icon}</span><span>${g.label}</span><span class="nav-caret">▾</span></summary>
+        ${visibleItems.map(navLinkHtml).join('')}
+      </details>`;
+  }).join('');
 }
 
 function updateActiveNav(hash) {
   document.querySelectorAll('.nav-item').forEach((el) => {
     const base = '#/' + (hash.split('/')[1] || '');
-    el.classList.toggle('active', el.dataset.hash === base || el.dataset.hash === hash);
+    const isActive = el.dataset.hash === base || el.dataset.hash === hash;
+    el.classList.toggle('active', isActive);
+    if (isActive) {
+      const group = el.closest('.nav-group');
+      if (group) group.open = true;
+    }
   });
 }
 
@@ -142,7 +199,7 @@ async function router() {
   }
 }
 
-const ROLE_LABELS = { owner: 'مالك', accountant: 'محاسب', sales: 'مندوب مبيعات', warehouse: 'أمين مخزن' };
+const ROLE_LABELS = { owner: 'مالك', accountant: 'محاسب', sales: 'مندوب مبيعات', warehouse: 'أمين مخزن', partner: 'شريك' };
 
 function renderTopUser() {
   const user = Auth.getUser();
@@ -164,6 +221,8 @@ function renderContextSwitcher() {
   branchSelect.innerHTML = UI.optionsHtml(Context.getBranches(), 'id', 'name', Context.getBranchId());
   companySelect.disabled = !!(user && user.company_id);
   branchSelect.disabled = !!(user && user.branch_id);
+  const company = Context.getCompany();
+  document.getElementById('brandCompany').textContent = company ? company.name : '';
 }
 
 function wireContextSwitcher() {

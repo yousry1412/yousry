@@ -56,13 +56,22 @@ body {
 
 .brand {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 22px 18px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 18px 14px;
   border-bottom: 1px solid rgba(255,255,255,0.1);
 }
-.brand-icon { font-size: 26px; }
-.brand-text { font-weight: 700; font-size: 17px; letter-spacing: 0.2px; }
+.brand-company {
+  font-weight: 700;
+  font-size: 16px;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.brand-app { display: flex; align-items: center; gap: 8px; opacity: 0.75; }
+.brand-icon { font-size: 16px; }
+.brand-text { font-weight: 500; font-size: 12px; letter-spacing: 0.2px; }
 
 .nav { padding: 12px; display: flex; flex-direction: column; gap: 3px; }
 .nav-item {
@@ -87,6 +96,28 @@ body {
   border-right-color: var(--accent);
 }
 .nav-icon { width: 20px; text-align: center; }
+
+/* مجموعات القائمة الجانبية القابلة للطي - كل مجموعة عناوين مرتبطة ببعض تحت عنوان واحد */
+.nav-group { margin-bottom: 2px; }
+.nav-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #cfe3dc;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  list-style: none;
+  user-select: none;
+}
+.nav-group > summary::-webkit-details-marker { display: none; }
+.nav-group > summary:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.nav-group > summary .nav-caret { margin-right: auto; font-size: 11px; transition: transform 0.15s; }
+.nav-group[open] > summary .nav-caret { transform: rotate(180deg); }
+.nav-group[open] > summary { color: #fff; }
+.nav-group .nav-item { padding-right: 26px; font-size: 13.5px; }
 
 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
