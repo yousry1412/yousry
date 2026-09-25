@@ -3,7 +3,7 @@ const path = require('path');
 const apiRouter = require('./routes');
 const { router: authRouter, requireAuth } = require('./routes/auth');
 const { dedupeGuard } = require('./lib/dedupe-guard');
-const { db } = require('./lib/db');
+const { db, DB_PATH } = require('./lib/db');
 const reports = require('./lib/reports');
 const whatsapp = require('./lib/whatsapp');
 const backup = require('./lib/backup');
@@ -64,4 +64,7 @@ runDailyBackup();
 
 app.listen(PORT, () => {
   console.log(`نظام إدارة التوزيع شغال على http://localhost:${PORT}`);
+  // بيوضح في لوجز السيرفر (زي Render) مسار قاعدة البيانات الفعلي المستخدم دلوقتي - مفيد
+  // للتأكد إن القرص الدائم /var/data متوصّل وبيتقرأ صحيح وقت التشغيل الفعلي على السيرفر
+  console.log(`قاعدة البيانات محفوظة في: ${DB_PATH}`);
 });
