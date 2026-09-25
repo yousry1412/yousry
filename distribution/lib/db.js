@@ -169,6 +169,13 @@ ensureColumn('trip_expenses', 'photo', 'photo TEXT');
 ensureColumn('users', 'notify_trip_start', 'notify_trip_start INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'notify_new_expenses', 'notify_new_expenses INTEGER NOT NULL DEFAULT 0');
 ensureColumn('users', 'notify_expiry_alerts', 'notify_expiry_alerts INTEGER NOT NULL DEFAULT 0');
+ensureColumn('companies', 'currency', "currency TEXT NOT NULL DEFAULT 'ج.م'");
+ensureColumn('companies', 'latitude', 'latitude REAL');
+ensureColumn('companies', 'longitude', 'longitude REAL');
+ensureColumn('branches', 'latitude', 'latitude REAL');
+ensureColumn('branches', 'longitude', 'longitude REAL');
+ensureColumn('products', 'storage_method', 'storage_method TEXT');
+ensureColumn('products', 'default_branch_id', 'default_branch_id INTEGER REFERENCES branches(id)');
 dropCheckConstraintIfPresent(
   'trip_expenses',
   "paid_from IN ('cash','bank')",

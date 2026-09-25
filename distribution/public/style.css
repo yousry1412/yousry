@@ -153,6 +153,30 @@ body {
   .context-switcher { display: none; }
 }
 
+/* على الموبايل بيختفي السويتشر من التوب بار (مفيش مكان)، فبيظهر بدل منه صف مضغوط
+   تحت التوب بار مباشرة عشان تقدر تبدّل الشركة/الفرع وانت شغال من الموبايل */
+.context-switcher-mobile { display: none; }
+@media (max-width: 860px) {
+  .context-switcher-mobile {
+    display: flex;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+  }
+  .context-switcher-mobile select {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: #fafafa;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+}
+
 .content { padding: 22px; flex: 1; }
 
 /* ---------- عناصر عامة ---------- */

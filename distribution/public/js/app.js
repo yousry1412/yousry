@@ -219,25 +219,36 @@ function initClock() {
 
 function renderContextSwitcher() {
   const user = Auth.getUser();
-  const companySelect = document.getElementById('companySelect');
-  const branchSelect = document.getElementById('branchSelect');
-  companySelect.innerHTML = UI.optionsHtml(Context.getCompanies(), 'id', 'name', Context.getCompanyId());
-  branchSelect.innerHTML = UI.optionsHtml(Context.getBranches(), 'id', 'name', Context.getBranchId());
-  companySelect.disabled = !!(user && user.company_id);
-  branchSelect.disabled = !!(user && user.branch_id);
+  const companyOptions = UI.optionsHtml(Context.getCompanies(), 'id', 'name', Context.getCompanyId());
+  const branchOptions = UI.optionsHtml(Context.getBranches(), 'id', 'name', Context.getBranchId());
+  const locked = { company: !!(user && user.company_id), branch: !!(user && user.branch_id) };
+  ['companySelect', 'companySelectMobile'].forEach((id) => {
+    const el = document.getElementById(id);
+    el.innerHTML = companyOptions;
+    el.disabled = locked.company;
+  });
+  ['branchSelect', 'branchSelectMobile'].forEach((id) => {
+    const el = document.getElementById(id);
+    el.innerHTML = branchOptions;
+    el.disabled = locked.branch;
+  });
   const company = Context.getCompany();
   document.getElementById('brandCompany').textContent = company ? company.name : '';
 }
 
 function wireContextSwitcher() {
-  document.getElementById('companySelect').addEventListener('change', async (e) => {
-    await Context.setCompany(e.target.value);
-    renderContextSwitcher();
-    router();
+  ['companySelect', 'companySelectMobile'].forEach((id) => {
+    document.getElementById(id).addEventListener('change', async (e) => {
+      await Context.setCompany(e.target.value);
+      renderContextSwitcher();
+      router();
+    });
   });
-  document.getElementById('branchSelect').addEventListener('change', (e) => {
-    Context.setBranch(e.target.value);
-    router();
+  ['branchSelect', 'branchSelectMobile'].forEach((id) => {
+    document.getElementById(id).addEventListener('change', (e) => {
+      Context.setBranch(e.target.value);
+      router();
+    });
   });
 }
 

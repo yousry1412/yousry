@@ -96,12 +96,13 @@ function assertPeriodOpen(companyId, branchId, date) {
 // المنشآت والفروع والشركاء
 // ---------------------------------------------------------------------------
 
-function createCompany({ name, legal_name, tax_number, phone, address, public_url, country, vat_enabled, vat_rate, geofence_radius_m }) {
+function createCompany({ name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude, vat_enabled, vat_rate, geofence_radius_m }) {
   return inTransaction(() => {
+    const coord = sanitizeCoord(latitude, longitude);
     const info = db
       .prepare(
-        `INSERT INTO companies (name, legal_name, tax_number, phone, address, public_url, country, vat_enabled, vat_rate, geofence_radius_m)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO companies (name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude, vat_enabled, vat_rate, geofence_radius_m)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         name,
@@ -111,6 +112,9 @@ function createCompany({ name, legal_name, tax_number, phone, address, public_ur
         address || null,
         public_url || null,
         country || 'مصر',
+        currency || 'ج.م',
+        coord.latitude,
+        coord.longitude,
         toBool(vat_enabled) ? 1 : 0,
         round2(Number(vat_rate) || 0),
         round2(Number(geofence_radius_m) || 300)
@@ -122,13 +126,50 @@ function createCompany({ name, legal_name, tax_number, phone, address, public_ur
   });
 }
 
-function createBranch({ company_id, name, address, phone, is_main }) {
+function updateCompany(id, { name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude, vat_enabled, vat_rate, geofence_radius_m }) {
+  const coord = sanitizeCoord(latitude, longitude);
+  db.prepare(
+    `UPDATE companies SET name = ?, legal_name = ?, tax_number = ?, phone = ?, address = ?, public_url = ?,
+       country = ?, currency = ?, latitude = ?, longitude = ?, vat_enabled = ?, vat_rate = ?, geofence_radius_m = ?
+     WHERE id = ?`
+  ).run(
+    name,
+    legal_name || null,
+    tax_number || null,
+    phone || null,
+    address || null,
+    public_url || null,
+    country || 'مصر',
+    currency || 'ج.م',
+    coord.latitude,
+    coord.longitude,
+    toBool(vat_enabled) ? 1 : 0,
+    round2(Number(vat_rate) || 0),
+    round2(Number(geofence_radius_m) || 300),
+    id
+  );
+  return db.prepare('SELECT * FROM companies WHERE id = ?').get(id);
+}
+
+function createBranch({ company_id, name, address, phone, is_main, latitude, longitude }) {
   return inTransaction(() => {
     if (is_main) db.prepare('UPDATE branches SET is_main = 0 WHERE company_id = ?').run(company_id);
+    const coord = sanitizeCoord(latitude, longitude);
     const info = db
-      .prepare('INSERT INTO branches (company_id, name, address, phone, is_main) VALUES (?, ?, ?, ?, ?)')
-      .run(company_id, name, address || null, phone || null, is_main ? 1 : 0);
+      .prepare('INSERT INTO branches (company_id, name, address, phone, is_main, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(company_id, name, address || null, phone || null, is_main ? 1 : 0, coord.latitude, coord.longitude);
     return db.prepare('SELECT * FROM branches WHERE id = ?').get(info.lastInsertRowid);
+  });
+}
+
+function updateBranch(id, companyId, { name, address, phone, is_main, latitude, longitude }) {
+  return inTransaction(() => {
+    if (is_main) db.prepare('UPDATE branches SET is_main = 0 WHERE company_id = ?').run(companyId);
+    const coord = sanitizeCoord(latitude, longitude);
+    db.prepare(
+      'UPDATE branches SET name = ?, address = ?, phone = ?, is_main = ?, latitude = ?, longitude = ? WHERE id = ? AND company_id = ?'
+    ).run(name, address || null, phone || null, is_main ? 1 : 0, coord.latitude, coord.longitude, id, companyId);
+    return db.prepare('SELECT * FROM branches WHERE id = ?').get(id);
   });
 }
 
@@ -538,15 +579,29 @@ function listProductCategories(companyId) {
 // المنتجات و BOM ووحدات القياس
 // ---------------------------------------------------------------------------
 
-function createProduct({ company_id, branch_id, category_id, name, sku, unit, kind, sale_price, cost_price, reorder_level, opening_qty, bom, track_expiry, photo }) {
+function createProduct({ company_id, branch_id, category_id, name, sku, unit, kind, sale_price, cost_price, reorder_level, opening_qty, bom, track_expiry, photo, storage_method, default_branch_id }) {
   return inTransaction(() => {
     if (category_id) assertBelongs('product_categories', category_id, company_id, 'التصنيف');
+    if (default_branch_id) assertBelongs('branches', default_branch_id, company_id, 'المخزن الرئيسي');
     const info = db
       .prepare(
-        `INSERT INTO products (company_id, category_id, name, sku, unit, kind, sale_price, reorder_level, track_expiry, photo)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO products (company_id, category_id, name, sku, unit, kind, sale_price, reorder_level, track_expiry, photo, storage_method, default_branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, category_id || null, name, sku || null, unit || 'وحدة', kind, Number(sale_price) || 0, Number(reorder_level) || 0, track_expiry ? 1 : 0, photo || null);
+      .run(
+        company_id,
+        category_id || null,
+        name,
+        sku || null,
+        unit || 'وحدة',
+        kind,
+        Number(sale_price) || 0,
+        Number(reorder_level) || 0,
+        track_expiry ? 1 : 0,
+        photo || null,
+        storage_method || null,
+        default_branch_id || null
+      );
     const id = info.lastInsertRowid;
 
     const oQty = round2(Number(opening_qty) || 0);
@@ -2495,7 +2550,9 @@ module.exports = {
   setProductUnits,
   listProductUnits,
   createCompany,
+  updateCompany,
   createBranch,
+  updateBranch,
   createPartner,
   createCustomAccount,
   createSupplier,

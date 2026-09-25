@@ -15,8 +15,11 @@ CREATE TABLE IF NOT EXISTS companies (
   address TEXT,
   public_url TEXT,
   country TEXT NOT NULL DEFAULT 'مصر',
+  currency TEXT NOT NULL DEFAULT 'ج.م', -- مشتقة من الدولة تلقائيًا، وقت اختيار الدولة - قابلة للتعديل يدويًا
   vat_enabled INTEGER NOT NULL DEFAULT 0,
   vat_rate REAL NOT NULL DEFAULT 0,
+  latitude REAL,
+  longitude REAL,
   geofence_radius_m REAL NOT NULL DEFAULT 300,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -28,6 +31,8 @@ CREATE TABLE IF NOT EXISTS branches (
   name TEXT NOT NULL,
   address TEXT,
   phone TEXT,
+  latitude REAL,
+  longitude REAL,
   is_main INTEGER NOT NULL DEFAULT 0,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -143,6 +148,8 @@ CREATE TABLE IF NOT EXISTS products (
   reorder_level REAL NOT NULL DEFAULT 0,
   track_expiry INTEGER NOT NULL DEFAULT 0, -- منتج بيتلف (زي الدجاج الطازج) ولازم تتبع تاريخ صلاحيته
   photo TEXT,
+  storage_method TEXT, -- طريقة التخزين السليمة (مبرّد، مجمّد، جاف بعيد عن الشمس...)
+  default_branch_id INTEGER REFERENCES branches(id), -- المخزن الأساسي اللي المفروض الصنف ده يتوجّه له
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

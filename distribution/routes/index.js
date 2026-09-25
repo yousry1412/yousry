@@ -121,24 +121,9 @@ router.put(
     if (!req.companyId || Number(req.params.id) !== req.companyId) {
       throw new Error('لازم تختار المنشأة دي كسياق العمل الحالي قبل تعديل بياناتها');
     }
-    const { name, legal_name, tax_number, phone, address, public_url, is_active, country, vat_enabled, vat_rate, geofence_radius_m } = req.body;
-    db.prepare(
-      `UPDATE companies SET name=?, legal_name=?, tax_number=?, phone=?, address=?, public_url=?, is_active=?,
-       country=?, vat_enabled=?, vat_rate=?, geofence_radius_m=? WHERE id=?`
-    ).run(
-      name,
-      legal_name || null,
-      tax_number || null,
-      phone || null,
-      address || null,
-      public_url || null,
-      is_active ? 1 : 0,
-      country || 'مصر',
-      services.toBool(vat_enabled) ? 1 : 0,
-      Number(vat_rate) || 0,
-      Number(geofence_radius_m) || 300,
-      req.params.id
-    );
+    services.updateCompany(req.params.id, req.body);
+    const { is_active } = req.body;
+    db.prepare('UPDATE companies SET is_active=? WHERE id=?').run(is_active ? 1 : 0, req.params.id);
     return db.prepare('SELECT * FROM companies WHERE id=?').get(req.params.id);
   })
 );
@@ -164,17 +149,10 @@ router.put(
   allow(...OWNER),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
-    const branch = assertOwned(db.prepare('SELECT * FROM branches WHERE id = ?').get(req.params.id), company_id, 'فرع غير موجود');
-    const { name, address, phone, is_main, is_active } = req.body;
-    if (is_main) db.prepare('UPDATE branches SET is_main = 0 WHERE company_id = ?').run(branch.company_id);
-    db.prepare('UPDATE branches SET name=?, address=?, phone=?, is_main=?, is_active=? WHERE id=?').run(
-      name,
-      address || null,
-      phone || null,
-      is_main ? 1 : 0,
-      is_active ? 1 : 0,
-      req.params.id
-    );
+    assertOwned(db.prepare('SELECT * FROM branches WHERE id = ?').get(req.params.id), company_id, 'فرع غير موجود');
+    services.updateBranch(req.params.id, company_id, req.body);
+    const { is_active } = req.body;
+    db.prepare('UPDATE branches SET is_active=? WHERE id=?').run(is_active ? 1 : 0, req.params.id);
     return db.prepare('SELECT * FROM branches WHERE id=?').get(req.params.id);
   })
 );
@@ -600,11 +578,12 @@ router.put(
   handle((req) => {
     const { company_id } = ctx(req);
     assertOwned(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id), company_id, 'منتج غير موجود');
-    const { name, sku, unit, category_id, sale_price, reorder_level, is_active, track_expiry, photo } = req.body;
+    const { name, sku, unit, category_id, sale_price, reorder_level, is_active, track_expiry, photo, storage_method, default_branch_id } = req.body;
     if (category_id) assertOwned(db.prepare('SELECT * FROM product_categories WHERE id=?').get(category_id), company_id, 'تصنيف غير موجود');
+    if (default_branch_id) assertOwned(db.prepare('SELECT * FROM branches WHERE id=?').get(default_branch_id), company_id, 'مخزن غير موجود');
     const existingProduct = db.prepare('SELECT photo FROM products WHERE id=?').get(req.params.id);
     db.prepare(
-      'UPDATE products SET name=?, sku=?, unit=?, category_id=?, sale_price=?, reorder_level=?, is_active=?, track_expiry=?, photo=? WHERE id=?'
+      'UPDATE products SET name=?, sku=?, unit=?, category_id=?, sale_price=?, reorder_level=?, is_active=?, track_expiry=?, photo=?, storage_method=?, default_branch_id=? WHERE id=?'
     ).run(
       name,
       sku || null,
@@ -615,6 +594,8 @@ router.put(
       is_active ? 1 : 0,
       track_expiry ? 1 : 0,
       photo !== undefined ? photo || null : existingProduct.photo,
+      storage_method || null,
+      default_branch_id || null,
       req.params.id
     );
     return db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);

@@ -20,6 +20,18 @@ const USER_ROLE_LABELS = {
 };
 const USER_ROLE_ORDER = ['owner', 'accountant', 'sales', 'warehouse', 'partner'];
 
+// خريطة الدولة -> العملة الافتراضية بتاعتها - بتتحدد تلقائيًا وقت اختيار الدولة، وتقدر
+// تعدّلها يدويًا لو محتاج. العملة هنا رمز عرض بس (مفيش تحويل عملات أو أسعار صرف في
+// النظام) - عشان كده كل فروع نفس المنشأة لازم يكونوا بنفس عملة المنشأة، وإلا التقارير
+// المجمّعة (قائمة الدخل، الميزانية) هتجمع أرقام بعملات مختلفة كأنها نفس الوحدة.
+const COUNTRY_CURRENCY = {
+  'مصر': 'ج.م', 'السعودية': 'ر.س', 'الإمارات': 'د.إ', 'الكويت': 'د.ك',
+  'قطر': 'ر.ق', 'البحرين': 'د.ب', 'عُمان': 'ر.ع', 'الأردن': 'د.أ',
+  'لبنان': 'ل.ل', 'العراق': 'د.ع', 'المغرب': 'د.م', 'الجزائر': 'د.ج',
+  'تونس': 'د.ت', 'ليبيا': 'د.ل', 'السودان': 'ج.س', 'فلسطين': '₪',
+  'اليمن': 'ر.ي', 'أمريكا': '$', 'بريطانيا': '£', 'أوروبا (يورو)': '€',
+};
+
 function companyFormHtml(c = {}) {
   return `
     <form id="companyForm">
@@ -30,11 +42,26 @@ function companyFormHtml(c = {}) {
         <div class="field"><label>الهاتف</label><input name="phone" value="${UI.escapeHtml(c.phone || '')}" /></div>
         <div class="field"><label>رابط الموقع العام (لإرسال روابط الفواتير)</label><input name="public_url" placeholder="https://example.com" value="${UI.escapeHtml(c.public_url || '')}" /></div>
         <div class="field span-2"><label>العنوان</label><input name="address" value="${UI.escapeHtml(c.address || '')}" /></div>
+        <div class="field span-2">
+          <label>موقع المنشأة (GPS)</label>
+          <div style="display:flex; align-items:center; gap:10px">
+            <button type="button" class="btn secondary small" id="companyGpsBtn">📍 تحديد موقعي الحالي</button>
+            <span class="muted" id="companyGpsStatus" style="font-size:12.5px">${c.latitude ? `مسجّل حاليًا · <a href="${UI.googleMapsLink(c.latitude, c.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>` : 'لسه متسجلش'}</span>
+          </div>
+          <input type="hidden" name="latitude" id="companyLat" value="${c.latitude ?? ''}" />
+          <input type="hidden" name="longitude" id="companyLng" value="${c.longitude ?? ''}" />
+        </div>
       </div>
-      <div class="card-header" style="margin:14px 0 6px"><h3 style="font-size:14px">الضرائب - حسب دولة تشغيل المنشأة</h3></div>
-      <p class="muted" style="font-size:12.5px">قواعد الضريبة بتختلف من بلد لبلد - حدد الدولة ونسبة الضريبة الصحيحة لبلدك، أو سيّب الضريبة "غير مفعّلة" لو منشأتك مش خاضعة للضريبة أصلاً.</p>
+      <div class="card-header" style="margin:14px 0 6px"><h3 style="font-size:14px">الضرائب والعملة - حسب دولة تشغيل المنشأة</h3></div>
+      <p class="muted" style="font-size:12.5px">قواعد الضريبة والعملة بتختلف من بلد لبلد - حدد الدولة، وهيتحدد شكل العملة تلقائيًا (تقدر تعدّله)، وحدد نسبة الضريبة الصحيحة لبلدك، أو سيّب الضريبة "غير مفعّلة" لو منشأتك مش خاضعة للضريبة أصلاً.</p>
       <div class="form-grid">
-        <div class="field"><label>الدولة</label><input name="country" placeholder="مصر" value="${UI.escapeHtml(c.country || 'مصر')}" /></div>
+        <div class="field">
+          <label>الدولة</label>
+          <select name="country" id="companyCountrySelect">
+            ${Object.keys(COUNTRY_CURRENCY).map((name) => `<option value="${name}" ${(c.country || 'مصر') === name ? 'selected' : ''}>${name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>رمز العملة</label><input name="currency" id="companyCurrencyInput" value="${UI.escapeHtml(c.currency || COUNTRY_CURRENCY[c.country || 'مصر'])}" /></div>
         <div class="field"><label>خاضعة لضريبة القيمة المضافة؟</label><select name="vat_enabled"><option value="0" ${!c.vat_enabled ? 'selected' : ''}>لا</option><option value="1" ${c.vat_enabled ? 'selected' : ''}>نعم</option></select></div>
         <div class="field"><label>نسبة الضريبة %</label><input name="vat_rate" type="number" step="0.01" value="${c.vat_rate ?? 0}" /></div>
         <div class="field"><label>نطاق الرقابة الجغرافية الافتراضي (متر)</label><input name="geofence_radius_m" type="number" step="1" value="${c.geofence_radius_m ?? 300}" /></div>
@@ -50,6 +77,21 @@ function companyFormHtml(c = {}) {
 
 function openCompanyModal(existing, onDone) {
   UI.openModal(existing ? 'تعديل بيانات منشأة' : 'منشأة جديدة', companyFormHtml(existing || {}));
+  document.getElementById('companyGpsBtn').addEventListener('click', async () => {
+    const status = document.getElementById('companyGpsStatus');
+    status.textContent = 'جارِ تحديد الموقع...';
+    const pos = await UI.getCurrentPosition();
+    if (!pos) {
+      status.textContent = 'تعذّر تحديد الموقع - تأكد من تفعيل خدمة الموقع';
+      return;
+    }
+    document.getElementById('companyLat').value = pos.latitude;
+    document.getElementById('companyLng').value = pos.longitude;
+    status.innerHTML = `تم التحديد الآن · <a href="${UI.googleMapsLink(pos.latitude, pos.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>`;
+  });
+  document.getElementById('companyCountrySelect').addEventListener('change', (e) => {
+    document.getElementById('companyCurrencyInput').value = COUNTRY_CURRENCY[e.target.value] || '';
+  });
   document.getElementById('companyForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -107,6 +149,15 @@ function branchFormHtml(b = {}) {
           <select name="is_main"><option value="0" ${!b.is_main ? 'selected' : ''}>لا</option><option value="1" ${b.is_main ? 'selected' : ''}>نعم</option></select>
         </div>
         <div class="field span-2"><label>العنوان</label><input name="address" value="${UI.escapeHtml(b.address || '')}" /></div>
+        <div class="field span-2">
+          <label>موقع الفرع / المخزن (GPS)</label>
+          <div style="display:flex; align-items:center; gap:10px">
+            <button type="button" class="btn secondary small" id="branchGpsBtn">📍 تحديد موقعي الحالي</button>
+            <span class="muted" id="branchGpsStatus" style="font-size:12.5px">${b.latitude ? `مسجّل حاليًا · <a href="${UI.googleMapsLink(b.latitude, b.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>` : 'لسه متسجلش'}</span>
+          </div>
+          <input type="hidden" name="latitude" id="branchLat" value="${b.latitude ?? ''}" />
+          <input type="hidden" name="longitude" id="branchLng" value="${b.longitude ?? ''}" />
+        </div>
       </div>
       <div class="modal-actions">
         <button type="submit" class="btn">${b.id ? 'حفظ التعديلات' : 'إضافة الفرع'}</button>
@@ -118,6 +169,18 @@ function branchFormHtml(b = {}) {
 
 function openBranchModal(existing, onDone) {
   UI.openModal(existing ? 'تعديل بيانات فرع' : 'فرع جديد', branchFormHtml(existing || {}));
+  document.getElementById('branchGpsBtn').addEventListener('click', async () => {
+    const status = document.getElementById('branchGpsStatus');
+    status.textContent = 'جارِ تحديد الموقع...';
+    const pos = await UI.getCurrentPosition();
+    if (!pos) {
+      status.textContent = 'تعذّر تحديد الموقع - تأكد من تفعيل خدمة الموقع';
+      return;
+    }
+    document.getElementById('branchLat').value = pos.latitude;
+    document.getElementById('branchLng').value = pos.longitude;
+    status.innerHTML = `تم التحديد الآن · <a href="${UI.googleMapsLink(pos.latitude, pos.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>`;
+  });
   document.getElementById('branchForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
