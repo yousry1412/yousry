@@ -36,6 +36,8 @@ const NAV_GROUPS = [
     icon: '📦',
     items: [
       { hash: '#/products', label: 'المنتجات والمخزون', icon: '📦', roles: ROLE_GROUPS.ALL },
+      { hash: '#/categories', label: 'تصنيفات المنتجات', icon: '🏷️', roles: ROLE_GROUPS.WH_G },
+      { hash: '#/units', label: 'وحدات القياس', icon: '📐', roles: ROLE_GROUPS.WH_G },
       { hash: '#/production', label: 'أوامر التصنيع', icon: '🏭', roles: ROLE_GROUPS.WH_G },
       { hash: '#/stock-ops', label: 'تحويل وجرد المخزون', icon: '🔄', roles: ROLE_GROUPS.WH_G },
       { hash: '#/damages', label: 'التوالف والهالك', icon: '⚠️', roles: ROLE_GROUPS.ALL },
@@ -94,6 +96,8 @@ const ROUTES = [
 
   { re: /^#\/products$/, title: 'المنتجات والمخزون', render: () => Pages.productsList() },
   { re: /^#\/products\/(\d+)$/, title: 'تفاصيل المنتج', render: (m) => Pages.productDetail(m[1]) },
+  { re: /^#\/categories$/, title: 'تصنيفات المنتجات', render: () => Pages.categoriesList() },
+  { re: /^#\/units$/, title: 'وحدات القياس', render: () => Pages.unitsOverview() },
 
   { re: /^#\/purchases$/, title: 'فواتير الشراء', render: () => Pages.purchasesList() },
   { re: /^#\/purchases\/new$/, title: 'فاتورة شراء جديدة', render: () => Pages.purchaseNew() },

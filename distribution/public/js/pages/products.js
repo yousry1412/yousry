@@ -66,13 +66,13 @@ function openProductModal(categories) {
   });
 }
 
-function openCategoryModal(onDone) {
+function openCategoryModal(existing, onDone) {
   UI.openModal(
-    'تصنيف منتجات جديد',
+    existing ? `تعديل تصنيف: ${UI.escapeHtml(existing.name)}` : 'تصنيف منتجات جديد',
     `<form id="categoryForm">
-      <div class="field"><label>اسم التصنيف *</label><input name="name" required /></div>
+      <div class="field"><label>اسم التصنيف *</label><input name="name" required value="${UI.escapeHtml(existing ? existing.name : '')}" /></div>
       <div class="modal-actions">
-        <button type="submit" class="btn">إضافة</button>
+        <button type="submit" class="btn">${existing ? 'حفظ التعديلات' : 'إضافة'}</button>
         <button type="button" class="btn secondary" onclick="UI.closeModal()">إلغاء</button>
       </div>
     </form>`
@@ -81,9 +81,10 @@ function openCategoryModal(onDone) {
     e.preventDefault();
     const fd = new FormData(e.target);
     try {
-      await Api.post('/product-categories', Object.fromEntries(fd.entries()));
+      if (existing) await Api.put(`/product-categories/${existing.id}`, Object.fromEntries(fd.entries()));
+      else await Api.post('/product-categories', Object.fromEntries(fd.entries()));
       UI.closeModal();
-      UI.toast('تم إضافة التصنيف', 'success');
+      UI.toast(existing ? 'تم حفظ التعديلات' : 'تم إضافة التصنيف', 'success');
       onDone();
     } catch (err) {
       UI.toast(err.message, 'error');
@@ -127,7 +128,7 @@ Pages.productsList = async function () {
     </div>
   `);
   document.getElementById('addProductBtn').addEventListener('click', () => openProductModal(categories));
-  document.getElementById('addCategoryBtn').addEventListener('click', () => openCategoryModal(() => Pages.productsList()));
+  document.getElementById('addCategoryBtn').addEventListener('click', () => openCategoryModal(null, () => Pages.productsList()));
 };
 
 Pages.productDetail = async function (id) {
