@@ -2,8 +2,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const E = require('../js/engine.js');
-const { buildSeed } = require('../js/data.js');
+const E = require('../public/js/engine.js');
+const { buildSeed } = require('../public/js/data.js');
 
 const NOW = new Date('2026-09-25T10:00:00').getTime();
 const seed = () => buildSeed(NOW);

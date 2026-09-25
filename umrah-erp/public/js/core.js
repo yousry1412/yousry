@@ -40,9 +40,64 @@
     for (const p of s.pax) if (p.boarding == null) p.boarding = Number(p.id.slice(1)) % 3;
     return s;
   }
-  App.S = hydrate(load() || window.MockData.buildSeed());
-  App.save = () => { try { localStorage.setItem(LS_KEY, JSON.stringify(App.S)); } catch (e) { /* private mode */ } };
-  App.reset = () => { App.S = hydrate(window.MockData.buildSeed()); App.ui.selPax = null; App.ui.pickedBed = null; App.save(); App.render(); App.toast('تمت إعادة تحميل البيانات التجريبية'); };
+  // Two modes:
+  //  - ONLINE  (served by umrah-erp/server.js): login + one shared state on the server, versioned.
+  //  - OFFLINE (file:// or static hosting without the API): single-user demo in localStorage.
+  App.S = null;
+  App.online = false;
+  App.me = null;
+  App.version = 0;
+  let saveTimer = null, inFlight = false, dirty = false;
+
+  App.save = () => {
+    if (!App.online) { try { localStorage.setItem(LS_KEY, JSON.stringify(App.S)); } catch (e) { /* private mode */ } return; }
+    dirty = true; setSync('saving');
+    clearTimeout(saveTimer); saveTimer = setTimeout(flush, 250);
+  };
+  async function flush() {
+    if (inFlight || !dirty) return;
+    inFlight = true; dirty = false;
+    try {
+      const r = await fetch('api/state', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseVersion: App.version, state: App.S }) });
+      if (r.status === 409) {
+        applyRemote(await r.json());
+        App.toast('⚠️ مستخدم آخر عدّل البيانات في نفس اللحظة — تم تحميل آخر نسخة، من فضلك أعد تنفيذ آخر عملية', 'warn');
+      } else if (r.status === 401) {
+        App.online && renderAuth(false);
+      } else if (!r.ok) {
+        dirty = true; App.toast('تعذر الحفظ على السيرفر — سيعاد المحاولة تلقائياً', 'err');
+      } else {
+        App.version = (await r.json()).version; setSync('saved');
+      }
+    } catch (e) { dirty = true; setSync('offline'); }
+    inFlight = false;
+    if (dirty) saveTimer = setTimeout(flush, 2000);
+  }
+  function applyRemote(d) {
+    App.S = hydrate(d.state); App.version = d.version; bindMe(); setSync('saved'); App.render();
+  }
+  // Maps the logged-in account to the in-app staff list that drives discount authority.
+  const ROLE_MAP = { OWNER: 'MANAGER', MANAGER: 'MANAGER', HEAD: 'HEAD', SALES: 'SALES', OPERATIONS: 'SALES' };
+  function bindMe() {
+    if (!App.online || !App.me) return;
+    const id = 'SU' + App.me.id, role = ROLE_MAP[App.me.role];
+    const u = App.S.users.find((x) => x.id === id);
+    if (u) { u.name = App.me.display_name; u.role = role; } else App.S.users.push({ id, name: App.me.display_name, role });
+    App.ui.actingUser = id;
+  }
+  let syncState = 'saved';
+  function setSync(st) { syncState = st; const el = document.getElementById('sync'); if (el) el.outerHTML = syncChip(); }
+  const syncChip = () => `<span id="sync" class="chip ${syncState === 'offline' ? 'danger' : syncState === 'saving' ? 'hold' : 'ok'}">${syncState === 'offline' ? '⚠️ غير متصل' : syncState === 'saving' ? '⏳ جارِ الحفظ' : '☁️ محفوظ'}</span>`;
+
+  App.reset = async () => {
+    if (App.online) {
+      const r = await fetch('api/state/reset', { method: 'POST' });
+      if (!r.ok) return App.toast((await r.json()).error || 'تعذر', 'err');
+      const d = await (await fetch('api/state')).json(); applyRemote(d);
+    } else { App.S = hydrate(window.MockData.buildSeed()); App.save(); App.render(); }
+    App.ui.selPax = null; App.ui.pickedBed = null;
+    App.toast('تمت إعادة تحميل البيانات التجريبية');
+  };
 
   App.ui = {
     page: 'builder', city: 'MAK', roomMode: 'sales', selPax: null, pickedBed: null, pickedSeat: null, pickedBusPax: null,
@@ -161,9 +216,12 @@
     ['التشغيل', [['rooms', '🛏️', 'التسكين المزدوج'], ['bus', '🚌', 'مقاعد الباص'], ['ops', '🛂', 'العمليات والتقارير']]],
     ['المالية', [['pnl', '📊', 'الإغلاق والأرباح']]],
   ];
+  const ROLE_LABEL = { OWNER: 'المالك', MANAGER: 'مدير مبيعات', HEAD: 'رئيس قسم', SALES: 'موظف مبيعات', OPERATIONS: 'عمليات وتسكين' };
+  App.ROLE_LABEL = ROLE_LABEL;
   function renderShell() {
     const S = App.S, h = App.h, t = S.trip;
-    document.getElementById('nav').innerHTML = NAV.map(([sec, items]) => `<div class="nav-sec">${sec}</div>` +
+    const nav = App.online && App.me.role === 'OWNER' ? [...NAV, ['الإدارة', [['users', '👥', 'المستخدمون والصلاحيات']]]] : NAV;
+    document.getElementById('nav').innerHTML = nav.map(([sec, items]) => `<div class="nav-sec">${sec}</div>` +
       items.map(([k, ico, lbl]) => `<button class="${App.ui.page === k ? 'active' : ''}" data-act="go" data-page="${k}"><span class="ico">${ico}</span>${lbl}</button>`).join('')).join('');
     document.getElementById('top').innerHTML = `
       <div>
@@ -173,9 +231,12 @@
       <div class="top-tools">
         <span class="chip">صرف مرجعي <b class="num">${t.fxRef}</b></span>
         <span class="chip ${S.fx.current > t.fxRef ? 'danger' : 'ok'}">صرف السوق <b class="num">${S.fx.current}</b></span>
-        <label class="small muted">المستخدم الحالي</label>
+        ${App.online ? `${syncChip()}<span class="chip gold">👤 ${esc(App.me.display_name)} · ${esc(ROLE_LABEL[App.me.role])} · خصم ≤ ${E.ROLES[ROLE_MAP[App.me.role]].maxDiscount}%</span>
+          ${App.me.role === 'OWNER' ? '<button class="btn sm ghost" data-act="resetDemo" title="إعادة البيانات التجريبية للجميع">↺ بيانات تجريبية</button>' : ''}
+          <button class="btn sm ghost" data-act="logout">خروج</button>`
+        : `<label class="small muted">المستخدم الحالي</label>
         <select class="input" style="width:auto" data-ui="actingUser">${S.users.map((u) => `<option value="${u.id}" ${u.id === App.ui.actingUser ? 'selected' : ''}>${esc(u.name)} · خصم ≤ ${E.ROLES[u.role].maxDiscount}%</option>`).join('')}</select>
-        <button class="btn sm ghost" data-act="resetDemo" title="إعادة البيانات التجريبية">↺ بيانات تجريبية</button>
+        <button class="btn sm ghost" data-act="resetDemo" title="إعادة البيانات التجريبية">↺ بيانات تجريبية</button>`}
       </div>`;
   }
   let focusKey = null;
@@ -228,10 +289,60 @@
   });
 
   App.actions.go = (d) => { App.ui.page = d.page; App.ui.pickedBed = null; App.ui.pickedSeat = null; App.render(); window.scrollTo(0, 0); };
-  App.actions.resetDemo = () => { if (confirm('إعادة تحميل البيانات التجريبية ومسح كل التعديلات؟')) App.reset(); };
+  App.actions.resetDemo = () => { if (confirm(App.online ? 'إعادة تحميل البيانات التجريبية ومسح كل التعديلات لكل المستخدمين؟' : 'إعادة تحميل البيانات التجريبية ومسح كل التعديلات؟')) App.reset(); };
+
+  // ------------------------------------------------------ online: auth
+  function renderAuth(needsSetup) {
+    App.me = null;
+    document.getElementById('nav').innerHTML = '';
+    document.getElementById('top').innerHTML = '<div class="trip-title">Smart Umrah ERP</div>';
+    document.getElementById('content').innerHTML = `
+      <div class="card" style="max-width:420px;margin:40px auto">
+        <h3>${needsSetup ? '🔐 إعداد حساب المالك لأول مرة' : '🔐 تسجيل الدخول'}</h3>
+        ${needsSetup ? '<p class="muted small">أول حساب يتعمل هو المالك بكل الصلاحيات، وبعدها يضيف حسابات فريقه من "المستخدمون والصلاحيات".</p>' : ''}
+        <div class="field"><label>اسم المستخدم</label><input class="input" id="au-user" autocomplete="username" style="direction:ltr"></div>
+        ${needsSetup ? '<div class="field" style="margin-top:8px"><label>الاسم الظاهر</label><input class="input" id="au-name" placeholder="مثال: أ. يسري"></div>' : ''}
+        <div class="field" style="margin-top:8px"><label>كلمة السر ${needsSetup ? '(8 حروف أو أرقام على الأقل)' : ''}</label><input class="input" id="au-pass" type="password" autocomplete="${needsSetup ? 'new-password' : 'current-password'}" style="direction:ltr"></div>
+        <button class="btn primary" style="margin-top:14px;width:100%;justify-content:center" data-act="${needsSetup ? 'doSetup' : 'doLogin'}">${needsSetup ? 'إنشاء الحساب والدخول' : 'دخول'}</button>
+      </div>`;
+    const u = document.getElementById('au-user'); if (u) u.focus();
+  }
+  async function authCall(url, body) {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { App.toast(d.error || 'تعذر', 'err'); return; }
+    await startSession(d.user);
+  }
+  App.actions.doLogin = () => authCall('api/auth/login', { username: App.val('au-user'), password: App.val('au-pass') });
+  App.actions.doSetup = () => authCall('api/auth/setup', { username: App.val('au-user'), display_name: App.val('au-name'), password: App.val('au-pass') });
+  App.actions.logout = async () => { await fetch('api/auth/logout', { method: 'POST' }); renderAuth(false); };
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && /^au-/.test(ev.target.id)) App.actions[document.querySelector('[data-act="doSetup"]') ? 'doSetup' : 'doLogin']();
+  });
+  async function startSession(user) {
+    App.me = user;
+    const d = await (await fetch('api/state')).json();
+    App.S = hydrate(d.state); App.version = d.version; bindMe();
+    App.ui.page = 'builder';
+    App.render();
+  }
+  // Pull other users' changes every 4s (skipped while this user is typing or has a dialog open).
+  setInterval(async () => {
+    if (!App.online || !App.me || inFlight || dirty) return;
+    const a = document.activeElement;
+    if (document.querySelector('.modal-bg') || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName))) return;
+    try {
+      const r = await fetch('api/state?since=' + App.version);
+      if (r.status === 401) return renderAuth(false);
+      const d = await r.json();
+      if (d.changed && !dirty && !inFlight) applyRemote(d);
+      if (syncState === 'offline') setSync('saved');
+    } catch (e) { setSync('offline'); }
+  }, 4000);
 
   // ------------------------------------------ TTL ticker (soft-hold engine)
   setInterval(() => {
+    if (!App.S || (App.online && !App.me)) return;
     const now = Date.now();
     document.querySelectorAll('[data-countdown]').forEach((el) => { el.textContent = fmtLeft(Number(el.dataset.countdown) - now); });
     const released = E.releaseExpiredHolds(App.S, now);
@@ -243,8 +354,15 @@
     }
   }, 1000);
 
-  window.addEventListener('DOMContentLoaded', () => {
+  window.addEventListener('DOMContentLoaded', async () => {
     App.ui.draft = App.newDraft ? App.newDraft() : null;
-    App.render();
+    let st = null;
+    if (location.protocol !== 'file:') {
+      try { const r = await fetch('api/auth/status'); if (r.ok && (r.headers.get('content-type') || '').includes('json')) st = await r.json(); } catch (e) { /* no API → offline demo */ }
+    }
+    if (!st) { App.S = hydrate(load() || window.MockData.buildSeed()); App.render(); return; }
+    App.online = true;
+    if (!st.user) return renderAuth(st.needsSetup);
+    await startSession(st.user);
   });
 })();

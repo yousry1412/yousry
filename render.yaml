@@ -14,3 +14,19 @@ services:
       name: distribution-data
       mountPath: /opt/render/project/src/distribution/data
       sizeGB: 1
+  - type: web
+    name: umrah-erp
+    runtime: node
+    plan: starter
+    region: frankfurt
+    rootDir: umrah-erp
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/auth/status
+    envVars:
+      - key: NODE_VERSION
+        value: 22.20.0
+    disk:
+      name: umrah-data
+      mountPath: /opt/render/project/src/umrah-erp/data
+      sizeGB: 1
