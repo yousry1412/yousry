@@ -276,7 +276,7 @@ function openReturnModal(tripId, loadedProducts, onDone) {
   });
 }
 
-function openExpenseModal(tripId, onDone) {
+function openExpenseModal(tripId, onDone, fromField) {
   UI.openModal(
     'تسجيل مصروف على الرحلة',
     `<form id="tripExpenseForm">
@@ -295,7 +295,12 @@ function openExpenseModal(tripId, onDone) {
           <option value="driver_custody">من كاش المسؤول عن الرحلة (تحصيلات ميدانية)</option>
         </select></div>
         <div class="field span-2"><label>ملاحظات</label><input name="notes" /></div>
+        <div class="field span-2">
+          <label>صورة فاتورة/إيصال المصروف${fromField ? ' *' : ' (اختياري)'}</label>
+          <input type="file" name="photo_file" accept="image/*" ${fromField ? 'required' : ''} />
+        </div>
       </div>
+      <p class="muted" style="font-size:12px">${fromField ? 'هيتسجل موقعك الحالي تلقائيًا مع المصروف.' : ''}</p>
       <div class="modal-actions">
         <button class="btn" type="submit">حفظ</button>
         <button class="btn secondary" type="button" onclick="UI.closeModal()">إلغاء</button>
@@ -305,8 +310,19 @@ function openExpenseModal(tripId, onDone) {
   document.getElementById('tripExpenseForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
+    const photoFile = fd.get('photo_file');
+    fd.delete('photo_file');
+    const payload = Object.fromEntries(fd.entries());
     try {
-      await Api.post(`/trips/${tripId}/expense`, Object.fromEntries(fd.entries()));
+      if (photoFile && photoFile.size > 0) payload.photo = await compressImageFile(photoFile);
+      if (fromField) {
+        const pos = await UI.getCurrentPosition();
+        if (pos) {
+          payload.latitude = pos.latitude;
+          payload.longitude = pos.longitude;
+        }
+      }
+      await Api.post(`/trips/${tripId}/expense`, payload);
       UI.closeModal();
       UI.toast('تم تسجيل المصروف', 'success');
       onDone();
@@ -563,7 +579,7 @@ Pages.tripField = async function (id) {
     if (loadedWithRemaining.length === 0) return UI.toast('لا توجد كمية متبقية بالعهدة لإرجاعها', 'error');
     openReturnModal(id, loadedWithRemaining, () => Pages.tripField(id));
   });
-  document.getElementById('fieldExpenseBtn').addEventListener('click', () => openExpenseModal(id, () => Pages.tripField(id)));
+  document.getElementById('fieldExpenseBtn').addEventListener('click', () => openExpenseModal(id, () => Pages.tripField(id), true));
   document.getElementById('fieldCollectBtn').addEventListener('click', () => openCollectModal(id, customers, () => Pages.tripField(id)));
   document.getElementById('fieldDamageBtn').addEventListener('click', () => {
     const openTrips = trips.filter((t) => t.status === 'open');
@@ -700,8 +716,18 @@ Pages.tripDetail = async function (id) {
         ${
           trip.expenses.length === 0
             ? '<div class="empty-state">لا توجد مصروفات بعد</div>'
-            : `<div class="table-wrap"><table><thead><tr><th>البند</th><th>المبلغ</th><th>سجّله</th></tr></thead><tbody>
-                ${trip.expenses.map((e) => `<tr><td>${UI.escapeHtml(e.category)}</td><td>${UI.money(e.amount)}</td><td class="muted">${UI.escapeHtml(e.created_by_username || '-')}</td></tr>`).join('')}
+            : `<div class="table-wrap"><table><thead><tr><th>البند</th><th>المبلغ</th><th>سجّله</th><th>الموقع</th><th>الفاتورة</th></tr></thead><tbody>
+                ${trip.expenses
+                  .map(
+                    (e) => `<tr>
+                      <td>${UI.escapeHtml(e.category)}</td>
+                      <td>${UI.money(e.amount)}</td>
+                      <td class="muted">${UI.escapeHtml(e.created_by_username || '-')}</td>
+                      <td>${e.latitude ? `<a href="${UI.googleMapsLink(e.latitude, e.longitude)}" target="_blank" rel="noopener">📍 فتح الموقع</a>` : '-'}</td>
+                      <td>${e.photo ? `<button type="button" class="link-btn" data-view-expense-photo="${e.id}">عرض الصورة</button>` : '-'}</td>
+                    </tr>`
+                  )
+                  .join('')}
               </tbody></table></div>`
         }
       </div>
@@ -735,6 +761,12 @@ Pages.tripDetail = async function (id) {
   });
   document.getElementById('viewOdoEndPhoto')?.addEventListener('click', () => {
     UI.openModal('صورة عداد النهاية', `<img src="${trip.odometer_end_photo}" style="max-width:100%; border-radius:8px" />`);
+  });
+  document.querySelectorAll('[data-view-expense-photo]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const expense = trip.expenses.find((e) => e.id === Number(btn.dataset.viewExpensePhoto));
+      UI.openModal('صورة فاتورة المصروف', `<img src="${expense.photo}" style="max-width:100%; border-radius:8px" />`);
+    });
   });
   document.querySelectorAll('[data-approve-load]').forEach((btn) => {
     btn.addEventListener('click', () => openApproveLoadModal(id, settlement.pendingLoads, () => Pages.tripDetail(id)));

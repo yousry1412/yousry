@@ -309,9 +309,21 @@ function userFormHtml(u = {}, branches = [], partners = []) {
         </div>
         <div class="field"><label>رقم هاتف واتساب (لتنبيهات الفواتير الميدانية)</label><input name="phone" type="tel" value="${UI.escapeHtml(u.phone || '')}" /></div>
         <div class="field"><label>نسبة عمولة على المبيعات % (اختياري)</label><input name="commission_pct" type="number" step="0.01" min="0" max="100" value="${u.commission_pct ?? ''}" /></div>
-        <div class="field" style="flex-direction:row; align-items:center; gap:8px">
+        <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
           <input type="checkbox" id="userNotifyInvoices" name="notify_new_invoices" value="1" style="width:auto" ${u.notify_new_invoices ? 'checked' : ''} />
           <label for="userNotifyInvoices" style="margin:0">تنبيهي على واتساب بأي فاتورة ميدانية جديدة</label>
+        </div>
+        <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
+          <input type="checkbox" id="userNotifyTripStart" name="notify_trip_start" value="1" style="width:auto" ${u.notify_trip_start ? 'checked' : ''} />
+          <label for="userNotifyTripStart" style="margin:0">تنبيهي على واتساب ببداية أي رحلة توزيع جديدة</label>
+        </div>
+        <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
+          <input type="checkbox" id="userNotifyExpenses" name="notify_new_expenses" value="1" style="width:auto" ${u.notify_new_expenses ? 'checked' : ''} />
+          <label for="userNotifyExpenses" style="margin:0">تنبيهي على واتساب بأي مصروف جديد (رحلة أو عام)</label>
+        </div>
+        <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
+          <input type="checkbox" id="userNotifyExpiry" name="notify_expiry_alerts" value="1" style="width:auto" ${u.notify_expiry_alerts ? 'checked' : ''} />
+          <label for="userNotifyExpiry" style="margin:0">تنبيهي على واتساب بتنبيهات صلاحية الأصناف القريبة/المنتهية</label>
         </div>
         ${
           u.id
@@ -355,6 +367,9 @@ function openUserModal(existing, branches, partners, onDone) {
     if (payload.role !== 'partner') delete payload.partner_id;
     payload.is_active = existing ? payload.is_active === '1' : 1;
     payload.notify_new_invoices = document.getElementById('userNotifyInvoices').checked;
+    payload.notify_trip_start = document.getElementById('userNotifyTripStart').checked;
+    payload.notify_new_expenses = document.getElementById('userNotifyExpenses').checked;
+    payload.notify_expiry_alerts = document.getElementById('userNotifyExpiry').checked;
     try {
       if (existing) await Api.put(`/users/${existing.id}`, payload);
       else await Api.post('/users', payload);

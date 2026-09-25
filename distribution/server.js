@@ -3,6 +3,9 @@ const path = require('path');
 const apiRouter = require('./routes');
 const { router: authRouter, requireAuth } = require('./routes/auth');
 const { dedupeGuard } = require('./lib/dedupe-guard');
+const { db } = require('./lib/db');
+const reports = require('./lib/reports');
+const whatsapp = require('./lib/whatsapp');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -24,6 +27,25 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
+
+// فحص يومي لتنبيهات الصلاحية القريبة/المنتهية على كل المنشآت - بيتشغل عند بدء السيرفر
+// وبعدين كل 24 ساعة، ويبعت لو فيه أصناف محتاجة مراجعة للمستخدمين المفعّلين التنبيه ده
+const DAY_MS = 24 * 60 * 60 * 1000;
+async function checkExpiryAlerts() {
+  try {
+    const companies = db.prepare('SELECT id FROM companies').all();
+    for (const { id: companyId } of companies) {
+      const alerts = reports.expiryAlerts(companyId, { days: 7 });
+      if (alerts.length > 0) {
+        await whatsapp.notifyManagersOfExpiryAlerts({ companyId, alerts });
+      }
+    }
+  } catch (err) {
+    console.error('فشل فحص تنبيهات الصلاحية:', err.message);
+  }
+}
+setInterval(checkExpiryAlerts, DAY_MS);
+checkExpiryAlerts();
 
 app.listen(PORT, () => {
   console.log(`نظام إدارة التوزيع شغال على http://localhost:${PORT}`);

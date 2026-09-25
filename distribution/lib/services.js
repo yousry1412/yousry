@@ -1049,7 +1049,7 @@ function createTrip({ company_id, branch_id, vehicle_id, responsible_employee_id
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
     .run(company_id, branch_id, trip_no, vehicle_id, responsible_employee_id, trip_date, notes || null);
-  return db.prepare('SELECT * FROM trips WHERE id = ?').get(info.lastInsertRowid);
+  return getTrip(info.lastInsertRowid);
 }
 
 function requireTrip(trip_id) {
@@ -1253,7 +1253,7 @@ function tripRemainingQty(trip_id, product_id) {
   return round2(loaded - sold - returned - damaged);
 }
 
-function addTripExpense({ trip_id, category, amount, paid_from, notes, created_by_user_id }) {
+function addTripExpense({ trip_id, category, amount, paid_from, notes, latitude, longitude, photo, created_by_user_id }) {
   return inTransaction(() => {
     const trip = requireOpenTrip(trip_id);
     assertPeriodOpen(trip.company_id, trip.branch_id, trip.trip_date);
@@ -1263,11 +1263,13 @@ function addTripExpense({ trip_id, category, amount, paid_from, notes, created_b
     if (from === 'driver_custody' && !trip.responsible_employee_id) {
       throw new Error('الرحلة دي مالهاش موظف مسؤول محدد، مينفعش يتصرف من عهدته');
     }
+    const coord = sanitizeCoord(latitude, longitude);
     const info = db
       .prepare(
-        `INSERT INTO trip_expenses (trip_id, category, amount, paid_from, notes, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO trip_expenses (trip_id, category, amount, paid_from, notes, latitude, longitude, photo, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(trip_id, category, amt, from, notes || null, created_by_user_id || null);
+      .run(trip_id, category, amt, from, notes || null, coord.latitude, coord.longitude, photo || null, created_by_user_id || null);
 
     // 'driver_custody' = المصروف اتدفع من الكاش اللي في إيد السائق (تحصيلات ميدانية)، فبنقلل عهدته
     // النقدية بدل ما نلمس خزنة/بنك المنشأة اللي أصلًا محصلش منها حاجة.

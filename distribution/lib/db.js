@@ -163,6 +163,12 @@ ensureColumn('vehicles', 'default_driver_id', 'default_driver_id INTEGER REFEREN
 ensureColumn('vehicles', 'plate_number', 'plate_number TEXT');
 ensureColumn('vehicles', 'capacity', 'capacity TEXT');
 ensureColumn('vehicles', 'photo', 'photo TEXT');
+ensureColumn('trip_expenses', 'latitude', 'latitude REAL');
+ensureColumn('trip_expenses', 'longitude', 'longitude REAL');
+ensureColumn('trip_expenses', 'photo', 'photo TEXT');
+ensureColumn('users', 'notify_trip_start', 'notify_trip_start INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'notify_new_expenses', 'notify_new_expenses INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'notify_expiry_alerts', 'notify_expiry_alerts INTEGER NOT NULL DEFAULT 0');
 dropCheckConstraintIfPresent(
   'trip_expenses',
   "paid_from IN ('cash','bank')",

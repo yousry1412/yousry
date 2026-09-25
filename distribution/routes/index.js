@@ -825,7 +825,12 @@ router.get(
 router.post(
   '/trips',
   allow(...ALL_ROLES),
-  handle((req) => services.createTrip({ ...req.body, ...ctx(req) }))
+  handle((req) => {
+    const trip = services.createTrip({ ...req.body, ...ctx(req) });
+    // إشعار المسؤولين اللي فعّلوا "تنبيهي ببداية الرحلات" - رقابة على متابعة خروج السيارات
+    whatsapp.notifyManagersOfTripStart({ companyId: trip.company_id, trip }).catch(() => {});
+    return trip;
+  })
 );
 router.post(
   '/trips/:id/load',
@@ -861,12 +866,26 @@ router.post(
     });
   })
 );
+const TRIP_EXPENSE_SOURCE_LABEL = { cash: 'نقدية', bank: 'بنك', driver_custody: 'من عهدة السائق' };
+
 router.post(
   '/trips/:id/expense',
   allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
-    return services.addTripExpense({ ...req.body, trip_id: Number(req.params.id), created_by_user_id: req.user.id });
+    const trip = services.addTripExpense({ ...req.body, trip_id: Number(req.params.id), created_by_user_id: req.user.id });
+    const expense = db.prepare('SELECT * FROM trip_expenses WHERE trip_id = ? ORDER BY id DESC LIMIT 1').get(req.params.id);
+    const mapsUrl = maps.mapsLink(expense.latitude, expense.longitude);
+    // مصروف رحلة (غالبًا مسجّل من الميدان بواسطة السائق) - إشعار المسؤولين اللي فعّلوا
+    // "تنبيهي بالمصروفات الجديدة"، مرفق معاه رابط اللوكيشن لو اتسجل وقت الإدخال
+    whatsapp
+      .notifyManagersOfExpense({
+        companyId: trip.company_id,
+        expense: { ...expense, trip_no: trip.trip_no, source_label: TRIP_EXPENSE_SOURCE_LABEL[expense.paid_from] },
+        mapsUrl,
+      })
+      .catch(() => {});
+    return trip;
   })
 );
 router.post(
@@ -1125,7 +1144,13 @@ router.get(
 router.post(
   '/expenses',
   allow(...FIN),
-  handle((req) => services.createExpense({ ...req.body, ...ctx(req), created_by_user_id: req.user.id }))
+  handle((req) => {
+    const expense = services.createExpense({ ...req.body, ...ctx(req), created_by_user_id: req.user.id });
+    whatsapp
+      .notifyManagersOfExpense({ companyId: expense.company_id, expense: { ...expense, source_label: TRIP_EXPENSE_SOURCE_LABEL[expense.paid_from] } })
+      .catch(() => {});
+    return expense;
+  })
 );
 
 // ---------------------------------------------------------------------------

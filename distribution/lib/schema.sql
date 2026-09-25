@@ -421,6 +421,9 @@ CREATE TABLE IF NOT EXISTS trip_expenses (
   -- 'cash'/'bank' = من خزنة المنشأة، 'driver_custody' = من الكاش اللي في عهدة المسؤول عن الرحلة (تحصيلات ميدانية)
   paid_from TEXT NOT NULL DEFAULT 'cash',
   notes TEXT,
+  latitude REAL,
+  longitude REAL,
+  photo TEXT, -- صورة فاتورة/إيصال المصروف - إجبارية لما السائق يسجّله من وضع الميدان
   created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -676,6 +679,9 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL CHECK(role IN ('owner','accountant','sales','warehouse','partner')),
   phone TEXT,
   notify_new_invoices INTEGER NOT NULL DEFAULT 0,
+  notify_trip_start INTEGER NOT NULL DEFAULT 0,
+  notify_new_expenses INTEGER NOT NULL DEFAULT 0,
+  notify_expiry_alerts INTEGER NOT NULL DEFAULT 0,
   commission_pct REAL, -- نسبة عمولة المندوب/السائق من مبيعاته (فاضي = بدون عمولة)
   partner_id INTEGER REFERENCES partners(id), -- لو الصلاحية "شريك" - بيربط الحساب بسجل الشريك بتاعه
   is_active INTEGER NOT NULL DEFAULT 1,
