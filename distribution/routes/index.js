@@ -1491,4 +1491,41 @@ router.get(
   })
 );
 
+// ---------------------------------------------------------------------------
+// شات الفريق - شات واحد لكل منشأة، معروض لكل الفريق بصرف النظر عن الفرع
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/chat/team',
+  allow(...ALL_ROLES, 'partner'),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    return db
+      .prepare('SELECT id, username, role FROM users WHERE company_id = ? AND is_active = 1 ORDER BY username')
+      .all(company_id);
+  })
+);
+router.get(
+  '/chat/messages',
+  allow(...ALL_ROLES, 'partner'),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    const afterId = req.query.after ? Number(req.query.after) : undefined;
+    return services.listChatMessages(company_id, { afterId, limit: 100 });
+  })
+);
+router.post(
+  '/chat/messages',
+  allow(...ALL_ROLES, 'partner'),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    return services.sendChatMessage({
+      company_id,
+      sender_user_id: req.user.id,
+      mentioned_user_id: req.body.mentioned_user_id || null,
+      body: req.body.body,
+    });
+  })
+);
+
 module.exports = router;

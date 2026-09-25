@@ -731,3 +731,16 @@ CREATE TABLE IF NOT EXISTS map_config (
   google_maps_api_key TEXT,
   updated_at TEXT
 );
+
+-- ---------- شات الفريق ----------
+-- شات واحد لكل منشأة، معروض لكل أعضاء الفريق بصرف النظر عن الفرع (عشان "الفريق كامل").
+-- "التوجيه بالاسم" بيبقى بتحديد mentioned_user_id بس الرسالة تفضل ظاهرة للجميع - مفيش رسائل خاصة.
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  sender_user_id INTEGER NOT NULL REFERENCES users(id),
+  mentioned_user_id INTEGER REFERENCES users(id),
+  body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_company ON chat_messages(company_id, id);

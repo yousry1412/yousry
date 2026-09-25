@@ -6,6 +6,8 @@ const ROLE_GROUPS = {
   OWNER: ['owner'],
   // الشريك: عرض فقط - لوحة التحكم والتقارير المالية الملخّصة بس
   PARTNER_G: ['owner', 'accountant', 'partner'],
+  // كل صلاحيات الفريق (بما فيهم الشريك) - لصفحات عامة زي الشات مش مرتبطة بعملية معينة
+  EVERYONE: ['owner', 'accountant', 'sales', 'warehouse', 'partner'],
 };
 
 // القائمة الجانبية مقسّمة لمجموعات منطقية عشان تقلل الزحمة - كل مجموعة قابلة للطي
@@ -64,6 +66,7 @@ const NAV_GROUPS = [
     ],
   },
   { standalone: true, hash: '#/employees', label: 'الموظفون (سلف وعهدات)', icon: '🧑‍💼', roles: ROLE_GROUPS.FIN },
+  { standalone: true, hash: '#/chat', label: 'شات الفريق', icon: '💬', roles: ROLE_GROUPS.EVERYONE },
   { standalone: true, hash: '#/settings', label: 'المنشآت والفروع والشركاء', icon: '⚙️', roles: ROLE_GROUPS.OWNER },
 ];
 
@@ -86,6 +89,7 @@ function firstAllowedHash() {
 
 const ROUTES = [
   { re: /^#\/dashboard$/, title: 'لوحة التحكم', render: () => Pages.dashboard() },
+  { re: /^#\/chat$/, title: 'شات الفريق', render: () => Pages.chat() },
 
   { re: /^#\/customers$/, title: 'العملاء', render: () => Pages.customersList() },
   { re: /^#\/customers\/(\d+)$/, title: 'كشف حساب عميل', render: (m) => Pages.customerStatement(m[1]) },

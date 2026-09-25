@@ -2571,9 +2571,65 @@ function getFiscalClosing(id) {
   return closing;
 }
 
+// ---------------------------------------------------------------------------
+// شات الفريق - شات واحد لكل منشأة، معروض لكل الفريق بصرف النظر عن الفرع
+// ---------------------------------------------------------------------------
+
+function sendChatMessage({ company_id, sender_user_id, mentioned_user_id, body }) {
+  const text = (body || '').trim();
+  if (!text) throw new Error('لازم تكتب نص الرسالة');
+  if (text.length > 2000) throw new Error('الرسالة طويلة جدًا (٢٠٠٠ حرف كحد أقصى)');
+  if (mentioned_user_id) assertBelongs('users', mentioned_user_id, company_id, 'الشخص الموجّهة له الرسالة');
+  const info = db
+    .prepare('INSERT INTO chat_messages (company_id, sender_user_id, mentioned_user_id, body) VALUES (?, ?, ?, ?)')
+    .run(company_id, sender_user_id, mentioned_user_id || null, text);
+  return getChatMessage(info.lastInsertRowid);
+}
+
+function getChatMessage(id) {
+  return db
+    .prepare(
+      `SELECT cm.*, u.username AS sender_username, mu.username AS mentioned_username
+       FROM chat_messages cm
+       JOIN users u ON u.id = cm.sender_user_id
+       LEFT JOIN users mu ON mu.id = cm.mentioned_user_id
+       WHERE cm.id = ?`
+    )
+    .get(id);
+}
+
+function listChatMessages(companyId, { afterId, limit } = {}) {
+  if (afterId) {
+    return db
+      .prepare(
+        `SELECT cm.*, u.username AS sender_username, mu.username AS mentioned_username
+         FROM chat_messages cm
+         JOIN users u ON u.id = cm.sender_user_id
+         LEFT JOIN users mu ON mu.id = cm.mentioned_user_id
+         WHERE cm.company_id = ? AND cm.id > ?
+         ORDER BY cm.id ASC`
+      )
+      .all(companyId, afterId);
+  }
+  const rows = db
+    .prepare(
+      `SELECT cm.*, u.username AS sender_username, mu.username AS mentioned_username
+       FROM chat_messages cm
+       JOIN users u ON u.id = cm.sender_user_id
+       LEFT JOIN users mu ON mu.id = cm.mentioned_user_id
+       WHERE cm.company_id = ?
+       ORDER BY cm.id DESC
+       LIMIT ?`
+    )
+    .all(companyId, limit || 100);
+  return rows.reverse();
+}
+
 module.exports = {
   sanitizeCoord,
   toBool,
+  sendChatMessage,
+  listChatMessages,
   createEmployee,
   updateEmployee,
   createProductCategory,
