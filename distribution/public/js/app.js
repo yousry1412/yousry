@@ -4,10 +4,12 @@ const ROLE_GROUPS = {
   WH_G: ['owner', 'accountant', 'warehouse'],
   ALL: ['owner', 'accountant', 'sales', 'warehouse'],
   OWNER: ['owner'],
+  // الشريك: عرض فقط - لوحة التحكم والتقارير المالية الملخّصة بس
+  PARTNER_G: ['owner', 'accountant', 'partner'],
 };
 
 const NAV = [
-  { hash: '#/dashboard', label: 'لوحة التحكم', icon: '📊', roles: ROLE_GROUPS.FIN },
+  { hash: '#/dashboard', label: 'لوحة التحكم', icon: '📊', roles: ROLE_GROUPS.PARTNER_G },
   { hash: '#/sales', label: 'فواتير المبيعات', icon: '🧾', roles: ROLE_GROUPS.SALES_G },
   { hash: '#/trips', label: 'رحلات التوزيع', icon: '🚚', roles: ROLE_GROUPS.ALL },
   { hash: '#/purchases', label: 'فواتير الشراء', icon: '🛒', roles: ROLE_GROUPS.WH_G },
@@ -25,7 +27,7 @@ const NAV = [
   { hash: '#/treasury', label: 'الخزنة الرئيسية', icon: '🏦', roles: ROLE_GROUPS.FIN },
   { hash: '#/employees', label: 'الموظفون (سلف وعهدات)', icon: '🧑‍💼', roles: ROLE_GROUPS.FIN },
   { hash: '#/stock-ops', label: 'تحويل وجرد المخزون', icon: '🔄', roles: ROLE_GROUPS.WH_G },
-  { hash: '#/accounting', label: 'الحسابات والتقارير', icon: '📚', roles: ROLE_GROUPS.FIN },
+  { hash: '#/accounting', label: 'الحسابات والتقارير', icon: '📚', roles: ROLE_GROUPS.PARTNER_G },
   { hash: '#/maps', label: 'الخريطة', icon: '🗺️', roles: ROLE_GROUPS.FIN },
   { hash: '#/settings', label: 'المنشآت والفروع والشركاء', icon: '⚙️', roles: ROLE_GROUPS.OWNER },
 ];

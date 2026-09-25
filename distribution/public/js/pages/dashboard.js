@@ -1,11 +1,12 @@
 var Pages = window.Pages || {};
 
 Pages.dashboard = async function () {
-  const [d, lowStock, openTrips] = await Promise.all([
-    Api.get('/dashboard'),
-    Api.get('/reports/inventory-valuation'),
-    Api.get('/trips'),
-  ]);
+  // الشريك عنده صلاحية عرض التقارير المالية الملخّصة بس - مش تفاصيل تشغيلية زي
+  // المخزون التفصيلي أو الرحلات، فبنجيب له أرقام لوحة التحكم بس من غير القسمين التشغيليين
+  const isPartner = Auth.getUser() && Auth.getUser().role === 'partner';
+  const [d, lowStock, openTrips] = isPartner
+    ? [await Api.get('/dashboard'), { rows: [] }, []]
+    : await Promise.all([Api.get('/dashboard'), Api.get('/reports/inventory-valuation'), Api.get('/trips')]);
 
   const lowStockRows = lowStock.rows.filter((r) => r.low_stock);
   const openTripsRows = openTrips.filter((t) => t.status === 'open');
@@ -47,7 +48,10 @@ Pages.dashboard = async function () {
       </div>
     </div>
 
-    <div class="grid cols-2">
+    ${
+      isPartner
+        ? ''
+        : `<div class="grid cols-2">
       <div class="card">
         <div class="card-header"><h3>رحلات مفتوحة (لسه مقفلتش)</h3><a class="btn small secondary" href="#/trips">كل الرحلات</a></div>
         ${
@@ -86,7 +90,8 @@ Pages.dashboard = async function () {
               </tbody></table></div>`
         }
       </div>
-    </div>
+    </div>`
+    }
   `);
 };
 

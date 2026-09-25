@@ -16,7 +16,9 @@ const USER_ROLE_LABELS = {
   accountant: 'محاسب (كل حاجة ماعدا المستخدمين والإعدادات)',
   sales: 'مندوب مبيعات (عملاء، فواتير بيع، رحلات)',
   warehouse: 'أمين مخزن (موردين، مشتريات، مخزون، تصنيع)',
+  partner: 'شريك (عرض التقارير المالية الملخّصة بس - حسب فرعه أو الشركة كلها)',
 };
+const USER_ROLE_ORDER = ['owner', 'accountant', 'sales', 'warehouse', 'partner'];
 
 function companyFormHtml(c = {}) {
   return `
@@ -282,20 +284,28 @@ function accountFormHtml(accounts) {
   `;
 }
 
-function userFormHtml(u = {}, branches = []) {
+function userFormHtml(u = {}, branches = [], partners = []) {
   return `
     <form id="userForm">
       <div class="form-grid">
         <div class="field span-2"><label>اسم المستخدم (للدخول به) *</label><input name="username" required minlength="3" value="${UI.escapeHtml(u.username || '')}" ${u.id ? 'disabled' : ''} /></div>
-        <div class="field"><label>${u.id ? 'كلمة سر جديدة (سيبها فاضية لو مش هتغيّرها)' : 'كلمة السر *'}</label><input name="password" type="password" minlength="6" ${u.id ? '' : 'required'} /></div>
+        <div class="field"><label>${u.id ? 'كلمة سر جديدة (سيبها فاضية لو مش هتغيّرها)' : 'كلمة السر *'}</label><input name="password" type="password" minlength="8" ${u.id ? '' : 'required'} /></div>
         <div class="field">
           <label>الصلاحية *</label>
           <select name="role" id="userRoleSelect" required>
-            ${Object.entries(USER_ROLE_LABELS).map(([v, l]) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${l}</option>`).join('')}
+            ${USER_ROLE_ORDER.map((v) => `<option value="${v}" ${u.role === v ? 'selected' : ''}>${USER_ROLE_LABELS[v]}</option>`).join('')}
           </select>
         </div>
         <div class="field span-2" id="userBranchWrap"><label>الفرع (اختياري - سيبه فاضي لو محتاج يشتغل على كل الفروع)</label>
           <select name="branch_id"><option value="">- كل الفروع -</option>${UI.optionsHtml(branches, 'id', 'name', u.branch_id)}</select>
+        </div>
+        <div class="field span-2" id="userPartnerWrap">
+          <label>الشريك المرتبط بالحساب ده *</label>
+          <select name="partner_id">
+            <option value="">- اختر الشريك -</option>
+            ${partners.map((p) => `<option value="${p.id}" ${u.partner_id === p.id ? 'selected' : ''}>${UI.escapeHtml(p.name)} ${p.branch_name ? '(' + UI.escapeHtml(p.branch_name) + ')' : '(كل الفروع)'}</option>`).join('')}
+          </select>
+          <p class="muted" style="font-size:12px; margin:4px 0 0">الحساب هيتقفل تلقائيًا على نفس فرع الشريك (أو كل الفروع لو شراكته على مستوى الشركة).</p>
         </div>
         <div class="field"><label>رقم هاتف واتساب (لتنبيهات الفواتير الميدانية)</label><input name="phone" type="tel" value="${UI.escapeHtml(u.phone || '')}" /></div>
         <div class="field"><label>نسبة عمولة على المبيعات % (اختياري)</label><input name="commission_pct" type="number" step="0.01" min="0" max="100" value="${u.commission_pct ?? ''}" /></div>
@@ -311,7 +321,7 @@ function userFormHtml(u = {}, branches = []) {
             : ''
         }
       </div>
-      <p class="muted" style="font-size:12.5px">المستخدم (غير المالك) بيتقفل على المنشأة الحالية إجباريًا، وعلى الفرع لو حددته، بغض النظر عن أي اختيار في الواجهة.</p>
+      <p class="muted" style="font-size:12.5px">المستخدم (غير المالك) بيتقفل على المنشأة الحالية إجباريًا، وعلى الفرع لو حددته (أو فرع شريكه لو صلاحيته "شريك")، بغض النظر عن أي اختيار في الواجهة.</p>
       <div class="modal-actions">
         <button type="submit" class="btn">${u.id ? 'حفظ التعديلات' : 'إضافة المستخدم'}</button>
         <button type="button" class="btn secondary" onclick="UI.closeModal()">إلغاء</button>
@@ -320,16 +330,21 @@ function userFormHtml(u = {}, branches = []) {
   `;
 }
 
-function openUserModal(existing, branches, onDone) {
-  UI.openModal(existing ? `تعديل مستخدم: ${UI.escapeHtml(existing.username)}` : 'مستخدم جديد', userFormHtml(existing || {}, branches));
+function openUserModal(existing, branches, partners, onDone) {
+  UI.openModal(existing ? `تعديل مستخدم: ${UI.escapeHtml(existing.username)}` : 'مستخدم جديد', userFormHtml(existing || {}, branches, partners));
 
   const roleSelect = document.getElementById('userRoleSelect');
   const branchWrap = document.getElementById('userBranchWrap');
-  function updateBranchVisibility() {
-    branchWrap.style.display = roleSelect.value === 'owner' ? 'none' : '';
+  const partnerWrap = document.getElementById('userPartnerWrap');
+  const partnerSelect = partnerWrap.querySelector('select[name=partner_id]');
+  function updateFieldsVisibility() {
+    const role = roleSelect.value;
+    branchWrap.style.display = role === 'owner' || role === 'partner' ? 'none' : '';
+    partnerWrap.style.display = role === 'partner' ? '' : 'none';
+    partnerSelect.required = role === 'partner';
   }
-  roleSelect.addEventListener('change', updateBranchVisibility);
-  updateBranchVisibility();
+  roleSelect.addEventListener('change', updateFieldsVisibility);
+  updateFieldsVisibility();
 
   document.getElementById('userForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -337,6 +352,7 @@ function openUserModal(existing, branches, onDone) {
     const payload = Object.fromEntries(fd.entries());
     if (!payload.password) delete payload.password;
     if (!payload.branch_id) delete payload.branch_id;
+    if (payload.role !== 'partner') delete payload.partner_id;
     payload.is_active = existing ? payload.is_active === '1' : 1;
     payload.notify_new_invoices = document.getElementById('userNotifyInvoices').checked;
     try {
@@ -352,35 +368,44 @@ function openUserModal(existing, branches, onDone) {
 }
 
 async function renderUsersTab() {
-  const [users, branches] = await Promise.all([Api.get('/users'), Api.get('/branches')]);
+  const [users, branches, partners] = await Promise.all([Api.get('/users'), Api.get('/branches'), Api.get('/partners')]);
   const container = document.getElementById('settingsTabContent');
+
+  function userRowHtml(u) {
+    const branch = branches.find((b) => b.id === u.branch_id);
+    const partner = partners.find((p) => p.id === u.partner_id);
+    const scopeLabel =
+      u.role === 'owner' ? '- كل المنشآت -' : u.role === 'partner' ? (branch ? UI.escapeHtml(branch.name) : 'كل الفروع') + (partner ? ` · شريك: ${UI.escapeHtml(partner.name)}` : '') : branch ? UI.escapeHtml(branch.name) : 'كل الفروع';
+    return `<tr>
+      <td>${UI.escapeHtml(u.username)}</td>
+      <td>${scopeLabel}</td>
+      <td>${u.is_active ? UI.badge('نشط', 'green') : UI.badge('موقوف', 'red')}</td>
+      <td><button class="link-btn" data-edit="${u.id}">تعديل</button></td>
+    </tr>`;
+  }
+
+  const groupsHtml = USER_ROLE_ORDER.map((role) => {
+    const roleUsers = users.filter((u) => u.role === role);
+    if (roleUsers.length === 0) return '';
+    return `
+      <div class="card" style="margin-bottom:14px">
+        <div class="card-header"><h4 style="margin:0">${USER_ROLE_LABELS[role]}</h4><span class="muted" style="font-size:12.5px">${roleUsers.length} مستخدم</span></div>
+        <div class="table-wrap"><table><thead><tr><th>اسم المستخدم</th><th>النطاق</th><th>الحالة</th><th></th></tr></thead><tbody>
+          ${roleUsers.map(userRowHtml).join('')}
+        </tbody></table></div>
+      </div>`;
+  }).join('');
+
   container.innerHTML = `
     <div class="card-header"><h3>مستخدمو "${UI.escapeHtml(Context.getCompany() ? Context.getCompany().name : '')}"</h3><button class="btn small" id="addUserBtn">+ مستخدم جديد</button></div>
-    <p class="muted" style="font-size:13px">كل مستخدم (ماعدا المالك) بيشتغل بس على المنشأة الحالية، وعلى الفرع اللي تحدده له لو حبيت.</p>
-    ${
-      users.length === 0
-        ? '<div class="empty-state">لا يوجد مستخدمين بعد</div>'
-        : `<div class="table-wrap"><table><thead><tr><th>اسم المستخدم</th><th>الصلاحية</th><th>الفرع</th><th>الحالة</th><th></th></tr></thead><tbody>
-            ${users
-              .map((u) => {
-                const branch = branches.find((b) => b.id === u.branch_id);
-                return `<tr>
-                <td>${UI.escapeHtml(u.username)}</td>
-                <td>${USER_ROLE_LABELS[u.role] ? USER_ROLE_LABELS[u.role].split(' (')[0] : u.role}</td>
-                <td>${u.role === 'owner' ? '- كل المنشآت -' : branch ? UI.escapeHtml(branch.name) : 'كل الفروع'}</td>
-                <td>${u.is_active ? UI.badge('نشط', 'green') : UI.badge('موقوف', 'red')}</td>
-                <td><button class="link-btn" data-edit="${u.id}">تعديل</button></td>
-              </tr>`;
-              })
-              .join('')}
-          </tbody></table></div>`
-    }
+    <p class="muted" style="font-size:13px">المستخدمون مجمّعون حسب الصلاحية تحت كل منها. كل مستخدم (ماعدا المالك) بيشتغل بس على المنشأة الحالية، وعلى الفرع اللي تحدده له (أو فرع شريكه لو "شريك").</p>
+    ${users.length === 0 ? '<div class="empty-state">لا يوجد مستخدمين بعد</div>' : groupsHtml}
   `;
-  document.getElementById('addUserBtn').addEventListener('click', () => openUserModal(null, branches, renderUsersTab));
+  document.getElementById('addUserBtn').addEventListener('click', () => openUserModal(null, branches, partners, renderUsersTab));
   document.querySelectorAll('[data-edit]').forEach((btn) =>
     btn.addEventListener('click', () => {
       const u = users.find((x) => x.id === Number(btn.dataset.edit));
-      openUserModal(u, branches, renderUsersTab);
+      openUserModal(u, branches, partners, renderUsersTab);
     })
   );
 }

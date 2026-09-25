@@ -170,6 +170,27 @@ dropCheckConstraintIfPresent(
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`
 );
+// صلاحية "شريك" جديدة - بتربط حساب دخول بسجل شريك موجود، عشان الشريك يقدر يشوف
+// التقارير المالية بتاعته بنفسه من غير ما حد يبعتهاله يدويًا
+ensureColumn('users', 'partner_id', 'partner_id INTEGER REFERENCES partners(id)');
+dropCheckConstraintIfPresent(
+  'users',
+  "role IN ('owner','accountant','sales','warehouse')",
+  `CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id INTEGER REFERENCES companies(id),
+    branch_id INTEGER REFERENCES branches(id),
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK(role IN ('owner','accountant','sales','warehouse','partner')),
+    phone TEXT,
+    notify_new_invoices INTEGER NOT NULL DEFAULT 0,
+    commission_pct REAL,
+    partner_id INTEGER REFERENCES partners(id),
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`
+);
 
 function ensureAccountsUpToDate() {
   const companies = db.prepare('SELECT id FROM companies').all();

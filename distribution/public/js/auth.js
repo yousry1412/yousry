@@ -19,13 +19,13 @@ const Auth = (() => {
             </div>
             <div class="field" style="margin-bottom:12px">
               <label>كلمة السر</label>
-              <input type="password" name="password" required minlength="6" autocomplete="${isSetup ? 'new-password' : 'current-password'}" />
+              <input type="password" name="password" required ${isSetup ? 'minlength="8"' : ''} autocomplete="${isSetup ? 'new-password' : 'current-password'}" />
             </div>
             ${
               isSetup
                 ? `<div class="field" style="margin-bottom:12px">
                     <label>تأكيد كلمة السر</label>
-                    <input type="password" name="confirm" required minlength="6" />
+                    <input type="password" name="confirm" required minlength="8" />
                   </div>`
                 : ''
             }

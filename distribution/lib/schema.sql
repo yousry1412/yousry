@@ -667,10 +667,11 @@ CREATE TABLE IF NOT EXISTS users (
   branch_id INTEGER REFERENCES branches(id),
   username TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
-  role TEXT NOT NULL CHECK(role IN ('owner','accountant','sales','warehouse')),
+  role TEXT NOT NULL CHECK(role IN ('owner','accountant','sales','warehouse','partner')),
   phone TEXT,
   notify_new_invoices INTEGER NOT NULL DEFAULT 0,
   commission_pct REAL, -- نسبة عمولة المندوب/السائق من مبيعاته (فاضي = بدون عمولة)
+  partner_id INTEGER REFERENCES partners(id), -- لو الصلاحية "شريك" - بيربط الحساب بسجل الشريك بتاعه
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

@@ -1082,8 +1082,11 @@ function tripProfitability(companyId, { from, to, branchId } = {}) {
 // حقوق الشركاء والتدفقات النقدية والإقفالات
 // ---------------------------------------------------------------------------
 
-function partnersEquityStatement(companyId, { from, to } = {}) {
-  const partners = db.prepare('SELECT * FROM partners WHERE company_id = ? ORDER BY name').all(companyId);
+function partnersEquityStatement(companyId, { from, to, restrictToBranchId } = {}) {
+  // لو الطالب شريك مقفول على فرع، بنوريه بس شركاء نفس فرعه + شركاء الشركة كلها - مش شركاء فرع تاني
+  const partners = restrictToBranchId
+    ? db.prepare('SELECT * FROM partners WHERE company_id = ? AND (branch_id = ? OR branch_id IS NULL) ORDER BY name').all(companyId, restrictToBranchId)
+    : db.prepare('SELECT * FROM partners WHERE company_id = ? ORDER BY name').all(companyId);
   const capAcc = db.prepare('SELECT id FROM accounts WHERE company_id = ? AND code = ?').get(companyId, ACC.CAPITAL);
   const drawAcc = db.prepare('SELECT id FROM accounts WHERE company_id = ? AND code = ?').get(companyId, ACC.DRAWINGS);
   const dateFilter = from && to ? 'AND je.entry_date BETWEEN ? AND ?' : '';

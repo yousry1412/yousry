@@ -2,7 +2,16 @@ const crypto = require('crypto');
 const { db } = require('./db');
 
 const SESSION_DAYS = 30;
-const ROLES = ['owner', 'accountant', 'sales', 'warehouse'];
+const ROLES = ['owner', 'accountant', 'sales', 'warehouse', 'partner'];
+
+/** الشريك بيتقفل تلقائيًا على نفس فرع سجل الشريك بتاعه (أو كل الفروع لو الشراكة على مستوى الشركة كلها) */
+function resolvePartnerLink(companyId, role, partnerId) {
+  if (role !== 'partner') return { partnerId: null, branchId: null };
+  if (!partnerId) throw new Error('لازم تحدد الشريك المرتبط بحساب الدخول ده');
+  const partner = db.prepare('SELECT * FROM partners WHERE id = ?').get(partnerId);
+  if (!partner || partner.company_id !== companyId) throw new Error('الشريك ده مش تابع لنفس المنشأة');
+  return { partnerId: partner.id, branchId: partner.branch_id || null };
+}
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
@@ -36,11 +45,11 @@ function setupOwner({ username, password }) {
   return createUser({ username, password, role: 'owner', company_id: null, branch_id: null });
 }
 
-function createUser({ username, password, role, company_id, branch_id, phone, notify_new_invoices, commission_pct }) {
+function createUser({ username, password, role, company_id, branch_id, phone, notify_new_invoices, commission_pct, partner_id }) {
   username = String(username || '').trim();
   if (username.length < 3) throw new Error('اسم المستخدم لازم يكون 3 حروف على الأقل');
-  if (!password || String(password).length < 6) {
-    throw new Error('كلمة السر لازم تكون 6 حروف أو أرقام على الأقل');
+  if (!password || String(password).length < 8) {
+    throw new Error('كلمة السر لازم تكون 8 حروف أو أرقام على الأقل');
   }
   if (!ROLES.includes(role)) throw new Error('صلاحية غير معروفة');
   const exists = db.prepare('SELECT 1 FROM users WHERE username = ?').get(username);
@@ -49,17 +58,19 @@ function createUser({ username, password, role, company_id, branch_id, phone, no
   if (notify_new_invoices && (!phone || !String(phone).trim())) {
     throw new Error('لازم تسجل رقم هاتف المستخدم عشان تقدر تفعّل تنبيهات الفواتير الميدانية على واتساب');
   }
+  const link = resolvePartnerLink(company_id, role, partner_id);
+  const finalBranchId = role === 'partner' ? link.branchId : branch_id || null;
 
   const commission = commission_pct === undefined || commission_pct === '' || commission_pct === null ? null : Number(commission_pct);
   const info = db
     .prepare(
-      `INSERT INTO users (company_id, branch_id, username, password_hash, role, phone, notify_new_invoices, commission_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO users (company_id, branch_id, username, password_hash, role, phone, notify_new_invoices, commission_pct, partner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(company_id || null, branch_id || null, username, hashPassword(String(password)), role, phone || null, notify_new_invoices ? 1 : 0, commission);
+    .run(company_id || null, finalBranchId, username, hashPassword(String(password)), role, phone || null, notify_new_invoices ? 1 : 0, commission, link.partnerId);
   return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid));
 }
 
-function updateUser(id, { role, company_id, branch_id, is_active, password, phone, notify_new_invoices, commission_pct }) {
+function updateUser(id, { role, company_id, branch_id, is_active, password, phone, notify_new_invoices, commission_pct, partner_id }) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!user) throw new Error('مستخدم غير موجود');
   if (role && !ROLES.includes(role)) throw new Error('صلاحية غير معروفة');
@@ -73,13 +84,16 @@ function updateUser(id, { role, company_id, branch_id, is_active, password, phon
   if (nextNotify && (!nextPhone || !String(nextPhone).trim())) {
     throw new Error('لازم تسجل رقم هاتف المستخدم عشان تقدر تفعّل تنبيهات الفواتير الميدانية على واتساب');
   }
+  const nextPartnerId = partner_id !== undefined ? partner_id : user.partner_id;
+  const link = resolvePartnerLink(nextCompany, nextRole, nextPartnerId);
+  const nextBranch = nextRole === 'owner' ? null : nextRole === 'partner' ? link.branchId : branch_id ?? user.branch_id;
 
   db.prepare(
-    'UPDATE users SET role = ?, company_id = ?, branch_id = ?, is_active = ?, phone = ?, notify_new_invoices = ?, commission_pct = ? WHERE id = ?'
-  ).run(nextRole, nextCompany, nextRole === 'owner' ? null : branch_id ?? user.branch_id, nextActive, nextPhone, nextNotify, nextCommission, id);
+    'UPDATE users SET role = ?, company_id = ?, branch_id = ?, is_active = ?, phone = ?, notify_new_invoices = ?, commission_pct = ?, partner_id = ? WHERE id = ?'
+  ).run(nextRole, nextCompany, nextBranch, nextActive, nextPhone, nextNotify, nextCommission, link.partnerId, id);
 
   if (password) {
-    if (String(password).length < 6) throw new Error('كلمة السر لازم تكون 6 حروف أو أرقام على الأقل');
+    if (String(password).length < 8) throw new Error('كلمة السر لازم تكون 8 حروف أو أرقام على الأقل');
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(String(password)), id);
   }
   return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id));

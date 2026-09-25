@@ -49,6 +49,10 @@ function ctx(req, { needBranch = true } = {}) {
 }
 
 function reportBranch(req) {
+  // لو المستخدم مقفول فعليًا على فرع معين (مندوب/أمين مخزن/محاسب فرع)، بنرجّع فرعه دايمًا
+  // ومنسمحش بأي تجاوز عن طريق allBranches=1 - غير كده كان أي مستخدم مقفول يقدر يشوف
+  // بيانات كل الفروع بمجرد إضافة الباراميتر ده للرابط يدويًا
+  if (req.user && req.user.branch_id) return req.user.branch_id;
   return req.query.allBranches === '1' ? null : req.branchId || null;
 }
 
@@ -83,6 +87,8 @@ const FIN = ['owner', 'accountant']; // محاسبة وتقارير وسندات
 const SALES_G = ['owner', 'accountant', 'sales']; // عملاء ومبيعات
 const WH_G = ['owner', 'accountant', 'warehouse']; // موردين ومشتريات ومخزون
 const ALL_ROLES = ['owner', 'accountant', 'sales', 'warehouse'];
+// الشريك: عرض فقط، ومقصور على التقارير المالية الملخّصة (مش أي بيانات تشغيلية تفصيلية)
+const PARTNER_G = ['owner', 'accountant', 'partner'];
 
 function allow(...roles) {
   return (req, res, next) => {
@@ -99,7 +105,7 @@ function allow(...roles) {
 
 router.get(
   '/companies',
-  allow(...ALL_ROLES),
+  allow(...ALL_ROLES, 'partner'),
   handle((req) => {
     if (req.user.company_id) {
       return db.prepare('SELECT * FROM companies WHERE id = ?').all(req.user.company_id);
@@ -139,7 +145,7 @@ router.put(
 
 router.get(
   '/branches',
-  allow(...ALL_ROLES),
+  allow(...ALL_ROLES, 'partner'),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
     return db.prepare('SELECT * FROM branches WHERE company_id = ? ORDER BY is_main DESC, id').all(company_id);
@@ -175,9 +181,20 @@ router.put(
 
 router.get(
   '/partners',
-  allow(...FIN),
+  allow(...PARTNER_G),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
+    // شريك مقفول على فرع معين بيشوف بس شركاء نفس الفرع + شركاء الشركة كلها، مش شركاء فرع تاني
+    if (req.user.role === 'partner' && req.user.branch_id) {
+      return db
+        .prepare(
+          `SELECT p.*, b.name AS branch_name FROM partners p
+           LEFT JOIN branches b ON b.id = p.branch_id
+           WHERE p.company_id = ? AND (p.branch_id = ? OR p.branch_id IS NULL)
+           ORDER BY p.branch_id IS NULL DESC, b.name, p.name`
+        )
+        .all(company_id, req.user.branch_id);
+    }
     return db
       .prepare(
         `SELECT p.*, b.name AS branch_name FROM partners p
@@ -1129,7 +1146,7 @@ router.post(
 
 router.get(
   '/treasury',
-  allow(...FIN),
+  allow(...PARTNER_G),
   handle((req) =>
     reports.treasuryOverview(ctx(req, { needBranch: false }).company_id, {
       branchId: reportBranch(req),
@@ -1183,7 +1200,7 @@ router.get(
 );
 router.get(
   '/reports/income-statement',
-  allow(...FIN),
+  allow(...PARTNER_G),
   handle((req) =>
     reports.incomeStatement(ctx(req, { needBranch: false }).company_id, {
       from: req.query.from,
@@ -1194,7 +1211,7 @@ router.get(
 );
 router.get(
   '/reports/balance-sheet',
-  allow(...FIN),
+  allow(...PARTNER_G),
   handle((req) =>
     reports.balanceSheet(ctx(req, { needBranch: false }).company_id, { asOf: req.query.asOf, branchId: reportBranch(req) })
   )
@@ -1330,14 +1347,18 @@ router.get(
 );
 router.get(
   '/reports/partners-equity',
-  allow(...FIN),
+  allow(...PARTNER_G),
   handle((req) =>
-    reports.partnersEquityStatement(ctx(req, { needBranch: false }).company_id, { from: req.query.from, to: req.query.to })
+    reports.partnersEquityStatement(ctx(req, { needBranch: false }).company_id, {
+      from: req.query.from,
+      to: req.query.to,
+      restrictToBranchId: req.user.role === 'partner' ? req.user.branch_id : null,
+    })
   )
 );
 router.get(
   '/reports/cash-flow',
-  allow(...FIN),
+  allow(...PARTNER_G),
   handle((req) =>
     reports.cashFlowStatement(ctx(req, { needBranch: false }).company_id, {
       from: req.query.from,
@@ -1368,7 +1389,7 @@ router.post(
 
 router.get(
   '/dashboard',
-  allow(...FIN),
+  allow(...PARTNER_G),
   handle((req) => reports.dashboardSummary(ctx(req, { needBranch: false }).company_id, reportBranch(req)))
 );
 

@@ -612,12 +612,20 @@ const TAB_RENDERERS = {
   accounts: renderAccountsTree,
 };
 
+// الشريك ماله دخول غير على الملخصات المالية العليا (مش ميزان المراجعة أو دفتر اليومية
+// أو أي تقرير تشغيلي تفصيلي) - نفس القيود المطبّقة فعليًا على السيرفر في allow(...PARTNER_G)
+const PARTNER_VISIBLE_TABS = ['income', 'balance', 'partners', 'cashflow'];
+
 Pages.accountingHome = async function () {
+  const isPartner = Auth.getUser() && Auth.getUser().role === 'partner';
+  const visibleTabs = isPartner ? ACCT_TABS.filter((t) => PARTNER_VISIBLE_TABS.includes(t.key)) : ACCT_TABS;
+  const defaultTab = isPartner ? 'income' : 'trial';
+
   UI.setContent(`
     <div class="card">
       <div class="card-header"><h2>الحسابات والتقارير المالية</h2></div>
       <div class="tabs" id="acctTabs">
-        ${ACCT_TABS.map((t, i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
+        ${visibleTabs.map((t, i) => `<button class="tab-btn ${i === 0 ? 'active' : ''}" data-tab="${t.key}">${t.label}</button>`).join('')}
       </div>
       <div id="acctTabContent"><div class="empty-state">جارِ التحميل...</div></div>
     </div>
@@ -635,7 +643,7 @@ Pages.accountingHome = async function () {
   }
 
   document.querySelectorAll('#acctTabs .tab-btn').forEach((btn) => btn.addEventListener('click', () => showTab(btn.dataset.tab)));
-  showTab('trial');
+  showTab(defaultTab);
 };
 
 window.Pages = Pages;
