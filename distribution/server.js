@@ -6,6 +6,7 @@ const { dedupeGuard } = require('./lib/dedupe-guard');
 const { db } = require('./lib/db');
 const reports = require('./lib/reports');
 const whatsapp = require('./lib/whatsapp');
+const backup = require('./lib/backup');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -46,6 +47,19 @@ async function checkExpiryAlerts() {
 }
 setInterval(checkExpiryAlerts, DAY_MS);
 checkExpiryAlerts();
+
+// نسخة احتياطية تلقائية يومية من قاعدة البيانات (بيتجاهلها لو نسخة النهاردة أخذت خلاص
+// من قبل - مهم لأن السيرفر ممكن يعيد التشغيل أكتر من مرة في اليوم الواحد)
+function runDailyBackup() {
+  try {
+    const result = backup.runDailyBackup();
+    if (result.created) console.log('تم أخذ نسخة احتياطية يومية:', result.path);
+  } catch (err) {
+    console.error('فشل أخذ النسخة الاحتياطية اليومية:', err.message);
+  }
+}
+setInterval(runDailyBackup, DAY_MS);
+runDailyBackup();
 
 app.listen(PORT, () => {
   console.log(`نظام إدارة التوزيع شغال على http://localhost:${PORT}`);

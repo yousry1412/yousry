@@ -9,6 +9,7 @@ const SETTINGS_TABS = [
   { key: 'whatsapp', label: 'واتساب' },
   { key: 'maps', label: 'الخرائط' },
   { key: 'activity', label: 'سجل النشاط' },
+  { key: 'backup', label: 'النسخ الاحتياطي' },
 ];
 
 const USER_ROLE_LABELS = {
@@ -696,6 +697,67 @@ async function renderActivityTab() {
   `;
 }
 
+function formatBackupSize(bytes) {
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} كيلوبايت`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} ميجابايت`;
+}
+
+async function renderBackupTab() {
+  const container = document.getElementById('settingsTabContent');
+  container.innerHTML = '<div class="empty-state">جارِ التحميل...</div>';
+  const backups = await Api.get('/backup/list');
+  const latest = backups[0];
+  container.innerHTML = `
+    <div class="card-header"><h3>النسخ الاحتياطي</h3></div>
+
+    <div class="card" style="background:#f7fdf9; border-color:#bfe3cf">
+      <h4 style="margin:0 0 8px">📥 تحميل نسخة احتياطية كاملة الآن</h4>
+      <p class="muted" style="font-size:13px">
+        دي أهم خطوة عشان بياناتك متضيعش نهائيًا حتى لو حصل عطل كامل في السيرفر: حمّل الملف
+        ده على فلاشة أو أي جهاز بعيد عن السيرفر بشكل دوري (كل أسبوع مثلًا). النسخ التلقائية
+        اليومية تحت دي محفوظة على نفس قرص السيرفر - بتحميك من غلطة أو حذف بالخطأ، لكن
+        مش من ضياع القرص نفسه بالكامل. النسخة اللي هتنزل هي ملف قاعدة بيانات كامل (.sqlite)
+        فيه كل بياناتك لحظة التحميل.
+      </p>
+      <button class="btn" id="downloadBackupBtn">📥 تحميل نسخة احتياطية الآن</button>
+    </div>
+
+    <div class="card-header" style="margin-top:16px"><h4 style="margin:0">النسخ اليومية التلقائية على السيرفر</h4></div>
+    <p class="muted" style="font-size:12.5px">بتُؤخذ نسخة تلقائية كل يوم، ويُحتفظ بآخر 7 أيام بس (الأقدم منها بيُحذف تلقائيًا).</p>
+    ${
+      latest
+        ? `<p style="font-size:13px">آخر نسخة تلقائية: <strong>${UI.formatDateTime(latest.created_at)}</strong> (${formatBackupSize(latest.sizeBytes)})</p>`
+        : '<p class="muted" style="font-size:13px">لسه معملتش أي نسخة تلقائية - أول نسخة هتُؤخذ خلال ٢٤ ساعة من تشغيل السيرفر.</p>'
+    }
+    ${
+      backups.length === 0
+        ? ''
+        : `<div class="table-wrap"><table><thead><tr><th>الملف</th><th>التاريخ</th><th>الحجم</th></tr></thead><tbody>
+            ${backups
+              .map(
+                (b) => `<tr>
+              <td class="muted">${UI.escapeHtml(b.name)}</td>
+              <td>${UI.formatDateTime(b.created_at)}</td>
+              <td>${formatBackupSize(b.sizeBytes)}</td>
+            </tr>`
+              )
+              .join('')}
+          </tbody></table></div>`
+    }
+  `;
+
+  document.getElementById('downloadBackupBtn').addEventListener('click', (e) => {
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = 'جارِ تجهيز النسخة...';
+    window.location.href = '/api/backup/download';
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '📥 تحميل نسخة احتياطية الآن';
+    }, 3000);
+  });
+}
+
 const SETTINGS_RENDERERS = {
   companies: renderCompaniesTab,
   branches: renderBranchesTab,
@@ -705,6 +767,7 @@ const SETTINGS_RENDERERS = {
   whatsapp: renderWhatsappTab,
   maps: renderMapsTab,
   activity: renderActivityTab,
+  backup: renderBackupTab,
 };
 
 Pages.settingsHome = async function () {

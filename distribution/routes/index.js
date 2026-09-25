@@ -1,3 +1,4 @@
+const fs = require('fs');
 const express = require('express');
 const { db } = require('../lib/db');
 const services = require('../lib/services');
@@ -5,6 +6,7 @@ const reports = require('../lib/reports');
 const whatsapp = require('../lib/whatsapp');
 const maps = require('../lib/maps');
 const auth = require('../lib/auth');
+const backup = require('../lib/backup');
 const { logActivity, listActivityLog } = require('../lib/activity');
 
 const router = express.Router();
@@ -1527,5 +1529,28 @@ router.post(
     });
   })
 );
+
+// ---------------------------------------------------------------------------
+// النسخ الاحتياطي لقاعدة البيانات - صلاحية المالك فقط، لأنه ملف فيه كل بيانات
+// كل المنشآت (النظام قاعدة بيانات واحدة مشتركة لكل الشركات المسجّلة فيه)
+// ---------------------------------------------------------------------------
+
+router.get('/backup/list', allow(...OWNER), handle(() => backup.listBackups()));
+
+router.get('/backup/download', allow(...OWNER), (req, res) => {
+  let tempPath;
+  try {
+    tempPath = backup.createDownloadCopy();
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'تعذّر تجهيز النسخة الاحتياطية' });
+  }
+  const filename = `distribution-backup-${new Date().toISOString().slice(0, 10)}.sqlite`;
+  res.download(tempPath, filename, (err) => {
+    fs.unlink(tempPath, () => {});
+    if (err && !res.headersSent) {
+      res.status(500).json({ error: 'تعذّر تحميل النسخة الاحتياطية' });
+    }
+  });
+});
 
 module.exports = router;
