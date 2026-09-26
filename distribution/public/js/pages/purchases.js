@@ -134,6 +134,8 @@ Pages.purchaseNew = async function () {
           <div class="totals-row"><span>الإجمالي قبل الضريبة</span><span id="subTotal">0.00 ج.م</span></div>
           <div class="totals-row" id="vatRow" style="display:none"><span>ضريبة القيمة المضافة (<span id="vatRateLabel"></span>%)</span><span id="vatTotal">0.00 ج.م</span></div>
           <div class="totals-row grand"><span>إجمالي الفاتورة</span><span id="grandTotal">0.00 ج.م</span></div>
+          <div class="totals-row" id="whtRow" style="display:none"><span>خصم ضريبة الخصم والإضافة (<span id="whtRateLabel"></span>%)</span><span id="whtTotal">- 0.00 ج.م</span></div>
+          <div class="totals-row" id="netPayableRow" style="display:none"><span>المستحق فعليًا للمورد</span><span id="netPayableTotal">0.00 ج.م</span></div>
         </div></div>
 
         <div class="modal-actions">
@@ -163,7 +165,17 @@ Pages.purchaseNew = async function () {
       document.getElementById('vatRateLabel').textContent = company.vat_rate;
       document.getElementById('vatTotal').textContent = UI.money(vat);
     }
-    document.getElementById('grandTotal').textContent = UI.money(subtotal + vat);
+    const total = subtotal + vat;
+    document.getElementById('grandTotal').textContent = UI.money(total);
+    const whtEnabled = company && company.wht_enabled;
+    document.getElementById('whtRow').style.display = whtEnabled ? 'flex' : 'none';
+    document.getElementById('netPayableRow').style.display = whtEnabled ? 'flex' : 'none';
+    if (whtEnabled) {
+      const wht = subtotal * (company.wht_rate / 100);
+      document.getElementById('whtRateLabel').textContent = company.wht_rate;
+      document.getElementById('whtTotal').textContent = '- ' + UI.money(wht);
+      document.getElementById('netPayableTotal').textContent = UI.money(total - wht);
+    }
   }
   const ctl = wireItemsTable(tbody, products, recalc);
   recalc();
@@ -315,8 +327,9 @@ Pages.purchaseDetail = async function (id) {
         <div class="totals-row"><span>الإجمالي قبل الضريبة</span><span>${UI.money(inv.subtotal ?? inv.total)}</span></div>
         ${inv.vat_amount ? `<div class="totals-row"><span>ضريبة القيمة المضافة</span><span>${UI.money(inv.vat_amount)}</span></div>` : ''}
         <div class="totals-row"><span>الإجمالي</span><span>${UI.money(inv.total)}</span></div>
+        ${inv.wht_amount ? `<div class="totals-row"><span>خصم ضريبة الخصم والإضافة (WHT)</span><span>- ${UI.money(inv.wht_amount)}</span></div>` : ''}
         <div class="totals-row"><span>المدفوع</span><span>${UI.money(inv.paid_amount)}</span></div>
-        <div class="totals-row grand"><span>المتبقي (للمورد)</span><span>${UI.money(inv.total - inv.paid_amount)}</span></div>
+        <div class="totals-row grand"><span>المتبقي (للمورد)</span><span>${UI.money(inv.total - (inv.wht_amount || 0) - inv.paid_amount)}</span></div>
       </div></div>
       ${inv.notes ? `<p class="muted">ملاحظات: ${UI.escapeHtml(inv.notes)}</p>` : ''}
       ${inv.latitude ? `<p class="muted">📍 <a href="${UI.googleMapsLink(inv.latitude, inv.longitude)}" target="_blank" rel="noopener">موقع تسجيل الفاتورة</a></p>` : ''}

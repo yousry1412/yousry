@@ -28,7 +28,8 @@ const UI = (() => {
 
   function money(n) {
     const v = Number(n) || 0;
-    return v.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ج.م';
+    const currency = (typeof Context !== 'undefined' && Context.getCompany && Context.getCompany()?.currency) || 'ج.م';
+    return v.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + currency;
   }
 
   function num(n, digits = 2) {

@@ -6,6 +6,8 @@ const ROLE_GROUPS = {
   OWNER: ['owner'],
   // الشريك: عرض فقط - لوحة التحكم والتقارير المالية الملخّصة بس
   PARTNER_G: ['owner', 'accountant', 'partner'],
+  // كل صلاحيات الفريق (بما فيهم الشريك) - لصفحات عامة زي الشات مش مرتبطة بعملية معينة
+  EVERYONE: ['owner', 'accountant', 'sales', 'warehouse', 'partner'],
 };
 
 // القائمة الجانبية مقسّمة لمجموعات منطقية عشان تقلل الزحمة - كل مجموعة قابلة للطي
@@ -64,6 +66,7 @@ const NAV_GROUPS = [
     ],
   },
   { standalone: true, hash: '#/employees', label: 'الموظفون (سلف وعهدات)', icon: '🧑‍💼', roles: ROLE_GROUPS.FIN },
+  { standalone: true, hash: '#/chat', label: 'شات الفريق', icon: '💬', roles: ROLE_GROUPS.EVERYONE },
   { standalone: true, hash: '#/settings', label: 'المنشآت والفروع والشركاء', icon: '⚙️', roles: ROLE_GROUPS.OWNER },
 ];
 
@@ -86,6 +89,7 @@ function firstAllowedHash() {
 
 const ROUTES = [
   { re: /^#\/dashboard$/, title: 'لوحة التحكم', render: () => Pages.dashboard() },
+  { re: /^#\/chat$/, title: 'شات الفريق', render: () => Pages.chat() },
 
   { re: /^#\/customers$/, title: 'العملاء', render: () => Pages.customersList() },
   { re: /^#\/customers\/(\d+)$/, title: 'كشف حساب عميل', render: (m) => Pages.customerStatement(m[1]) },
@@ -219,25 +223,36 @@ function initClock() {
 
 function renderContextSwitcher() {
   const user = Auth.getUser();
-  const companySelect = document.getElementById('companySelect');
-  const branchSelect = document.getElementById('branchSelect');
-  companySelect.innerHTML = UI.optionsHtml(Context.getCompanies(), 'id', 'name', Context.getCompanyId());
-  branchSelect.innerHTML = UI.optionsHtml(Context.getBranches(), 'id', 'name', Context.getBranchId());
-  companySelect.disabled = !!(user && user.company_id);
-  branchSelect.disabled = !!(user && user.branch_id);
+  const companyOptions = UI.optionsHtml(Context.getCompanies(), 'id', 'name', Context.getCompanyId());
+  const branchOptions = UI.optionsHtml(Context.getBranches(), 'id', 'name', Context.getBranchId());
+  const locked = { company: !!(user && user.company_id), branch: !!(user && user.branch_id) };
+  ['companySelect', 'companySelectMobile'].forEach((id) => {
+    const el = document.getElementById(id);
+    el.innerHTML = companyOptions;
+    el.disabled = locked.company;
+  });
+  ['branchSelect', 'branchSelectMobile'].forEach((id) => {
+    const el = document.getElementById(id);
+    el.innerHTML = branchOptions;
+    el.disabled = locked.branch;
+  });
   const company = Context.getCompany();
   document.getElementById('brandCompany').textContent = company ? company.name : '';
 }
 
 function wireContextSwitcher() {
-  document.getElementById('companySelect').addEventListener('change', async (e) => {
-    await Context.setCompany(e.target.value);
-    renderContextSwitcher();
-    router();
+  ['companySelect', 'companySelectMobile'].forEach((id) => {
+    document.getElementById(id).addEventListener('change', async (e) => {
+      await Context.setCompany(e.target.value);
+      renderContextSwitcher();
+      router();
+    });
   });
-  document.getElementById('branchSelect').addEventListener('change', (e) => {
-    Context.setBranch(e.target.value);
-    router();
+  ['branchSelect', 'branchSelectMobile'].forEach((id) => {
+    document.getElementById(id).addEventListener('change', (e) => {
+      Context.setBranch(e.target.value);
+      router();
+    });
   });
 }
 

@@ -15,8 +15,17 @@ CREATE TABLE IF NOT EXISTS companies (
   address TEXT,
   public_url TEXT,
   country TEXT NOT NULL DEFAULT 'مصر',
+  currency TEXT NOT NULL DEFAULT 'ج.م', -- مشتقة من الدولة تلقائيًا، وقت اختيار الدولة - قابلة للتعديل يدويًا
   vat_enabled INTEGER NOT NULL DEFAULT 0,
   vat_rate REAL NOT NULL DEFAULT 0,
+  wht_enabled INTEGER NOT NULL DEFAULT 0, -- ضريبة الخصم والإضافة تحت الحساب - بتتخصم من مستحقات المورد وتتوّرد للمصلحة
+  wht_rate REAL NOT NULL DEFAULT 0,
+  stamp_duty_enabled INTEGER NOT NULL DEFAULT 0, -- ضريبة الدمغة - بتتضاف على فاتورة البيع
+  stamp_duty_rate REAL NOT NULL DEFAULT 0,
+  income_tax_enabled INTEGER NOT NULL DEFAULT 0, -- ضريبة الدخل السنوية على الأرباح - نسبة تقديرية للتقارير فقط، مفيش قيود آلية بيها
+  income_tax_rate REAL NOT NULL DEFAULT 0,
+  latitude REAL,
+  longitude REAL,
   geofence_radius_m REAL NOT NULL DEFAULT 300,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -28,6 +37,8 @@ CREATE TABLE IF NOT EXISTS branches (
   name TEXT NOT NULL,
   address TEXT,
   phone TEXT,
+  latitude REAL,
+  longitude REAL,
   is_main INTEGER NOT NULL DEFAULT 0,
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -143,6 +154,8 @@ CREATE TABLE IF NOT EXISTS products (
   reorder_level REAL NOT NULL DEFAULT 0,
   track_expiry INTEGER NOT NULL DEFAULT 0, -- منتج بيتلف (زي الدجاج الطازج) ولازم تتبع تاريخ صلاحيته
   photo TEXT,
+  storage_method TEXT, -- طريقة التخزين السليمة (مبرّد، مجمّد، جاف بعيد عن الشمس...)
+  default_branch_id INTEGER REFERENCES branches(id), -- المخزن الأساسي اللي المفروض الصنف ده يتوجّه له
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -200,6 +213,7 @@ CREATE TABLE IF NOT EXISTS purchase_invoices (
   paid_from TEXT NOT NULL DEFAULT 'cash' CHECK(paid_from IN ('cash','bank')),
   subtotal REAL NOT NULL DEFAULT 0,
   vat_amount REAL NOT NULL DEFAULT 0,
+  wht_amount REAL NOT NULL DEFAULT 0, -- ضريبة خصم وإضافة محجوزة من مستحقات المورد لصالح المصلحة
   total REAL NOT NULL DEFAULT 0,
   latitude REAL,
   longitude REAL,
@@ -421,6 +435,9 @@ CREATE TABLE IF NOT EXISTS trip_expenses (
   -- 'cash'/'bank' = من خزنة المنشأة، 'driver_custody' = من الكاش اللي في عهدة المسؤول عن الرحلة (تحصيلات ميدانية)
   paid_from TEXT NOT NULL DEFAULT 'cash',
   notes TEXT,
+  latitude REAL,
+  longitude REAL,
+  photo TEXT, -- صورة فاتورة/إيصال المصروف - إجبارية لما السائق يسجّله من وضع الميدان
   created_by_user_id INTEGER REFERENCES users(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -439,6 +456,7 @@ CREATE TABLE IF NOT EXISTS sales_invoices (
   paid_to TEXT NOT NULL DEFAULT 'cash' CHECK(paid_to IN ('cash','bank')),
   subtotal REAL NOT NULL DEFAULT 0,
   vat_amount REAL NOT NULL DEFAULT 0,
+  stamp_duty_amount REAL NOT NULL DEFAULT 0, -- ضريبة الدمغة المضافة على الفاتورة
   total REAL NOT NULL DEFAULT 0,
   notes TEXT,
   latitude REAL,
@@ -676,6 +694,9 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL CHECK(role IN ('owner','accountant','sales','warehouse','partner')),
   phone TEXT,
   notify_new_invoices INTEGER NOT NULL DEFAULT 0,
+  notify_trip_start INTEGER NOT NULL DEFAULT 0,
+  notify_new_expenses INTEGER NOT NULL DEFAULT 0,
+  notify_expiry_alerts INTEGER NOT NULL DEFAULT 0,
   commission_pct REAL, -- نسبة عمولة المندوب/السائق من مبيعاته (فاضي = بدون عمولة)
   partner_id INTEGER REFERENCES partners(id), -- لو الصلاحية "شريك" - بيربط الحساب بسجل الشريك بتاعه
   is_active INTEGER NOT NULL DEFAULT 1,
@@ -710,3 +731,19 @@ CREATE TABLE IF NOT EXISTS map_config (
   google_maps_api_key TEXT,
   updated_at TEXT
 );
+
+-- ---------- شات الفريق ----------
+-- شات واحد لكل منشأة، معروض لكل أعضاء الفريق بصرف النظر عن الفرع (عشان "الفريق كامل").
+-- "التوجيه بالاسم" بيبقى بتحديد mentioned_user_id بس الرسالة تفضل ظاهرة للجميع - مفيش رسائل خاصة.
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  sender_user_id INTEGER NOT NULL REFERENCES users(id),
+  mentioned_user_id INTEGER REFERENCES users(id),
+  body TEXT NOT NULL, -- ممكن تفضى لو الرسالة مرفق بس من غير نص
+  attachment_data TEXT, -- data URI (base64) - صورة أو ملف، مخزّن مباشر زي باقي صور النظام
+  attachment_name TEXT, -- الاسم الأصلي للملف (لعرضه ولتحميله باسمه الحقيقي)
+  attachment_mime TEXT, -- نوع الملف - بيحدد نعرضه كصورة ولا كارت تحميل عادي
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_company ON chat_messages(company_id, id);

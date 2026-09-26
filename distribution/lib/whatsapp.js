@@ -187,6 +187,68 @@ async function notifyManagersOfInvoice({ companyId, invoice, mapsUrl }) {
   }
 }
 
+/**
+ * إشعار عام للمسؤولين اللي فعّلوا نوع تنبيه معين (عمود notify_* في users) - نفس فكرة
+ * notifyManagersOfInvoice بس معمّمة لأي نوع تنبيه تاني (بداية رحلة، مصروف جديد، تنبيه صلاحية).
+ */
+async function notifyManagers({ companyId, flagColumn, text }) {
+  const config = getConfig(companyId);
+  if (!config || !config.access_token || !config.phone_number_id) return;
+  const managers = db
+    .prepare(
+      `SELECT * FROM users WHERE (company_id = ? OR company_id IS NULL)
+       AND is_active = 1 AND ${flagColumn} = 1 AND phone IS NOT NULL AND phone != ''`
+    )
+    .all(companyId);
+  if (managers.length === 0) return;
+
+  for (const manager of managers) {
+    const to = normalizePhone(manager.phone, config.default_country_code);
+    try {
+      const result = await sendTextMessage({ accessToken: config.access_token, phoneNumberId: config.phone_number_id, to, text });
+      logAttempt({ company_id: companyId, to_phone: to, status: 'sent', message_id: result?.messages?.[0]?.id });
+    } catch (err) {
+      logAttempt({ company_id: companyId, to_phone: to, status: 'failed', error: err.message });
+    }
+  }
+}
+
+/** إشعار عند بدء رحلة توزيع جديدة (المستخدمين المفعّلين "تنبيهي ببداية الرحلات") */
+async function notifyManagersOfTripStart({ companyId, trip }) {
+  const lines = [
+    `🚚 رحلة جديدة بدأت`,
+    `رقم الرحلة: ${trip.trip_no}`,
+    `السيارة: ${trip.vehicle_name || ''}`,
+    `المسؤول: ${trip.responsible_employee_name || '-'}`,
+    `التاريخ: ${trip.trip_date}`,
+  ];
+  await notifyManagers({ companyId, flagColumn: 'notify_trip_start', text: lines.join('\n') });
+}
+
+/** إشعار عند تسجيل أي مصروف (رحلة أو عام) - مع لوكيشن لو مصروف رحلة اتسجل من الميدان */
+async function notifyManagersOfExpense({ companyId, expense, mapsUrl }) {
+  const lines = [
+    `💸 مصروف جديد`,
+    `البند: ${expense.category_label || expense.category}`,
+    `المبلغ: ${Number(expense.amount).toFixed(2)}`,
+    expense.trip_no ? `الرحلة: ${expense.trip_no}` : null,
+    expense.source_label ? `مصدر السداد: ${expense.source_label}` : null,
+  ].filter(Boolean);
+  if (mapsUrl) lines.push(`الموقع: ${mapsUrl}`);
+  await notifyManagers({ companyId, flagColumn: 'notify_new_expenses', text: lines.join('\n') });
+}
+
+/** إشعار مجمّع بتنبيهات الصلاحية القريبة/المنتهية (المستخدمين المفعّلين "تنبيهي بالصلاحيات") */
+async function notifyManagersOfExpiryAlerts({ companyId, alerts }) {
+  if (!alerts || alerts.length === 0) return;
+  const lines = [`⏰ تنبيه صلاحية - ${alerts.length} صنف محتاج مراجعة:`];
+  alerts.slice(0, 15).forEach((a) => {
+    lines.push(`- ${a.product_name}: دفعة ${a.batch_no || '-'} صلاحيتها ${a.expiry_date} (متبقي ${a.qty_remaining})`);
+  });
+  if (alerts.length > 15) lines.push(`...وكمان ${alerts.length - 15} صنف تاني`);
+  await notifyManagers({ companyId, flagColumn: 'notify_expiry_alerts', text: lines.join('\n') });
+}
+
 async function sendTestMessage({ companyId, phone, text }) {
   const config = getConfig(companyId);
   if (!config || !config.access_token || !config.phone_number_id) {
@@ -209,4 +271,14 @@ async function sendTestMessage({ companyId, phone, text }) {
   }
 }
 
-module.exports = { getConfig, saveConfig, sendInvoiceNotification, notifyManagersOfInvoice, sendTestMessage, normalizePhone };
+module.exports = {
+  getConfig,
+  saveConfig,
+  sendInvoiceNotification,
+  notifyManagersOfInvoice,
+  notifyManagersOfTripStart,
+  notifyManagersOfExpense,
+  notifyManagersOfExpiryAlerts,
+  sendTestMessage,
+  normalizePhone,
+};

@@ -1,3 +1,4 @@
+const fs = require('fs');
 const express = require('express');
 const { db } = require('../lib/db');
 const services = require('../lib/services');
@@ -5,6 +6,7 @@ const reports = require('../lib/reports');
 const whatsapp = require('../lib/whatsapp');
 const maps = require('../lib/maps');
 const auth = require('../lib/auth');
+const backup = require('../lib/backup');
 const { logActivity, listActivityLog } = require('../lib/activity');
 
 const router = express.Router();
@@ -121,24 +123,9 @@ router.put(
     if (!req.companyId || Number(req.params.id) !== req.companyId) {
       throw new Error('لازم تختار المنشأة دي كسياق العمل الحالي قبل تعديل بياناتها');
     }
-    const { name, legal_name, tax_number, phone, address, public_url, is_active, country, vat_enabled, vat_rate, geofence_radius_m } = req.body;
-    db.prepare(
-      `UPDATE companies SET name=?, legal_name=?, tax_number=?, phone=?, address=?, public_url=?, is_active=?,
-       country=?, vat_enabled=?, vat_rate=?, geofence_radius_m=? WHERE id=?`
-    ).run(
-      name,
-      legal_name || null,
-      tax_number || null,
-      phone || null,
-      address || null,
-      public_url || null,
-      is_active ? 1 : 0,
-      country || 'مصر',
-      services.toBool(vat_enabled) ? 1 : 0,
-      Number(vat_rate) || 0,
-      Number(geofence_radius_m) || 300,
-      req.params.id
-    );
+    services.updateCompany(req.params.id, req.body);
+    const { is_active } = req.body;
+    db.prepare('UPDATE companies SET is_active=? WHERE id=?').run(is_active ? 1 : 0, req.params.id);
     return db.prepare('SELECT * FROM companies WHERE id=?').get(req.params.id);
   })
 );
@@ -164,17 +151,10 @@ router.put(
   allow(...OWNER),
   handle((req) => {
     const { company_id } = ctx(req, { needBranch: false });
-    const branch = assertOwned(db.prepare('SELECT * FROM branches WHERE id = ?').get(req.params.id), company_id, 'فرع غير موجود');
-    const { name, address, phone, is_main, is_active } = req.body;
-    if (is_main) db.prepare('UPDATE branches SET is_main = 0 WHERE company_id = ?').run(branch.company_id);
-    db.prepare('UPDATE branches SET name=?, address=?, phone=?, is_main=?, is_active=? WHERE id=?').run(
-      name,
-      address || null,
-      phone || null,
-      is_main ? 1 : 0,
-      is_active ? 1 : 0,
-      req.params.id
-    );
+    assertOwned(db.prepare('SELECT * FROM branches WHERE id = ?').get(req.params.id), company_id, 'فرع غير موجود');
+    services.updateBranch(req.params.id, company_id, req.body);
+    const { is_active } = req.body;
+    db.prepare('UPDATE branches SET is_active=? WHERE id=?').run(is_active ? 1 : 0, req.params.id);
     return db.prepare('SELECT * FROM branches WHERE id=?').get(req.params.id);
   })
 );
@@ -600,11 +580,12 @@ router.put(
   handle((req) => {
     const { company_id } = ctx(req);
     assertOwned(db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id), company_id, 'منتج غير موجود');
-    const { name, sku, unit, category_id, sale_price, reorder_level, is_active, track_expiry, photo } = req.body;
+    const { name, sku, unit, category_id, sale_price, reorder_level, is_active, track_expiry, photo, storage_method, default_branch_id } = req.body;
     if (category_id) assertOwned(db.prepare('SELECT * FROM product_categories WHERE id=?').get(category_id), company_id, 'تصنيف غير موجود');
+    if (default_branch_id) assertOwned(db.prepare('SELECT * FROM branches WHERE id=?').get(default_branch_id), company_id, 'مخزن غير موجود');
     const existingProduct = db.prepare('SELECT photo FROM products WHERE id=?').get(req.params.id);
     db.prepare(
-      'UPDATE products SET name=?, sku=?, unit=?, category_id=?, sale_price=?, reorder_level=?, is_active=?, track_expiry=?, photo=? WHERE id=?'
+      'UPDATE products SET name=?, sku=?, unit=?, category_id=?, sale_price=?, reorder_level=?, is_active=?, track_expiry=?, photo=?, storage_method=?, default_branch_id=? WHERE id=?'
     ).run(
       name,
       sku || null,
@@ -615,6 +596,8 @@ router.put(
       is_active ? 1 : 0,
       track_expiry ? 1 : 0,
       photo !== undefined ? photo || null : existingProduct.photo,
+      storage_method || null,
+      default_branch_id || null,
       req.params.id
     );
     return db.prepare('SELECT * FROM products WHERE id=?').get(req.params.id);
@@ -825,7 +808,12 @@ router.get(
 router.post(
   '/trips',
   allow(...ALL_ROLES),
-  handle((req) => services.createTrip({ ...req.body, ...ctx(req) }))
+  handle((req) => {
+    const trip = services.createTrip({ ...req.body, ...ctx(req) });
+    // إشعار المسؤولين اللي فعّلوا "تنبيهي ببداية الرحلات" - رقابة على متابعة خروج السيارات
+    whatsapp.notifyManagersOfTripStart({ companyId: trip.company_id, trip }).catch(() => {});
+    return trip;
+  })
 );
 router.post(
   '/trips/:id/load',
@@ -861,12 +849,26 @@ router.post(
     });
   })
 );
+const TRIP_EXPENSE_SOURCE_LABEL = { cash: 'نقدية', bank: 'بنك', driver_custody: 'من عهدة السائق' };
+
 router.post(
   '/trips/:id/expense',
   allow(...ALL_ROLES),
   handle((req) => {
     ownedTrip(req);
-    return services.addTripExpense({ ...req.body, trip_id: Number(req.params.id), created_by_user_id: req.user.id });
+    const trip = services.addTripExpense({ ...req.body, trip_id: Number(req.params.id), created_by_user_id: req.user.id });
+    const expense = db.prepare('SELECT * FROM trip_expenses WHERE trip_id = ? ORDER BY id DESC LIMIT 1').get(req.params.id);
+    const mapsUrl = maps.mapsLink(expense.latitude, expense.longitude);
+    // مصروف رحلة (غالبًا مسجّل من الميدان بواسطة السائق) - إشعار المسؤولين اللي فعّلوا
+    // "تنبيهي بالمصروفات الجديدة"، مرفق معاه رابط اللوكيشن لو اتسجل وقت الإدخال
+    whatsapp
+      .notifyManagersOfExpense({
+        companyId: trip.company_id,
+        expense: { ...expense, trip_no: trip.trip_no, source_label: TRIP_EXPENSE_SOURCE_LABEL[expense.paid_from] },
+        mapsUrl,
+      })
+      .catch(() => {});
+    return trip;
   })
 );
 router.post(
@@ -1125,7 +1127,13 @@ router.get(
 router.post(
   '/expenses',
   allow(...FIN),
-  handle((req) => services.createExpense({ ...req.body, ...ctx(req), created_by_user_id: req.user.id }))
+  handle((req) => {
+    const expense = services.createExpense({ ...req.body, ...ctx(req), created_by_user_id: req.user.id });
+    whatsapp
+      .notifyManagersOfExpense({ companyId: expense.company_id, expense: { ...expense, source_label: TRIP_EXPENSE_SOURCE_LABEL[expense.paid_from] } })
+      .catch(() => {});
+    return expense;
+  })
 );
 
 // ---------------------------------------------------------------------------
@@ -1484,5 +1492,68 @@ router.get(
     return db.prepare('SELECT * FROM whatsapp_log WHERE company_id = ? ORDER BY id DESC LIMIT 200').all(company_id);
   })
 );
+
+// ---------------------------------------------------------------------------
+// شات الفريق - شات واحد لكل منشأة، معروض لكل الفريق بصرف النظر عن الفرع
+// ---------------------------------------------------------------------------
+
+router.get(
+  '/chat/team',
+  allow(...ALL_ROLES, 'partner'),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    return db
+      .prepare('SELECT id, username, role FROM users WHERE company_id = ? AND is_active = 1 ORDER BY username')
+      .all(company_id);
+  })
+);
+router.get(
+  '/chat/messages',
+  allow(...ALL_ROLES, 'partner'),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    const afterId = req.query.after ? Number(req.query.after) : undefined;
+    return services.listChatMessages(company_id, { afterId, limit: 100 });
+  })
+);
+router.post(
+  '/chat/messages',
+  allow(...ALL_ROLES, 'partner'),
+  handle((req) => {
+    const { company_id } = ctx(req, { needBranch: false });
+    return services.sendChatMessage({
+      company_id,
+      sender_user_id: req.user.id,
+      mentioned_user_id: req.body.mentioned_user_id || null,
+      body: req.body.body,
+      attachment_data: req.body.attachment_data || null,
+      attachment_name: req.body.attachment_name || null,
+      attachment_mime: req.body.attachment_mime || null,
+    });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// النسخ الاحتياطي لقاعدة البيانات - صلاحية المالك فقط، لأنه ملف فيه كل بيانات
+// كل المنشآت (النظام قاعدة بيانات واحدة مشتركة لكل الشركات المسجّلة فيه)
+// ---------------------------------------------------------------------------
+
+router.get('/backup/list', allow(...OWNER), handle(() => backup.listBackups()));
+
+router.get('/backup/download', allow(...OWNER), (req, res) => {
+  let tempPath;
+  try {
+    tempPath = backup.createDownloadCopy();
+  } catch (err) {
+    return res.status(400).json({ error: err.message || 'تعذّر تجهيز النسخة الاحتياطية' });
+  }
+  const filename = `distribution-backup-${new Date().toISOString().slice(0, 10)}.sqlite`;
+  res.download(tempPath, filename, (err) => {
+    fs.unlink(tempPath, () => {});
+    if (err && !res.headersSent) {
+      res.status(500).json({ error: 'تعذّر تحميل النسخة الاحتياطية' });
+    }
+  });
+});
 
 module.exports = router;

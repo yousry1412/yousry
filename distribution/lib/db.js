@@ -3,10 +3,20 @@ const path = require('path');
 const { DatabaseSync } = require('node:sqlite');
 const { CHART_OF_ACCOUNTS } = require('./accounts');
 
-const DATA_DIR = path.join(__dirname, '..', 'data');
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+// على Render، القرص الدائم (Persistent Disk) بيتوصّل على المسار /var/data - لو موجود
+// (يعني شغالين على سيرفر فيه قرص دائم متاح)، نحفظ قاعدة البيانات جواه عشان البيانات
+// متتمسحش لما السيرفر يعيد التشغيل أو ينتقل لجهاز تاني. غير كده (تشغيل محلي على جهازك)
+// نرجع للمسار الافتراضي القديم data/app.db جوه فولدر المشروع.
+const RENDER_DISK_DIR = '/var/data';
+const LOCAL_DATA_DIR = path.join(__dirname, '..', 'data');
 
-const DB_PATH = path.join(DATA_DIR, 'app.db');
+let DB_PATH;
+if (fs.existsSync(RENDER_DISK_DIR)) {
+  DB_PATH = path.join(RENDER_DISK_DIR, 'distribution.sqlite');
+} else {
+  if (!fs.existsSync(LOCAL_DATA_DIR)) fs.mkdirSync(LOCAL_DATA_DIR, { recursive: true });
+  DB_PATH = path.join(LOCAL_DATA_DIR, 'app.db');
+}
 const db = new DatabaseSync(DB_PATH);
 
 db.exec('PRAGMA foreign_keys = ON');
@@ -163,6 +173,30 @@ ensureColumn('vehicles', 'default_driver_id', 'default_driver_id INTEGER REFEREN
 ensureColumn('vehicles', 'plate_number', 'plate_number TEXT');
 ensureColumn('vehicles', 'capacity', 'capacity TEXT');
 ensureColumn('vehicles', 'photo', 'photo TEXT');
+ensureColumn('trip_expenses', 'latitude', 'latitude REAL');
+ensureColumn('trip_expenses', 'longitude', 'longitude REAL');
+ensureColumn('trip_expenses', 'photo', 'photo TEXT');
+ensureColumn('users', 'notify_trip_start', 'notify_trip_start INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'notify_new_expenses', 'notify_new_expenses INTEGER NOT NULL DEFAULT 0');
+ensureColumn('users', 'notify_expiry_alerts', 'notify_expiry_alerts INTEGER NOT NULL DEFAULT 0');
+ensureColumn('companies', 'currency', "currency TEXT NOT NULL DEFAULT 'ج.م'");
+ensureColumn('companies', 'latitude', 'latitude REAL');
+ensureColumn('companies', 'longitude', 'longitude REAL');
+ensureColumn('branches', 'latitude', 'latitude REAL');
+ensureColumn('branches', 'longitude', 'longitude REAL');
+ensureColumn('products', 'storage_method', 'storage_method TEXT');
+ensureColumn('products', 'default_branch_id', 'default_branch_id INTEGER REFERENCES branches(id)');
+ensureColumn('companies', 'wht_enabled', 'wht_enabled INTEGER NOT NULL DEFAULT 0');
+ensureColumn('companies', 'wht_rate', 'wht_rate REAL NOT NULL DEFAULT 0');
+ensureColumn('companies', 'stamp_duty_enabled', 'stamp_duty_enabled INTEGER NOT NULL DEFAULT 0');
+ensureColumn('companies', 'stamp_duty_rate', 'stamp_duty_rate REAL NOT NULL DEFAULT 0');
+ensureColumn('companies', 'income_tax_enabled', 'income_tax_enabled INTEGER NOT NULL DEFAULT 0');
+ensureColumn('companies', 'income_tax_rate', 'income_tax_rate REAL NOT NULL DEFAULT 0');
+ensureColumn('purchase_invoices', 'wht_amount', 'wht_amount REAL NOT NULL DEFAULT 0');
+ensureColumn('sales_invoices', 'stamp_duty_amount', 'stamp_duty_amount REAL NOT NULL DEFAULT 0');
+ensureColumn('chat_messages', 'attachment_data', 'attachment_data TEXT');
+ensureColumn('chat_messages', 'attachment_name', 'attachment_name TEXT');
+ensureColumn('chat_messages', 'attachment_mime', 'attachment_mime TEXT');
 dropCheckConstraintIfPresent(
   'trip_expenses',
   "paid_from IN ('cash','bank')",

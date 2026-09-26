@@ -58,6 +58,13 @@ async function renderIncomeStatement(container) {
         <div class="totals-row"><span>إجمالي الإيرادات</span><span>${UI.money(inc.revenue)}</span></div>
         <div class="totals-row"><span>إجمالي المصروفات</span><span>${UI.money(inc.expense)}</span></div>
         <div class="totals-row grand"><span>صافي الربح</span><span>${UI.money(inc.netProfit)}</span></div>
+        ${
+          inc.estimatedIncomeTax > 0
+            ? `<div class="totals-row"><span>ضريبة الدخل التقديرية (${UI.escapeHtml(String(Context.getCompany()?.income_tax_rate ?? ''))}%)</span><span>${UI.money(inc.estimatedIncomeTax)}</span></div>
+               <div class="totals-row grand"><span>صافي الربح بعد الضريبة التقديرية</span><span>${UI.money(inc.netProfitAfterEstimatedTax)}</span></div>
+               <p class="muted" style="font-size:12px">تقديري فقط لمساعدتك على التخطيط - القيمة الفعلية المستحقة تتحدد بالإقرار الضريبي الرسمي، ومفيش قيد محاسبي آلي بيه.</p>`
+            : ''
+        }
       </div></div>
     `;
   }

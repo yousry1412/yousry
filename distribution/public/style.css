@@ -153,6 +153,30 @@ body {
   .context-switcher { display: none; }
 }
 
+/* على الموبايل بيختفي السويتشر من التوب بار (مفيش مكان)، فبيظهر بدل منه صف مضغوط
+   تحت التوب بار مباشرة عشان تقدر تبدّل الشركة/الفرع وانت شغال من الموبايل */
+.context-switcher-mobile { display: none; }
+@media (max-width: 860px) {
+  .context-switcher-mobile {
+    display: flex;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+  }
+  .context-switcher-mobile select {
+    flex: 1;
+    min-width: 0;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: #fafafa;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+}
+
 .content { padding: 22px; flex: 1; }
 
 /* ---------- عناصر عامة ---------- */
@@ -448,4 +472,98 @@ tbody tr:hover { background: #f8fafc; }
 
 @media (max-width: 600px) {
   .product-tiles { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+}
+
+/* شات الفريق */
+.chat-card { display: flex; flex-direction: column; height: calc(100vh - 170px); min-height: 420px; }
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 2px;
+}
+.chat-bubble-row { display: flex; justify-content: flex-start; }
+.chat-bubble-row.own { justify-content: flex-end; }
+.chat-bubble {
+  max-width: 75%;
+  background: #f0f1f4;
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 14px;
+}
+.chat-bubble.own { background: var(--primary, #2563eb); color: #fff; }
+.chat-bubble.mentioned { border: 2px solid #f59e0b; }
+.chat-sender { font-size: 12px; font-weight: 700; color: var(--primary, #2563eb); margin-bottom: 2px; }
+.chat-bubble.own .chat-sender { color: #fff; }
+.chat-mention-tag { font-size: 11.5px; opacity: 0.85; margin-bottom: 2px; }
+.chat-body { white-space: pre-wrap; word-break: break-word; line-height: 1.5; }
+.chat-time { font-size: 10.5px; opacity: 0.7; margin-top: 3px; text-align: left; }
+.chat-compose { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 10px; }
+.chat-compose select { width: 100%; margin-bottom: 8px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 13px; }
+.chat-compose-row { display: flex; gap: 8px; align-items: flex-end; }
+.chat-compose-row textarea {
+  flex: 1;
+  resize: none;
+  min-height: 42px;
+  max-height: 120px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 14px;
+}
+.chat-attach-btn { flex-shrink: 0; padding: 10px 14px; font-size: 17px; }
+
+.chat-attachment-img {
+  display: block;
+  max-width: 220px;
+  max-height: 220px;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  object-fit: cover;
+}
+.chat-attachment-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 4px;
+  text-decoration: none;
+  color: inherit;
+  font-size: 13px;
+}
+.chat-bubble.own .chat-attachment-file { background: rgba(255,255,255,0.18); color: #fff; }
+.chat-attachment-icon { font-size: 18px; }
+.chat-attachment-name { flex: 1; word-break: break-all; }
+.chat-attachment-dl { font-size: 12px; opacity: 0.85; white-space: nowrap; }
+
+.chat-attach-preview {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f0f1f4;
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.chat-attach-preview img { width: 36px; height: 36px; object-fit: cover; border-radius: 6px; }
+.chat-attach-preview-icon { font-size: 22px; }
+.chat-attach-preview-name { flex: 1; word-break: break-all; }
+.chat-attach-remove {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--muted);
+  padding: 2px 6px;
+}
+
+@media (max-width: 600px) {
+  .chat-card { height: calc(100vh - 220px); }
 }

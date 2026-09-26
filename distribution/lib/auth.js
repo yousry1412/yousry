@@ -45,7 +45,11 @@ function setupOwner({ username, password }) {
   return createUser({ username, password, role: 'owner', company_id: null, branch_id: null });
 }
 
-function createUser({ username, password, role, company_id, branch_id, phone, notify_new_invoices, commission_pct, partner_id }) {
+function createUser({
+  username, password, role, company_id, branch_id, phone,
+  notify_new_invoices, notify_trip_start, notify_new_expenses, notify_expiry_alerts,
+  commission_pct, partner_id,
+}) {
   username = String(username || '').trim();
   if (username.length < 3) throw new Error('اسم المستخدم لازم يكون 3 حروف على الأقل');
   if (!password || String(password).length < 8) {
@@ -55,8 +59,9 @@ function createUser({ username, password, role, company_id, branch_id, phone, no
   const exists = db.prepare('SELECT 1 FROM users WHERE username = ?').get(username);
   if (exists) throw new Error('اسم المستخدم ده مستخدم بالفعل');
   if (role !== 'owner' && !company_id) throw new Error('لازم تحدد المنشأة لهذا المستخدم');
-  if (notify_new_invoices && (!phone || !String(phone).trim())) {
-    throw new Error('لازم تسجل رقم هاتف المستخدم عشان تقدر تفعّل تنبيهات الفواتير الميدانية على واتساب');
+  const anyNotify = notify_new_invoices || notify_trip_start || notify_new_expenses || notify_expiry_alerts;
+  if (anyNotify && (!phone || !String(phone).trim())) {
+    throw new Error('لازم تسجل رقم هاتف المستخدم عشان تقدر تفعّل أي تنبيه على واتساب');
   }
   const link = resolvePartnerLink(company_id, role, partner_id);
   const finalBranchId = role === 'partner' ? link.branchId : branch_id || null;
@@ -64,13 +69,22 @@ function createUser({ username, password, role, company_id, branch_id, phone, no
   const commission = commission_pct === undefined || commission_pct === '' || commission_pct === null ? null : Number(commission_pct);
   const info = db
     .prepare(
-      `INSERT INTO users (company_id, branch_id, username, password_hash, role, phone, notify_new_invoices, commission_pct, partner_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO users (company_id, branch_id, username, password_hash, role, phone, notify_new_invoices, notify_trip_start, notify_new_expenses, notify_expiry_alerts, commission_pct, partner_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(company_id || null, finalBranchId, username, hashPassword(String(password)), role, phone || null, notify_new_invoices ? 1 : 0, commission, link.partnerId);
+    .run(
+      company_id || null, finalBranchId, username, hashPassword(String(password)), role, phone || null,
+      notify_new_invoices ? 1 : 0, notify_trip_start ? 1 : 0, notify_new_expenses ? 1 : 0, notify_expiry_alerts ? 1 : 0,
+      commission, link.partnerId
+    );
   return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid));
 }
 
-function updateUser(id, { role, company_id, branch_id, is_active, password, phone, notify_new_invoices, commission_pct, partner_id }) {
+function updateUser(id, {
+  role, company_id, branch_id, is_active, password, phone,
+  notify_new_invoices, notify_trip_start, notify_new_expenses, notify_expiry_alerts,
+  commission_pct, partner_id,
+}) {
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   if (!user) throw new Error('مستخدم غير موجود');
   if (role && !ROLES.includes(role)) throw new Error('صلاحية غير معروفة');
@@ -78,19 +92,28 @@ function updateUser(id, { role, company_id, branch_id, is_active, password, phon
   const nextCompany = nextRole === 'owner' ? null : company_id ?? user.company_id;
   if (nextRole !== 'owner' && !nextCompany) throw new Error('لازم تحدد المنشأة لهذا المستخدم');
   const nextPhone = phone !== undefined ? (phone || null) : user.phone;
-  const nextNotify = notify_new_invoices !== undefined ? (notify_new_invoices ? 1 : 0) : user.notify_new_invoices;
+  const nextNotifyInvoices = notify_new_invoices !== undefined ? (notify_new_invoices ? 1 : 0) : user.notify_new_invoices;
+  const nextNotifyTripStart = notify_trip_start !== undefined ? (notify_trip_start ? 1 : 0) : user.notify_trip_start;
+  const nextNotifyExpenses = notify_new_expenses !== undefined ? (notify_new_expenses ? 1 : 0) : user.notify_new_expenses;
+  const nextNotifyExpiry = notify_expiry_alerts !== undefined ? (notify_expiry_alerts ? 1 : 0) : user.notify_expiry_alerts;
   const nextActive = is_active !== undefined ? (is_active ? 1 : 0) : user.is_active;
   const nextCommission = commission_pct !== undefined ? (commission_pct === '' || commission_pct === null ? null : Number(commission_pct)) : user.commission_pct;
-  if (nextNotify && (!nextPhone || !String(nextPhone).trim())) {
-    throw new Error('لازم تسجل رقم هاتف المستخدم عشان تقدر تفعّل تنبيهات الفواتير الميدانية على واتساب');
+  if ((nextNotifyInvoices || nextNotifyTripStart || nextNotifyExpenses || nextNotifyExpiry) && (!nextPhone || !String(nextPhone).trim())) {
+    throw new Error('لازم تسجل رقم هاتف المستخدم عشان تقدر تفعّل أي تنبيه على واتساب');
   }
   const nextPartnerId = partner_id !== undefined ? partner_id : user.partner_id;
   const link = resolvePartnerLink(nextCompany, nextRole, nextPartnerId);
   const nextBranch = nextRole === 'owner' ? null : nextRole === 'partner' ? link.branchId : branch_id ?? user.branch_id;
 
   db.prepare(
-    'UPDATE users SET role = ?, company_id = ?, branch_id = ?, is_active = ?, phone = ?, notify_new_invoices = ?, commission_pct = ?, partner_id = ? WHERE id = ?'
-  ).run(nextRole, nextCompany, nextBranch, nextActive, nextPhone, nextNotify, nextCommission, link.partnerId, id);
+    `UPDATE users SET role = ?, company_id = ?, branch_id = ?, is_active = ?, phone = ?,
+       notify_new_invoices = ?, notify_trip_start = ?, notify_new_expenses = ?, notify_expiry_alerts = ?,
+       commission_pct = ?, partner_id = ? WHERE id = ?`
+  ).run(
+    nextRole, nextCompany, nextBranch, nextActive, nextPhone,
+    nextNotifyInvoices, nextNotifyTripStart, nextNotifyExpenses, nextNotifyExpiry,
+    nextCommission, link.partnerId, id
+  );
 
   if (password) {
     if (String(password).length < 8) throw new Error('كلمة السر لازم تكون 8 حروف أو أرقام على الأقل');

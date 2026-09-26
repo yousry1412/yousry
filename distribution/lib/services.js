@@ -96,12 +96,18 @@ function assertPeriodOpen(companyId, branchId, date) {
 // المنشآت والفروع والشركاء
 // ---------------------------------------------------------------------------
 
-function createCompany({ name, legal_name, tax_number, phone, address, public_url, country, vat_enabled, vat_rate, geofence_radius_m }) {
+function createCompany({
+  name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude,
+  vat_enabled, vat_rate, wht_enabled, wht_rate, stamp_duty_enabled, stamp_duty_rate, income_tax_enabled, income_tax_rate,
+  geofence_radius_m,
+}) {
   return inTransaction(() => {
+    const coord = sanitizeCoord(latitude, longitude);
     const info = db
       .prepare(
-        `INSERT INTO companies (name, legal_name, tax_number, phone, address, public_url, country, vat_enabled, vat_rate, geofence_radius_m)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO companies (name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude,
+           vat_enabled, vat_rate, wht_enabled, wht_rate, stamp_duty_enabled, stamp_duty_rate, income_tax_enabled, income_tax_rate, geofence_radius_m)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         name,
@@ -111,8 +117,17 @@ function createCompany({ name, legal_name, tax_number, phone, address, public_ur
         address || null,
         public_url || null,
         country || 'مصر',
+        currency || 'ج.م',
+        coord.latitude,
+        coord.longitude,
         toBool(vat_enabled) ? 1 : 0,
         round2(Number(vat_rate) || 0),
+        toBool(wht_enabled) ? 1 : 0,
+        round2(Number(wht_rate) || 0),
+        toBool(stamp_duty_enabled) ? 1 : 0,
+        round2(Number(stamp_duty_rate) || 0),
+        toBool(income_tax_enabled) ? 1 : 0,
+        round2(Number(income_tax_rate) || 0),
         round2(Number(geofence_radius_m) || 300)
       );
     const companyId = info.lastInsertRowid;
@@ -122,13 +137,62 @@ function createCompany({ name, legal_name, tax_number, phone, address, public_ur
   });
 }
 
-function createBranch({ company_id, name, address, phone, is_main }) {
+function updateCompany(id, {
+  name, legal_name, tax_number, phone, address, public_url, country, currency, latitude, longitude,
+  vat_enabled, vat_rate, wht_enabled, wht_rate, stamp_duty_enabled, stamp_duty_rate, income_tax_enabled, income_tax_rate,
+  geofence_radius_m,
+}) {
+  const coord = sanitizeCoord(latitude, longitude);
+  db.prepare(
+    `UPDATE companies SET name = ?, legal_name = ?, tax_number = ?, phone = ?, address = ?, public_url = ?,
+       country = ?, currency = ?, latitude = ?, longitude = ?, vat_enabled = ?, vat_rate = ?,
+       wht_enabled = ?, wht_rate = ?, stamp_duty_enabled = ?, stamp_duty_rate = ?, income_tax_enabled = ?, income_tax_rate = ?,
+       geofence_radius_m = ?
+     WHERE id = ?`
+  ).run(
+    name,
+    legal_name || null,
+    tax_number || null,
+    phone || null,
+    address || null,
+    public_url || null,
+    country || 'مصر',
+    currency || 'ج.م',
+    coord.latitude,
+    coord.longitude,
+    toBool(vat_enabled) ? 1 : 0,
+    round2(Number(vat_rate) || 0),
+    toBool(wht_enabled) ? 1 : 0,
+    round2(Number(wht_rate) || 0),
+    toBool(stamp_duty_enabled) ? 1 : 0,
+    round2(Number(stamp_duty_rate) || 0),
+    toBool(income_tax_enabled) ? 1 : 0,
+    round2(Number(income_tax_rate) || 0),
+    round2(Number(geofence_radius_m) || 300),
+    id
+  );
+  return db.prepare('SELECT * FROM companies WHERE id = ?').get(id);
+}
+
+function createBranch({ company_id, name, address, phone, is_main, latitude, longitude }) {
   return inTransaction(() => {
     if (is_main) db.prepare('UPDATE branches SET is_main = 0 WHERE company_id = ?').run(company_id);
+    const coord = sanitizeCoord(latitude, longitude);
     const info = db
-      .prepare('INSERT INTO branches (company_id, name, address, phone, is_main) VALUES (?, ?, ?, ?, ?)')
-      .run(company_id, name, address || null, phone || null, is_main ? 1 : 0);
+      .prepare('INSERT INTO branches (company_id, name, address, phone, is_main, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(company_id, name, address || null, phone || null, is_main ? 1 : 0, coord.latitude, coord.longitude);
     return db.prepare('SELECT * FROM branches WHERE id = ?').get(info.lastInsertRowid);
+  });
+}
+
+function updateBranch(id, companyId, { name, address, phone, is_main, latitude, longitude }) {
+  return inTransaction(() => {
+    if (is_main) db.prepare('UPDATE branches SET is_main = 0 WHERE company_id = ?').run(companyId);
+    const coord = sanitizeCoord(latitude, longitude);
+    db.prepare(
+      'UPDATE branches SET name = ?, address = ?, phone = ?, is_main = ?, latitude = ?, longitude = ? WHERE id = ? AND company_id = ?'
+    ).run(name, address || null, phone || null, is_main ? 1 : 0, coord.latitude, coord.longitude, id, companyId);
+    return db.prepare('SELECT * FROM branches WHERE id = ?').get(id);
   });
 }
 
@@ -538,15 +602,29 @@ function listProductCategories(companyId) {
 // المنتجات و BOM ووحدات القياس
 // ---------------------------------------------------------------------------
 
-function createProduct({ company_id, branch_id, category_id, name, sku, unit, kind, sale_price, cost_price, reorder_level, opening_qty, bom, track_expiry, photo }) {
+function createProduct({ company_id, branch_id, category_id, name, sku, unit, kind, sale_price, cost_price, reorder_level, opening_qty, bom, track_expiry, photo, storage_method, default_branch_id }) {
   return inTransaction(() => {
     if (category_id) assertBelongs('product_categories', category_id, company_id, 'التصنيف');
+    if (default_branch_id) assertBelongs('branches', default_branch_id, company_id, 'المخزن الرئيسي');
     const info = db
       .prepare(
-        `INSERT INTO products (company_id, category_id, name, sku, unit, kind, sale_price, reorder_level, track_expiry, photo)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO products (company_id, category_id, name, sku, unit, kind, sale_price, reorder_level, track_expiry, photo, storage_method, default_branch_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(company_id, category_id || null, name, sku || null, unit || 'وحدة', kind, Number(sale_price) || 0, Number(reorder_level) || 0, track_expiry ? 1 : 0, photo || null);
+      .run(
+        company_id,
+        category_id || null,
+        name,
+        sku || null,
+        unit || 'وحدة',
+        kind,
+        Number(sale_price) || 0,
+        Number(reorder_level) || 0,
+        track_expiry ? 1 : 0,
+        photo || null,
+        storage_method || null,
+        default_branch_id || null
+      );
     const id = info.lastInsertRowid;
 
     const oQty = round2(Number(opening_qty) || 0);
@@ -714,18 +792,23 @@ function createPurchaseInvoice({
     subtotal = round2(subtotal);
     const vat_amount = company.vat_enabled ? round2(subtotal * (company.vat_rate / 100)) : 0;
     const total = round2(subtotal + vat_amount);
-    const paid = Math.max(0, Math.min(round2(Number(paid_amount) || 0), total));
+    // ضريبة الخصم والإضافة (WHT): بتتحسب على قيمة الفاتورة قبل الضريبة وبتتحجز من مستحقات
+    // المورد لصالح مصلحة الضرائب - يعني المورد بياخد أقل من "total" بمقدارها، والمنشأة بتفضل
+    // مديونة بيها للمصلحة (حساب مستقل عن حساب المورد نفسه).
+    const wht_amount = company.wht_enabled ? round2(subtotal * (company.wht_rate / 100)) : 0;
+    const netPayable = round2(total - wht_amount);
+    const paid = Math.max(0, Math.min(round2(Number(paid_amount) || 0), netPayable));
     const coord = sanitizeCoord(latitude, longitude);
 
     const info = db
       .prepare(
         `INSERT INTO purchase_invoices
-         (company_id, branch_id, invoice_no, supplier_id, invoice_date, paid_amount, paid_from, subtotal, vat_amount, total, notes, latitude, longitude, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (company_id, branch_id, invoice_no, supplier_id, invoice_date, paid_amount, paid_from, subtotal, vat_amount, wht_amount, total, notes, latitude, longitude, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         company_id, branch_id, invoice_no, supplier_id, invoice_date, paid, paid_from || 'cash',
-        subtotal, vat_amount, total, notes || null, coord.latitude, coord.longitude, created_by_user_id || null
+        subtotal, vat_amount, wht_amount, total, notes || null, coord.latitude, coord.longitude, created_by_user_id || null
       );
     const invoiceId = info.lastInsertRowid;
 
@@ -768,7 +851,8 @@ function createPurchaseInvoice({
     }));
     if (vat_amount > 0) jLines.push({ account_code: ACC.VAT_INPUT, debit: vat_amount });
     if (paid > 0) jLines.push({ account_code: cashOrBank(paid_from), credit: paid });
-    const remaining = round2(total - paid);
+    if (wht_amount > 0) jLines.push({ account_code: ACC.WHT_PAYABLE, credit: wht_amount });
+    const remaining = round2(netPayable - paid);
     if (remaining > 0) {
       jLines.push({
         account_code: ACC.AP,
@@ -1049,7 +1133,7 @@ function createTrip({ company_id, branch_id, vehicle_id, responsible_employee_id
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
     .run(company_id, branch_id, trip_no, vehicle_id, responsible_employee_id, trip_date, notes || null);
-  return db.prepare('SELECT * FROM trips WHERE id = ?').get(info.lastInsertRowid);
+  return getTrip(info.lastInsertRowid);
 }
 
 function requireTrip(trip_id) {
@@ -1253,7 +1337,7 @@ function tripRemainingQty(trip_id, product_id) {
   return round2(loaded - sold - returned - damaged);
 }
 
-function addTripExpense({ trip_id, category, amount, paid_from, notes, created_by_user_id }) {
+function addTripExpense({ trip_id, category, amount, paid_from, notes, latitude, longitude, photo, created_by_user_id }) {
   return inTransaction(() => {
     const trip = requireOpenTrip(trip_id);
     assertPeriodOpen(trip.company_id, trip.branch_id, trip.trip_date);
@@ -1263,11 +1347,13 @@ function addTripExpense({ trip_id, category, amount, paid_from, notes, created_b
     if (from === 'driver_custody' && !trip.responsible_employee_id) {
       throw new Error('الرحلة دي مالهاش موظف مسؤول محدد، مينفعش يتصرف من عهدته');
     }
+    const coord = sanitizeCoord(latitude, longitude);
     const info = db
       .prepare(
-        `INSERT INTO trip_expenses (trip_id, category, amount, paid_from, notes, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO trip_expenses (trip_id, category, amount, paid_from, notes, latitude, longitude, photo, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(trip_id, category, amt, from, notes || null, created_by_user_id || null);
+      .run(trip_id, category, amt, from, notes || null, coord.latitude, coord.longitude, photo || null, created_by_user_id || null);
 
     // 'driver_custody' = المصروف اتدفع من الكاش اللي في إيد السائق (تحصيلات ميدانية)، فبنقلل عهدته
     // النقدية بدل ما نلمس خزنة/بنك المنشأة اللي أصلًا محصلش منها حاجة.
@@ -1530,7 +1616,8 @@ function createSalesInvoice({
     }
 
     const vat_amount = company.vat_enabled ? round2(subtotal * (company.vat_rate / 100)) : 0;
-    const total = round2(subtotal + vat_amount);
+    const stamp_duty_amount = company.stamp_duty_enabled ? round2(subtotal * (company.stamp_duty_rate / 100)) : 0;
+    const total = round2(subtotal + vat_amount + stamp_duty_amount);
     const paid = Math.max(0, Math.min(round2(Number(paid_amount) || 0), total));
     const remainingOnInvoice = round2(total - paid);
 
@@ -1562,8 +1649,8 @@ function createSalesInvoice({
     const info = db
       .prepare(
         `INSERT INTO sales_invoices
-         (company_id, branch_id, invoice_no, customer_id, trip_id, invoice_date, paid_amount, paid_to, subtotal, vat_amount, total, notes, latitude, longitude, created_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (company_id, branch_id, invoice_no, customer_id, trip_id, invoice_date, paid_amount, paid_to, subtotal, vat_amount, stamp_duty_amount, total, notes, latitude, longitude, created_by_user_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         company_id,
@@ -1576,6 +1663,7 @@ function createSalesInvoice({
         paid_to || 'cash',
         subtotal,
         vat_amount,
+        stamp_duty_amount,
         total,
         notes || null,
         coord.latitude,
@@ -1626,6 +1714,7 @@ function createSalesInvoice({
     }
     jLines.push({ account_code: ACC.SALES, credit: subtotal });
     if (vat_amount > 0) jLines.push({ account_code: ACC.VAT_OUTPUT, credit: vat_amount });
+    if (stamp_duty_amount > 0) jLines.push({ account_code: ACC.STAMP_DUTY_PAYABLE, credit: stamp_duty_amount });
     if (totalCost > 0) {
       jLines.push({ account_code: ACC.COGS, debit: totalCost });
       for (const [account_code, amount] of Object.entries(cogsAccTotals)) {
@@ -2482,9 +2571,80 @@ function getFiscalClosing(id) {
   return closing;
 }
 
+// ---------------------------------------------------------------------------
+// شات الفريق - شات واحد لكل منشأة، معروض لكل الفريق بصرف النظر عن الفرع
+// ---------------------------------------------------------------------------
+
+const CHAT_ATTACHMENT_MAX_BYTES = 6 * 1024 * 1024; // 6 ميجابايت للملف الأصلي (قبل تضخّم base64)
+
+function sendChatMessage({ company_id, sender_user_id, mentioned_user_id, body, attachment_data, attachment_name, attachment_mime }) {
+  const text = (body || '').trim();
+  if (!text && !attachment_data) throw new Error('لازم تكتب نص أو ترفق ملف');
+  if (text.length > 2000) throw new Error('الرسالة طويلة جدًا (٢٠٠٠ حرف كحد أقصى)');
+  if (attachment_data) {
+    if (typeof attachment_data !== 'string' || !attachment_data.startsWith('data:')) {
+      throw new Error('صيغة المرفق غير صحيحة');
+    }
+    // طول نص base64 تقريبًا 4/3 حجم البيانات الحقيقي - تقدير كافٍ لرفض الملفات الكبيرة بدري
+    const approxBytes = attachment_data.length * 0.75;
+    if (approxBytes > CHAT_ATTACHMENT_MAX_BYTES) {
+      throw new Error('حجم المرفق كبير جدًا (٦ ميجابايت كحد أقصى)');
+    }
+  }
+  if (mentioned_user_id) assertBelongs('users', mentioned_user_id, company_id, 'الشخص الموجّهة له الرسالة');
+  const info = db
+    .prepare(
+      `INSERT INTO chat_messages (company_id, sender_user_id, mentioned_user_id, body, attachment_data, attachment_name, attachment_mime)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(company_id, sender_user_id, mentioned_user_id || null, text, attachment_data || null, attachment_name || null, attachment_mime || null);
+  return getChatMessage(info.lastInsertRowid);
+}
+
+function getChatMessage(id) {
+  return db
+    .prepare(
+      `SELECT cm.*, u.username AS sender_username, mu.username AS mentioned_username
+       FROM chat_messages cm
+       JOIN users u ON u.id = cm.sender_user_id
+       LEFT JOIN users mu ON mu.id = cm.mentioned_user_id
+       WHERE cm.id = ?`
+    )
+    .get(id);
+}
+
+function listChatMessages(companyId, { afterId, limit } = {}) {
+  if (afterId) {
+    return db
+      .prepare(
+        `SELECT cm.*, u.username AS sender_username, mu.username AS mentioned_username
+         FROM chat_messages cm
+         JOIN users u ON u.id = cm.sender_user_id
+         LEFT JOIN users mu ON mu.id = cm.mentioned_user_id
+         WHERE cm.company_id = ? AND cm.id > ?
+         ORDER BY cm.id ASC`
+      )
+      .all(companyId, afterId);
+  }
+  const rows = db
+    .prepare(
+      `SELECT cm.*, u.username AS sender_username, mu.username AS mentioned_username
+       FROM chat_messages cm
+       JOIN users u ON u.id = cm.sender_user_id
+       LEFT JOIN users mu ON mu.id = cm.mentioned_user_id
+       WHERE cm.company_id = ?
+       ORDER BY cm.id DESC
+       LIMIT ?`
+    )
+    .all(companyId, limit || 100);
+  return rows.reverse();
+}
+
 module.exports = {
   sanitizeCoord,
   toBool,
+  sendChatMessage,
+  listChatMessages,
   createEmployee,
   updateEmployee,
   createProductCategory,
@@ -2493,7 +2653,9 @@ module.exports = {
   setProductUnits,
   listProductUnits,
   createCompany,
+  updateCompany,
   createBranch,
+  updateBranch,
   createPartner,
   createCustomAccount,
   createSupplier,

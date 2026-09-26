@@ -16,6 +16,8 @@ const ACC = {
   ACCRUED: '2200', // مصروفات مستحقة
   TAXES_PAYABLE: '2300', // ضرائب ومستحقات حكومية
   VAT_OUTPUT: '2310', // ضريبة القيمة المضافة على المبيعات (مستحقة لمصلحة الضرائب)
+  WHT_PAYABLE: '2320', // ضريبة الخصم والإضافة المحجوزة من الموردين (مستحقة التوريد للمصلحة)
+  STAMP_DUTY_PAYABLE: '2330', // ضريبة الدمغة المحصّلة من العملاء (مستحقة التوريد للمصلحة)
   CAPITAL: '3100', // رأس مال الشركاء
   OPENING_EQUITY: '3200', // أرصدة افتتاحية / أرباح مرحلة
   DRAWINGS: '3300', // مسحوبات الشركاء الشخصية
@@ -52,6 +54,8 @@ const CHART_OF_ACCOUNTS = [
   { code: ACC.ACCRUED, name: 'مصروفات مستحقة', type: 'liability', parent_code: '2000', is_postable: 1 },
   { code: ACC.TAXES_PAYABLE, name: 'ضرائب ومستحقات حكومية', type: 'liability', parent_code: '2000', is_postable: 1 },
   { code: ACC.VAT_OUTPUT, name: 'ضريبة القيمة المضافة على المبيعات (مستحقة للمصلحة)', type: 'liability', parent_code: '2000', is_postable: 1 },
+  { code: ACC.WHT_PAYABLE, name: 'ضريبة الخصم والإضافة المحجوزة من الموردين', type: 'liability', parent_code: '2000', is_postable: 1 },
+  { code: ACC.STAMP_DUTY_PAYABLE, name: 'ضريبة الدمغة المحصّلة من العملاء', type: 'liability', parent_code: '2000', is_postable: 1 },
 
   { code: '3000', name: 'حقوق الملكية', type: 'equity', parent_code: null, is_postable: 0 },
   { code: ACC.CAPITAL, name: 'رأس مال الشركاء', type: 'equity', parent_code: '3000', is_postable: 1 },

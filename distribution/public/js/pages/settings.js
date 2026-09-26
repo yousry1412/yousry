@@ -9,6 +9,7 @@ const SETTINGS_TABS = [
   { key: 'whatsapp', label: 'واتساب' },
   { key: 'maps', label: 'الخرائط' },
   { key: 'activity', label: 'سجل النشاط' },
+  { key: 'backup', label: 'النسخ الاحتياطي' },
 ];
 
 const USER_ROLE_LABELS = {
@@ -20,6 +21,18 @@ const USER_ROLE_LABELS = {
 };
 const USER_ROLE_ORDER = ['owner', 'accountant', 'sales', 'warehouse', 'partner'];
 
+// خريطة الدولة -> العملة الافتراضية بتاعتها - بتتحدد تلقائيًا وقت اختيار الدولة، وتقدر
+// تعدّلها يدويًا لو محتاج. العملة هنا رمز عرض بس (مفيش تحويل عملات أو أسعار صرف في
+// النظام) - عشان كده كل فروع نفس المنشأة لازم يكونوا بنفس عملة المنشأة، وإلا التقارير
+// المجمّعة (قائمة الدخل، الميزانية) هتجمع أرقام بعملات مختلفة كأنها نفس الوحدة.
+const COUNTRY_CURRENCY = {
+  'مصر': 'ج.م', 'السعودية': 'ر.س', 'الإمارات': 'د.إ', 'الكويت': 'د.ك',
+  'قطر': 'ر.ق', 'البحرين': 'د.ب', 'عُمان': 'ر.ع', 'الأردن': 'د.أ',
+  'لبنان': 'ل.ل', 'العراق': 'د.ع', 'المغرب': 'د.م', 'الجزائر': 'د.ج',
+  'تونس': 'د.ت', 'ليبيا': 'د.ل', 'السودان': 'ج.س', 'فلسطين': '₪',
+  'اليمن': 'ر.ي', 'أمريكا': '$', 'بريطانيا': '£', 'أوروبا (يورو)': '€',
+};
+
 function companyFormHtml(c = {}) {
   return `
     <form id="companyForm">
@@ -30,15 +43,43 @@ function companyFormHtml(c = {}) {
         <div class="field"><label>الهاتف</label><input name="phone" value="${UI.escapeHtml(c.phone || '')}" /></div>
         <div class="field"><label>رابط الموقع العام (لإرسال روابط الفواتير)</label><input name="public_url" placeholder="https://example.com" value="${UI.escapeHtml(c.public_url || '')}" /></div>
         <div class="field span-2"><label>العنوان</label><input name="address" value="${UI.escapeHtml(c.address || '')}" /></div>
+        <div class="field span-2">
+          <label>موقع المنشأة (GPS)</label>
+          <div style="display:flex; align-items:center; gap:10px">
+            <button type="button" class="btn secondary small" id="companyGpsBtn">📍 تحديد موقعي الحالي</button>
+            <span class="muted" id="companyGpsStatus" style="font-size:12.5px">${c.latitude ? `مسجّل حاليًا · <a href="${UI.googleMapsLink(c.latitude, c.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>` : 'لسه متسجلش'}</span>
+          </div>
+          <input type="hidden" name="latitude" id="companyLat" value="${c.latitude ?? ''}" />
+          <input type="hidden" name="longitude" id="companyLng" value="${c.longitude ?? ''}" />
+        </div>
       </div>
-      <div class="card-header" style="margin:14px 0 6px"><h3 style="font-size:14px">الضرائب - حسب دولة تشغيل المنشأة</h3></div>
-      <p class="muted" style="font-size:12.5px">قواعد الضريبة بتختلف من بلد لبلد - حدد الدولة ونسبة الضريبة الصحيحة لبلدك، أو سيّب الضريبة "غير مفعّلة" لو منشأتك مش خاضعة للضريبة أصلاً.</p>
+      <div class="card-header" style="margin:14px 0 6px"><h3 style="font-size:14px">الضرائب والعملة - حسب دولة تشغيل المنشأة</h3></div>
+      <p class="muted" style="font-size:12.5px">قواعد الضريبة والعملة بتختلف من بلد لبلد - حدد الدولة، وهيتحدد شكل العملة تلقائيًا (تقدر تعدّله)، وحدد نسبة الضريبة الصحيحة لبلدك، أو سيّب الضريبة "غير مفعّلة" لو منشأتك مش خاضعة للضريبة أصلاً.</p>
       <div class="form-grid">
-        <div class="field"><label>الدولة</label><input name="country" placeholder="مصر" value="${UI.escapeHtml(c.country || 'مصر')}" /></div>
+        <div class="field">
+          <label>الدولة</label>
+          <select name="country" id="companyCountrySelect">
+            ${Object.keys(COUNTRY_CURRENCY).map((name) => `<option value="${name}" ${(c.country || 'مصر') === name ? 'selected' : ''}>${name}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>رمز العملة</label><input name="currency" id="companyCurrencyInput" value="${UI.escapeHtml(c.currency || COUNTRY_CURRENCY[c.country || 'مصر'])}" /></div>
         <div class="field"><label>خاضعة لضريبة القيمة المضافة؟</label><select name="vat_enabled"><option value="0" ${!c.vat_enabled ? 'selected' : ''}>لا</option><option value="1" ${c.vat_enabled ? 'selected' : ''}>نعم</option></select></div>
         <div class="field"><label>نسبة الضريبة %</label><input name="vat_rate" type="number" step="0.01" value="${c.vat_rate ?? 0}" /></div>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>خاضعة لضريبة الخصم والإضافة (WHT)؟</label><select name="wht_enabled"><option value="0" ${!c.wht_enabled ? 'selected' : ''}>لا</option><option value="1" ${c.wht_enabled ? 'selected' : ''}>نعم</option></select></div>
+        <div class="field"><label>نسبة الخصم والإضافة %</label><input name="wht_rate" type="number" step="0.01" value="${c.wht_rate ?? 0}" /></div>
+        <div class="field"><label>خاضعة لضريبة الدمغة؟</label><select name="stamp_duty_enabled"><option value="0" ${!c.stamp_duty_enabled ? 'selected' : ''}>لا</option><option value="1" ${c.stamp_duty_enabled ? 'selected' : ''}>نعم</option></select></div>
+        <div class="field"><label>نسبة ضريبة الدمغة %</label><input name="stamp_duty_rate" type="number" step="0.01" value="${c.stamp_duty_rate ?? 0}" /></div>
+        <div class="field"><label>خاضعة لضريبة الدخل السنوية؟</label><select name="income_tax_enabled"><option value="0" ${!c.income_tax_enabled ? 'selected' : ''}>لا</option><option value="1" ${c.income_tax_enabled ? 'selected' : ''}>نعم</option></select></div>
+        <div class="field"><label>نسبة ضريبة الدخل %</label><input name="income_tax_rate" type="number" step="0.01" value="${c.income_tax_rate ?? 0}" /></div>
         <div class="field"><label>نطاق الرقابة الجغرافية الافتراضي (متر)</label><input name="geofence_radius_m" type="number" step="1" value="${c.geofence_radius_m ?? 300}" /></div>
       </div>
+      <p class="muted" style="font-size:12px">
+        ضريبة الخصم والإضافة: بتتحجز آليًا من مستحقات المورد عند تسجيل فاتورة الشراء، وبتفضل مديونية على المنشأة لحين توريدها للمصلحة.
+        ضريبة الدمغة: بتُضاف آليًا على فاتورة البيع كمبلغ منفصل عن الضريبة المضافة.
+        ضريبة الدخل السنوية: نسبة تقديرية بتظهر كبند تقديري في قائمة الدخل بس، ومحتاجة مراجعة المحاسب عند التوريد الفعلي - مفيش قيود محاسبية آلية بيها.
+      </p>
       <p class="muted" style="font-size:12px">نطاق الرقابة الجغرافية: أقصى مسافة (بالمتر) مسموح بيها بين موقع تسجيل فاتورة الشراء وموقع المورد المسجّل، عشان تتأكد إن الفاتورة اتسجلت فعليًا عند المورد. تقدر تخصص نطاق مختلف لكل مورد من صفحة الموردين.</p>
       <div class="modal-actions">
         <button type="submit" class="btn">${c.id ? 'حفظ التعديلات' : 'إضافة المنشأة'}</button>
@@ -50,6 +91,21 @@ function companyFormHtml(c = {}) {
 
 function openCompanyModal(existing, onDone) {
   UI.openModal(existing ? 'تعديل بيانات منشأة' : 'منشأة جديدة', companyFormHtml(existing || {}));
+  document.getElementById('companyGpsBtn').addEventListener('click', async () => {
+    const status = document.getElementById('companyGpsStatus');
+    status.textContent = 'جارِ تحديد الموقع...';
+    const pos = await UI.getCurrentPosition();
+    if (!pos) {
+      status.textContent = 'تعذّر تحديد الموقع - تأكد من تفعيل خدمة الموقع';
+      return;
+    }
+    document.getElementById('companyLat').value = pos.latitude;
+    document.getElementById('companyLng').value = pos.longitude;
+    status.innerHTML = `تم التحديد الآن · <a href="${UI.googleMapsLink(pos.latitude, pos.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>`;
+  });
+  document.getElementById('companyCountrySelect').addEventListener('change', (e) => {
+    document.getElementById('companyCurrencyInput').value = COUNTRY_CURRENCY[e.target.value] || '';
+  });
   document.getElementById('companyForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -107,6 +163,15 @@ function branchFormHtml(b = {}) {
           <select name="is_main"><option value="0" ${!b.is_main ? 'selected' : ''}>لا</option><option value="1" ${b.is_main ? 'selected' : ''}>نعم</option></select>
         </div>
         <div class="field span-2"><label>العنوان</label><input name="address" value="${UI.escapeHtml(b.address || '')}" /></div>
+        <div class="field span-2">
+          <label>موقع الفرع / المخزن (GPS)</label>
+          <div style="display:flex; align-items:center; gap:10px">
+            <button type="button" class="btn secondary small" id="branchGpsBtn">📍 تحديد موقعي الحالي</button>
+            <span class="muted" id="branchGpsStatus" style="font-size:12.5px">${b.latitude ? `مسجّل حاليًا · <a href="${UI.googleMapsLink(b.latitude, b.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>` : 'لسه متسجلش'}</span>
+          </div>
+          <input type="hidden" name="latitude" id="branchLat" value="${b.latitude ?? ''}" />
+          <input type="hidden" name="longitude" id="branchLng" value="${b.longitude ?? ''}" />
+        </div>
       </div>
       <div class="modal-actions">
         <button type="submit" class="btn">${b.id ? 'حفظ التعديلات' : 'إضافة الفرع'}</button>
@@ -118,6 +183,18 @@ function branchFormHtml(b = {}) {
 
 function openBranchModal(existing, onDone) {
   UI.openModal(existing ? 'تعديل بيانات فرع' : 'فرع جديد', branchFormHtml(existing || {}));
+  document.getElementById('branchGpsBtn').addEventListener('click', async () => {
+    const status = document.getElementById('branchGpsStatus');
+    status.textContent = 'جارِ تحديد الموقع...';
+    const pos = await UI.getCurrentPosition();
+    if (!pos) {
+      status.textContent = 'تعذّر تحديد الموقع - تأكد من تفعيل خدمة الموقع';
+      return;
+    }
+    document.getElementById('branchLat').value = pos.latitude;
+    document.getElementById('branchLng').value = pos.longitude;
+    status.innerHTML = `تم التحديد الآن · <a href="${UI.googleMapsLink(pos.latitude, pos.longitude)}" target="_blank" rel="noopener">فتح في خرائط جوجل</a>`;
+  });
   document.getElementById('branchForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -309,9 +386,21 @@ function userFormHtml(u = {}, branches = [], partners = []) {
         </div>
         <div class="field"><label>رقم هاتف واتساب (لتنبيهات الفواتير الميدانية)</label><input name="phone" type="tel" value="${UI.escapeHtml(u.phone || '')}" /></div>
         <div class="field"><label>نسبة عمولة على المبيعات % (اختياري)</label><input name="commission_pct" type="number" step="0.01" min="0" max="100" value="${u.commission_pct ?? ''}" /></div>
-        <div class="field" style="flex-direction:row; align-items:center; gap:8px">
+        <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
           <input type="checkbox" id="userNotifyInvoices" name="notify_new_invoices" value="1" style="width:auto" ${u.notify_new_invoices ? 'checked' : ''} />
           <label for="userNotifyInvoices" style="margin:0">تنبيهي على واتساب بأي فاتورة ميدانية جديدة</label>
+        </div>
+        <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
+          <input type="checkbox" id="userNotifyTripStart" name="notify_trip_start" value="1" style="width:auto" ${u.notify_trip_start ? 'checked' : ''} />
+          <label for="userNotifyTripStart" style="margin:0">تنبيهي على واتساب ببداية أي رحلة توزيع جديدة</label>
+        </div>
+        <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
+          <input type="checkbox" id="userNotifyExpenses" name="notify_new_expenses" value="1" style="width:auto" ${u.notify_new_expenses ? 'checked' : ''} />
+          <label for="userNotifyExpenses" style="margin:0">تنبيهي على واتساب بأي مصروف جديد (رحلة أو عام)</label>
+        </div>
+        <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
+          <input type="checkbox" id="userNotifyExpiry" name="notify_expiry_alerts" value="1" style="width:auto" ${u.notify_expiry_alerts ? 'checked' : ''} />
+          <label for="userNotifyExpiry" style="margin:0">تنبيهي على واتساب بتنبيهات صلاحية الأصناف القريبة/المنتهية</label>
         </div>
         ${
           u.id
@@ -355,6 +444,9 @@ function openUserModal(existing, branches, partners, onDone) {
     if (payload.role !== 'partner') delete payload.partner_id;
     payload.is_active = existing ? payload.is_active === '1' : 1;
     payload.notify_new_invoices = document.getElementById('userNotifyInvoices').checked;
+    payload.notify_trip_start = document.getElementById('userNotifyTripStart').checked;
+    payload.notify_new_expenses = document.getElementById('userNotifyExpenses').checked;
+    payload.notify_expiry_alerts = document.getElementById('userNotifyExpiry').checked;
     try {
       if (existing) await Api.put(`/users/${existing.id}`, payload);
       else await Api.post('/users', payload);
@@ -605,6 +697,67 @@ async function renderActivityTab() {
   `;
 }
 
+function formatBackupSize(bytes) {
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} كيلوبايت`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} ميجابايت`;
+}
+
+async function renderBackupTab() {
+  const container = document.getElementById('settingsTabContent');
+  container.innerHTML = '<div class="empty-state">جارِ التحميل...</div>';
+  const backups = await Api.get('/backup/list');
+  const latest = backups[0];
+  container.innerHTML = `
+    <div class="card-header"><h3>النسخ الاحتياطي</h3></div>
+
+    <div class="card" style="background:#f7fdf9; border-color:#bfe3cf">
+      <h4 style="margin:0 0 8px">📥 تحميل نسخة احتياطية كاملة الآن</h4>
+      <p class="muted" style="font-size:13px">
+        دي أهم خطوة عشان بياناتك متضيعش نهائيًا حتى لو حصل عطل كامل في السيرفر: حمّل الملف
+        ده على فلاشة أو أي جهاز بعيد عن السيرفر بشكل دوري (كل أسبوع مثلًا). النسخ التلقائية
+        اليومية تحت دي محفوظة على نفس قرص السيرفر - بتحميك من غلطة أو حذف بالخطأ، لكن
+        مش من ضياع القرص نفسه بالكامل. النسخة اللي هتنزل هي ملف قاعدة بيانات كامل (.sqlite)
+        فيه كل بياناتك لحظة التحميل.
+      </p>
+      <button class="btn" id="downloadBackupBtn">📥 تحميل نسخة احتياطية الآن</button>
+    </div>
+
+    <div class="card-header" style="margin-top:16px"><h4 style="margin:0">النسخ اليومية التلقائية على السيرفر</h4></div>
+    <p class="muted" style="font-size:12.5px">بتُؤخذ نسخة تلقائية كل يوم، ويُحتفظ بآخر 7 أيام بس (الأقدم منها بيُحذف تلقائيًا).</p>
+    ${
+      latest
+        ? `<p style="font-size:13px">آخر نسخة تلقائية: <strong>${UI.formatDateTime(latest.created_at)}</strong> (${formatBackupSize(latest.sizeBytes)})</p>`
+        : '<p class="muted" style="font-size:13px">لسه معملتش أي نسخة تلقائية - أول نسخة هتُؤخذ خلال ٢٤ ساعة من تشغيل السيرفر.</p>'
+    }
+    ${
+      backups.length === 0
+        ? ''
+        : `<div class="table-wrap"><table><thead><tr><th>الملف</th><th>التاريخ</th><th>الحجم</th></tr></thead><tbody>
+            ${backups
+              .map(
+                (b) => `<tr>
+              <td class="muted">${UI.escapeHtml(b.name)}</td>
+              <td>${UI.formatDateTime(b.created_at)}</td>
+              <td>${formatBackupSize(b.sizeBytes)}</td>
+            </tr>`
+              )
+              .join('')}
+          </tbody></table></div>`
+    }
+  `;
+
+  document.getElementById('downloadBackupBtn').addEventListener('click', (e) => {
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = 'جارِ تجهيز النسخة...';
+    window.location.href = '/api/backup/download';
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '📥 تحميل نسخة احتياطية الآن';
+    }, 3000);
+  });
+}
+
 const SETTINGS_RENDERERS = {
   companies: renderCompaniesTab,
   branches: renderBranchesTab,
@@ -614,6 +767,7 @@ const SETTINGS_RENDERERS = {
   whatsapp: renderWhatsappTab,
   maps: renderMapsTab,
   activity: renderActivityTab,
+  backup: renderBackupTab,
 };
 
 Pages.settingsHome = async function () {

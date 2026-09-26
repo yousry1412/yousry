@@ -128,6 +128,7 @@ Pages.salesNew = async function () {
         <div class="totals-box"><div class="totals-inner">
           <div class="totals-row"><span>الإجمالي قبل الضريبة</span><span id="subTotal">0.00 ج.م</span></div>
           <div class="totals-row" id="vatRow" style="display:none"><span>ضريبة القيمة المضافة (<span id="vatRateLabel"></span>%)</span><span id="vatTotal">0.00 ج.م</span></div>
+          <div class="totals-row" id="stampDutyRow" style="display:none"><span>ضريبة الدمغة (<span id="stampDutyRateLabel"></span>%)</span><span id="stampDutyTotal">0.00 ج.م</span></div>
           <div class="totals-row grand"><span>إجمالي الفاتورة</span><span id="grandTotal">0.00 ج.م</span></div>
         </div></div>
 
@@ -220,7 +221,17 @@ Pages.salesNew = async function () {
       document.getElementById('vatRateLabel').textContent = company.vat_rate;
       document.getElementById('vatTotal').textContent = UI.money(vat);
     }
-    const total = subtotal + vat;
+    const stampEnabled = company && company.stamp_duty_enabled;
+    const stamp = stampEnabled ? subtotal * (company.stamp_duty_rate / 100) : 0;
+    const stampRow = document.getElementById('stampDutyRow');
+    if (stampRow) {
+      stampRow.style.display = stampEnabled ? 'flex' : 'none';
+      if (stampEnabled) {
+        document.getElementById('stampDutyRateLabel').textContent = company.stamp_duty_rate;
+        document.getElementById('stampDutyTotal').textContent = UI.money(stamp);
+      }
+    }
+    const total = subtotal + vat + stamp;
     document.getElementById('grandTotal').textContent = UI.money(total);
     updateCreditHint(total);
   }
@@ -355,6 +366,7 @@ Pages.salesDetail = async function (id) {
       <div class="totals-box"><div class="totals-inner">
         <div class="totals-row"><span>الإجمالي قبل الضريبة</span><span>${UI.money(inv.subtotal ?? inv.total)}</span></div>
         ${inv.vat_amount ? `<div class="totals-row"><span>ضريبة القيمة المضافة</span><span>${UI.money(inv.vat_amount)}</span></div>` : ''}
+        ${inv.stamp_duty_amount ? `<div class="totals-row"><span>ضريبة الدمغة</span><span>${UI.money(inv.stamp_duty_amount)}</span></div>` : ''}
         <div class="totals-row"><span>الإجمالي</span><span>${UI.money(inv.total)}</span></div>
         <div class="totals-row"><span>المدفوع</span><span>${UI.money(inv.paid_amount)}</span></div>
         <div class="totals-row grand"><span>المتبقي (على العميل)</span><span>${UI.money(inv.total - inv.paid_amount)}</span></div>

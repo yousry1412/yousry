@@ -11,7 +11,19 @@ function categoryOptionsHtml(categories, selectedId) {
   return `<option value="">بدون تصنيف</option>` + UI.optionsHtml(categories, 'id', 'name', selectedId);
 }
 
-function productFormHtml(categories) {
+const STORAGE_METHODS = [
+  'تبريد (0° - 5°م)',
+  'تجميد (-18°م فأقل)',
+  'تخزين جاف عادي (درجة حرارة الغرفة)',
+  'مكان جاف بعيد عن الشمس والرطوبة',
+  'تهوية جيدة بدون تكديس',
+];
+
+function branchOptionsHtml(branches, selectedId) {
+  return `<option value="">بدون تحديد</option>` + UI.optionsHtml(branches, 'id', 'name', selectedId);
+}
+
+function productFormHtml(categories, branches) {
   return `
     <form id="productForm">
       <div class="form-grid">
@@ -34,14 +46,25 @@ function productFormHtml(categories) {
         <div class="field"><label>تكلفة الوحدة (تقديرية)</label><input name="cost_price" type="number" step="0.01" value="0" /></div>
         <div class="field"><label>حد إعادة الطلب</label><input name="reorder_level" type="number" step="0.01" value="0" /></div>
         <div class="field"><label>الكمية الافتتاحية بالمخزون</label><input name="opening_qty" type="number" step="0.01" value="0" /></div>
+        <div class="field">
+          <label>المخزن الرئيسي الافتراضي</label>
+          <select name="default_branch_id">${branchOptionsHtml(branches || [])}</select>
+        </div>
+        <div class="field">
+          <label>طريقة التخزين السليمة</label>
+          <select name="storage_method">
+            <option value="">-- اختر --</option>
+            ${STORAGE_METHODS.map((m) => `<option value="${UI.escapeHtml(m)}">${UI.escapeHtml(m)}</option>`).join('')}
+          </select>
+        </div>
         <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
           <input type="checkbox" id="productTrackExpiry" name="track_expiry" value="1" style="width:auto" />
           <label for="productTrackExpiry" style="margin:0">صنف بيتلف وليه تاريخ صلاحية (زي الدجاج الطازج) - تتبّع دفعاته وتنبيهات صلاحيتها</label>
         </div>
         <div class="field span-2"><label>صورة المنتج (اختياري)</label><input type="file" name="photo_file" accept="image/*" /></div>
       </div>
-      <p class="muted" style="font-size:12.5px">لو المنتج "مُصنّع" تقدر تحدد تركيبة المكونات (BOM)، ولو محتاج وحدات قياس
-        إضافية أكبر (زي كرتونة) تقدر تضيفها، كل ده بعد إضافة المنتج من صفحة تفاصيله.</p>
+      <p class="muted" style="font-size:12.5px">لو المنتج "مُصنّع" تقدر تحدد فين بيتصنّع وتركيبة المكونات (BOM) من صفحة
+        تفاصيله، ولو محتاج وحدات قياس إضافية أكبر (زي كرتونة) تقدر تضيفها هناك كمان.</p>
       <div class="modal-actions">
         <button type="submit" class="btn">إضافة المنتج</button>
         <button type="button" class="btn secondary" onclick="UI.closeModal()">إلغاء</button>
@@ -50,8 +73,8 @@ function productFormHtml(categories) {
   `;
 }
 
-function openProductModal(categories) {
-  UI.openModal('منتج جديد', productFormHtml(categories));
+function openProductModal(categories, branches) {
+  UI.openModal('منتج جديد', productFormHtml(categories, branches));
   document.getElementById('productForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const fd = new FormData(e.target);
@@ -97,7 +120,7 @@ function openCategoryModal(existing, onDone) {
 }
 
 Pages.productsList = async function () {
-  const [products, categories] = await Promise.all([Api.get('/products'), Api.get('/product-categories')]);
+  const [products, categories, branches] = await Promise.all([Api.get('/products'), Api.get('/product-categories'), Api.get('/branches')]);
   UI.setContent(`
     <div class="card">
       <div class="card-header">
@@ -132,15 +155,16 @@ Pages.productsList = async function () {
       }
     </div>
   `);
-  document.getElementById('addProductBtn').addEventListener('click', () => openProductModal(categories));
+  document.getElementById('addProductBtn').addEventListener('click', () => openProductModal(categories, branches));
   document.getElementById('addCategoryBtn').addEventListener('click', () => openCategoryModal(null, () => Pages.productsList()));
 };
 
 Pages.productDetail = async function (id) {
-  const [p, allProducts, categories] = await Promise.all([
+  const [p, allProducts, categories, branches] = await Promise.all([
     Api.get(`/products/${id}`),
     Api.get('/products'),
     Api.get('/product-categories'),
+    Api.get('/branches'),
   ]);
   const components = allProducts.filter((c) => c.id !== p.id);
 
@@ -168,6 +192,17 @@ Pages.productDetail = async function (id) {
           <div class="field"><label>الوحدة الأساسية (الصغرى)</label><input name="unit" value="${UI.escapeHtml(p.unit)}" /></div>
           <div class="field"><label>سعر البيع</label><input name="sale_price" type="number" step="0.01" value="${p.sale_price}" /></div>
           <div class="field"><label>حد إعادة الطلب</label><input name="reorder_level" type="number" step="0.01" value="${p.reorder_level}" /></div>
+          <div class="field">
+            <label>${p.kind === 'manufactured' ? 'مكان التصنيع / المخزن الرئيسي' : 'المخزن الرئيسي الافتراضي'}</label>
+            <select name="default_branch_id">${branchOptionsHtml(branches, p.default_branch_id)}</select>
+          </div>
+          <div class="field">
+            <label>طريقة التخزين السليمة</label>
+            <select name="storage_method">
+              <option value="" ${!p.storage_method ? 'selected' : ''}>-- اختر --</option>
+              ${STORAGE_METHODS.map((m) => `<option value="${UI.escapeHtml(m)}" ${p.storage_method === m ? 'selected' : ''}>${UI.escapeHtml(m)}</option>`).join('')}
+            </select>
+          </div>
           <div class="field span-2" style="flex-direction:row; align-items:center; gap:8px">
             <input type="checkbox" id="editTrackExpiry" style="width:auto" ${p.track_expiry ? 'checked' : ''} />
             <label for="editTrackExpiry" style="margin:0">صنف بيتلف وليه تاريخ صلاحية - تتبّع دفعاته وتنبيهات صلاحيتها</label>
