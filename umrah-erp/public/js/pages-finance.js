@@ -42,7 +42,7 @@
         ${t === 'EXP' ? `<div class="field"><label>بند المصروف</label><select class="input" data-vf="categoryId">${s.expenseCategories.map((c) => opt(c.id, f.categoryId, `${c.name} (${c.accountCode})`)).join('')}</select></div>` : ''}
         ${t === 'BILL' ? `<div class="field"><label>حساب التكلفة</label><select class="input" data-vf="accountCode">${leafAccounts(['51', '52', '12']).map((a) => opt(a.code, f.accountCode || '5101', `${a.code} · ${a.name}`)).join('')}</select></div>` : ''}
         ${t === 'PV' && f.partyType === 'supplier' && f.currency === 'SAR' ? `<div class="field"><label>سعر التحميل (المرجعي للرحلة)</label><input class="input" type="number" step="0.0001" data-vf="refFx" value="${esc(f.refFx || (s.trip ? s.trip.fxRef : ''))}"></div>` : ''}
-        <div class="field"><label>الرحلة (مركز التكلفة)</label><select class="input" data-vf="tripId"><option value="">— عام —</option>${s.trips.map((d) => opt(d.id, f.tripId, `${d.trip.code} · ${d.trip.name}`)).join('')}</select></div>
+        <div class="field"><label>الرحلة (مركز التكلفة)</label><select class="input" data-vf="tripId"><option value="">— عام —</option>${s.trips.map((d) => opt(d.id, f.tripId, `🕋 ${d.trip.code} · ${d.trip.name}`)).join('')}${(s.dom ? s.dom.programs : []).map((p) => opt(p.id, f.tripId, `🏖️ ${p.code} · ${p.name}`)).join('')}${s.dom && s.dom.bookings.some((b) => b.kind === 'HOTEL') ? opt('DOM-HOTELS', f.tripId, '🏨 حجوزات الفنادق') : ''}</select></div>
         <div class="field"><label>الفرع</label><select class="input" data-vf="branchId">${s.branches.map((b) => opt(b.id, f.branchId || 'BR1', b.name)).join('')}</select></div>
         ${t === 'PV' && f.partyType === 'supplier' && s.company.whtEnabled ? `<div class="field"><label>ضريبة خصم وإضافة ${s.company.whtRate}% (تُحجز وتُورّد للمصلحة)</label><input class="input" readonly value="${Acc.whtFor(s, Number(f.amount) || 0)} — الصافي للمورد ${Acc.r2((Number(f.amount) || 0) - Acc.whtFor(s, Number(f.amount) || 0))}"></div>` : ''}
         ${t === 'RV' && ['customer', 'agent'].includes(f.partyType) ? `<div class="field"><label>ضريبة خصم خصمها العميل (إن وجدت)</label><input class="input" type="number" step="0.01" min="0" data-vf="whtIn" value="${esc(f.whtIn || '')}"></div>` : ''}
@@ -82,6 +82,7 @@
       if (v.status === 'PENDING' && v.type === 'PV' && v.refFx == null && party && party.type === 'supplier' && v.currency === 'SAR') v.refFx = s.trip ? s.trip.fxRef : v.fx;
       App.audit(`${Acc.VOUCHER_TYPES[v.type]} ${v.no} بمبلغ ${v.amount} ${v.currency} — ${v.status === 'POSTED' ? 'مرحّل' : 'بانتظار الاعتماد'}`);
       App.closeModal(); App.save(); App.render();
+      if (v.status === 'POSTED' && App.waAutoReceipt) App.waAutoReceipt(v);
       App.toast(v.status === 'POSTED' ? `✅ ${v.no} اعتُمد ورُحّل للحسابات` : `📤 ${v.no} أُرسل للمحاسب — سيصله إشعار للمراجعة`);
     } catch (e) { App.toast('⛔ ' + e.message, 'err'); }
   };
@@ -120,7 +121,7 @@
   App.actions.vApprove = (d) => {
     const v = S().vouchers.find((x) => x.id === d.id);
     if (!(v.fileIds || []).length && !confirm('السند بدون مرفقات — اعتماد رغم ذلك؟')) return;
-    try { Model.approve(S(), d.id, App.actor()); App.audit(`اعتماد ${v.no}`); App.save(); App.render(); App.toast(`✅ ${v.no} اعتُمد ورُحّل`); }
+    try { Model.approve(S(), d.id, App.actor()); App.audit(`اعتماد ${v.no}`); App.save(); App.render(); App.toast(`✅ ${v.no} اعتُمد ورُحّل`); if (App.waAutoReceipt) App.waAutoReceipt(v); }
     catch (e) { App.toast('⛔ ' + e.message, 'err'); }
   };
   App.actions.vReject = (d) => {

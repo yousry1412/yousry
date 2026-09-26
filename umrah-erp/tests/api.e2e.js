@@ -211,6 +211,20 @@ test('HR: link employee, server-time punches, leave request, governance on HR da
   assert.equal((await sales.req('PUT', '/api/state', { baseVersion: st.version, state: st.state })).status, 403);
 });
 
+test('WhatsApp Business: config is admin-only, token never leaves the server, sending without config is logged as failed', async () => {
+  assert.equal((await sales.req('GET', '/api/wa/status')).data.enabled, false);
+  assert.equal((await sales.req('PUT', '/api/wa/config', { token: 'x', phoneId: '1' })).status, 403);
+  const r = await sales.req('POST', '/api/wa/send', { to: '01000000000', text: 'hi', ref: 'T' });
+  assert.equal(r.status, 400);
+  const c = await owner.req('PUT', '/api/wa/config', { token: 'EAAG-secret-token', phoneId: '123', mode: 'TEXT', dial: '20' });
+  assert.equal(c.data.token, '••••••••'); assert.equal(c.data.enabled, true);
+  assert.ok(!JSON.stringify((await owner.req('GET', '/api/wa/config')).data).includes('secret'));
+  const st = (await owner.req('GET', '/api/state')).data.state;
+  assert.ok(!JSON.stringify(st).includes('EAAG-secret-token'), 'token is not in the company document');
+  assert.ok((await owner.req('GET', '/api/wa/log')).data.some((l) => l.status === 'failed'));
+  assert.equal((await owner.req('PUT', '/api/wa/config', { token: '', phoneId: '' })).data.enabled, false);
+});
+
 test('versions, snapshot, wipe (with backup) and full backup', async () => {
   assert.equal((await owner.req('POST', '/api/versions/snapshot', { label: 'قبل الاختبار' })).status, 200);
   const vs = (await owner.req('GET', '/api/versions')).data;

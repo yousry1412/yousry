@@ -258,6 +258,8 @@
     ['home', '🏠', 'الرئيسية', [['home', 'لوحة التحكم والتنبيهات', EVERY], ['me', 'حسابي كموظف', EVERY]]],
     ['trips', '🕋', 'العمرة — الرحلات والتشغيل', [['trips', 'الرحلات', ALL], ['builder', 'التكلفة والتسعير', [...FIN, 'HEAD']], ['heatmap', 'رادار الإتاحات', ALL],
       ['rooms', 'التسكين المزدوج', OPS], ['bus', 'مقاعد الباص', OPS], ['ops', 'العمليات والكشوف', OPS], ['tripfiles', 'ملفات الرحلة', ALL]]],
+    ['dom', '🏖️', 'السياحة الداخلية', [['domPrograms', 'البرامج والرحلات', ALL], ['domBooking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['domOps', 'التشغيل والكشوف', OPS],
+      ['domHotels', 'الفنادق وأسعار التعاقد', [...FIN, 'OPERATIONS', 'HEAD']], ['domPnl', 'ربحية البرامج', FIN]]],
     ['sales', '🧾', 'المبيعات والعملاء', [['booking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL], ['scores', 'تقييم المناديب والمبيعات', ['OWNER', 'MANAGER', 'HEAD', 'ACCOUNTANT']]]],
     ['purch', '🏨', 'الموردون والفنادق', [['suppliers', 'الموردون', [...FIN, 'OPERATIONS']], ['hotels', 'الفنادق والمخصصات', [...FIN, 'OPERATIONS', 'HEAD']]]],
     ['fin', '💰', 'المالية والحسابات', [['treasury', 'الخزائن والبنوك', FIN], ['vouchers', 'السندات والاعتمادات', ALL], ['expenses', 'المصروفات', FIN],
@@ -265,7 +267,7 @@
     ['hr', '👥', 'الموارد البشرية', [['hrDash', 'لوحة الأداء والمراقبة', HRV], ['hrEmployees', 'ملفات الموظفين', HRV], ['hrAttendance', 'الحضور والانصراف', HRV], ['hrLeaves', 'الإجازات', HRV],
       ['hrTasks', 'المهام والتكليفات', HRV], ['hrReviews', 'الأهداف والتقييم', HRV], ['hrAdjust', 'المكافآت والجزاءات', HRV], ['hrPayroll', 'مسير الرواتب', [...HRV, 'ACCOUNTANT']],
       ['hrMonitor', 'سجل النشاط والمراقبة', HRV], ['hrSettings', 'إعدادات الدوام والتقييم', HRV]]],
-    ['comm', '💬', 'التواصل', [['chat', 'الشات الداخلي', EVERY]]],
+    ['comm', '💬', 'التواصل', [['chat', 'الشات الداخلي', EVERY], ['waCenter', 'رسائل واتساب الجماعية', [...SAL, 'OPERATIONS']]]],
     ['admin', '⚙️', 'الإدارة', [['settings', 'الشركة والفروع والضرائب', ADM], ['users', 'المستخدمون والصلاحيات', ADM], ['backup', 'النسخ الاحتياطي والإصدارات', ADM]]],
   ];
   const TRIP_PAGES = ['builder', 'heatmap', 'rooms', 'bus', 'ops', 'pnl', 'tripfiles'];
@@ -274,7 +276,7 @@
   App.myBranch = () => (App.online && App.me && App.me.role !== 'OWNER' ? App.me.branch_id || null : null);
   const groupOn = (gid) => !App.GROUP_DOMAIN[gid] || !App.S || Model.hasDomain(App.S, App.GROUP_DOMAIN[gid], App.myBranch());
   const pageAllowed = (p) => { for (const g of App.NAV) for (const [k, , roles] of g[3]) if (k === p) return roles.includes(App.role()) && groupOn(g[0]); return true; };
-  const pageTitle = (p) => { for (const g of App.NAV) for (const [k, l] of g[3]) if (k === p) return l; return { bookingView: 'تفاصيل الحجز', customerView: 'حساب العميل', partyView: 'كشف حساب', hrEmployee: 'ملف الموظف' }[p] || ''; };
+  const pageTitle = (p) => { for (const g of App.NAV) for (const [k, l] of g[3]) if (k === p) return l; return { bookingView: 'تفاصيل الحجز', customerView: 'حساب العميل', partyView: 'كشف حساب', hrEmployee: 'ملف الموظف', domBookingView: 'حجز سياحة داخلية' }[p] || ''; };
 
   function renderShell() {
     const S = App.S, role = App.role();
@@ -420,7 +422,7 @@
     document.getElementById('app').style.display = '';
     App.ui.page = 'home';
     await reloadState();
-    pollBadges(); refreshFx();
+    pollBadges(); refreshFx(); if (App.loadWa) App.loadWa();
   }
   const portalOn = () => window.Portal && window.Portal.active;
   async function pollBadges() {

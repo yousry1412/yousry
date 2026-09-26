@@ -18,6 +18,7 @@ const BOOKING_SOURCES = ['BK', 'BKC'];
 function allBookings(S) {
   const m = new Map();
   for (const d of S.trips || []) for (const b of d.bookings || []) m.set(b.id, { b, trip: d.trip });
+  for (const b of (S.dom && S.dom.bookings) || []) m.set(b.id, { b, trip: { code: b.programId ? 'سياحة داخلية' : 'فنادق' } });
   return m;
 }
 const stable = (o) => JSON.stringify(o);

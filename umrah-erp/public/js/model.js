@@ -7,9 +7,9 @@
  *    creation (browser + agent portal on the server), alerts centre
  * ===================================================================== */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine.js'), require('./accounting.js'), require('./hr.js'));
-  else root.Model = factory(root.Engine, root.Acc, root.Hr);
-})(typeof self !== 'undefined' ? self : this, function (E, Acc, Hr) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine.js'), require('./accounting.js'), require('./hr.js'), require('./dom.js'));
+  else root.Model = factory(root.Engine, root.Acc, root.Hr, root.Dom);
+})(typeof self !== 'undefined' ? self : this, function (E, Acc, Hr, Dom) {
   'use strict';
   const TRIP_KEYS = ['trip', 'bookings', 'pax', 'rooms', 'beds', 'bus', 'roomingLocked', 'settlements', 'fieldExpenses', 'docs'];
   /**
@@ -78,6 +78,8 @@
   const tripDocOf = (S, tripId) => S.trips.find((t) => t.id === tripId);
   const findBooking = (S, bookingId) => {
     for (const d of S.trips) { const b = d.bookings.find((x) => x.id === bookingId); if (b) return { doc: d, b }; }
+    const db = S.dom && S.dom.bookings.find((x) => x.id === bookingId);
+    if (db) return { doc: { trip: Dom.costCenter(S, db) }, b: db, domestic: true };
     return null;
   };
   /** Run fn with a given trip mounted, then restore the previous one. */
@@ -101,7 +103,7 @@
       users: [], agents: [], suppliers: [], hotels: [], allotments: [], customers: [], employees: [],
       accounts: Acc.DEFAULT_ACCOUNTS.map((a) => ({ ...a })),
       expenseCategories: Acc.DEFAULT_EXPENSE_CATEGORIES.map((a) => ({ ...a })),
-      cashboxes: [], vouchers: [], journal: [], counters: {}, trips: [], activeTripId: null, audit: [], hr: Hr.empty(),
+      cashboxes: [], vouchers: [], journal: [], counters: {}, trips: [], activeTripId: null, audit: [], hr: Hr.empty(), dom: Dom.empty(),
     };
   }
   function addCashbox(S, { name, type, currency, branchId, bankName, iban }) {
@@ -284,6 +286,20 @@
       for (const l of S.hr.leaves.filter((x) => x.status === 'PENDING')) { const e = S.employees.find((x) => x.id === l.empId); out.push({ level: 'warn', group: g, text: `طلب إجازة ${Hr.LEAVE_TYPES[l.type]} من ${e ? e.name : ''} (${l.from} ← ${l.to}) بانتظار قرارك`, page: 'hrLeaves', ref: l.id }); }
       for (const e of Hr.activeEmps(S)) for (const f of Hr.flags(S, e, month, today)) out.push({ level: f.level, group: g, text: `${e.name}: ${f.text}`, page: 'hrEmployee', ref: e.id });
     }
+    if (S.dom) {
+      const g = 'السياحة الداخلية';
+      for (const b of S.dom.bookings) {
+        if (!E.LIVE_STATES.includes(b.status)) continue;
+        const p = b.programId ? S.dom.programs.find((x) => x.id === b.programId) : null;
+        const start = p ? p.startDate : b.hotel && b.hotel.checkIn;
+        const due = Acc.r2((b.net || 0) - (b.paid || 0));
+        if (due > 0 && start && start <= soon) out.push({ level: start <= today ? 'err' : 'warn', group: g, text: `${b.code}: متبقي ${Math.round(due)} والسفر ${start}`, page: 'domBookingView', ref: b.id });
+        if (E.HOLD_STATES.includes(b.status) && b.holdUntil && b.holdUntil - now < (S.settings.holdAlertHours || 3) * 3600000) out.push({ level: 'warn', group: g, text: `${b.code}: ينتهي التعليق خلال ${Math.max(0, Math.round((b.holdUntil - now) / 60000))} دقيقة`, page: 'domBookingView', ref: b.id });
+        if (b.status === 'PENDING_APPROVAL' && role === 'OWNER') out.push({ level: 'warn', group: g, text: `${b.code}: خصم ${b.discountPct}% بانتظار اعتمادك`, page: 'domBookingView', ref: b.id });
+        if (b.kind === 'HOTEL' && b.status === 'CONFIRMED' && !(b.hotel && b.hotel.confirmationNo)) out.push({ level: 'info', group: g, text: `${b.code}: سجّل رقم تأكيد الفندق`, page: 'domBookingView', ref: b.id });
+        if (p && p.kind !== 'DAYTRIP' && (p.transport || {}).seats && (b.seats || []).length < b.units.adults + b.units.chd && start <= soon) out.push({ level: 'info', group: g, text: `${b.code}: لم تُحدد كل مقاعد الأتوبيس`, page: 'domBookingView', ref: b.id });
+      }
+    }
     for (const doc of S.trips) {
       const t = doc.trip;
       if (t.status === 'CLOSED') continue;
@@ -408,6 +424,15 @@
     const pendingB = doc.bookings.find((b) => b.code === 'BK-01015');
     if (pendingB) createVoucher(S, { type: 'RV', amount: 15000, cashboxId: bank.id, party: { type: 'customer', id: pendingB.customerId }, bookingId: pendingB.id, tripId: trip.id, memo: 'القسط الأول — إيصال إيداع مرفوع من السيلز', method: 'إيداع بنكي' }, { name: 'منة الله (سيلز)', role: 'SALES' });
     Hr.seedDemo(S, s3.seededAt || Date.now());
+    // domestic tourism demo: both lines of business, programs, hotels, bookings with approved payments
+    S.company.domains = ['UMRAH', 'DOMESTIC']; for (const b of S.branches) b.domains = ['UMRAH', 'DOMESTIC'];
+    const dm = Dom.seedDemo(S, s3.seededAt || Date.now());
+    dm.bookings.forEach((b, i) => {
+      if (b.status === 'CONFIRMED' || b.status === 'PENDING_APPROVAL' || i % 3 === 2) return;
+      const amt = i % 2 ? b.net : Math.round(b.net * 0.4);
+      const v = createVoucher(S, { type: 'RV', amount: amt, cashboxId: cash.id, party: { type: 'customer', id: b.customerId }, bookingId: b.id, tripId: Dom.costCenter(S, b).id, memo: `${i % 2 ? 'سداد كامل' : 'عربون'} ${b.code}`, method: 'نقدي' }, { name: 'منة الله (سيلز)', role: 'SALES' });
+      approve(S, v.id, sys);
+    });
     return S;
   }
   function counterFromCodes(S, key, codes) {
@@ -424,6 +449,7 @@
     S.settings = S.settings || { reminderDays: 3, holdAlertHours: 3, docsAlertDays: 14 };
     S.fx.history = S.fx.history || []; if (S.fx.alertSpreadPct == null) S.fx.alertSpreadPct = 3;
     S.hr = Hr.normalize(S.hr);
+    S.dom = Dom.normalize(S.dom);
     normalizeCompany(S);
     Acc.ensureAccounts(S);
     mountTrip(S, S.activeTripId);

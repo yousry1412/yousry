@@ -16,11 +16,13 @@ const express = require('express');
 const path = require('path');
 const store = require('./lib/store');
 const gov = require('./lib/governance');
+const wa = require('./lib/whatsapp');
 const { parseCookies, setCookie, clearCookie } = require('./lib/cookies');
 const Engine = require('./public/js/engine.js');
 const Acc = require('./public/js/accounting.js');
 const Model = require('./public/js/model.js');
 const Hr = require('./public/js/hr.js');
+const Dom = require('./public/js/dom.js');
 const { buildSeed } = require('./public/js/data.js');
 
 const app = express();
@@ -335,6 +337,21 @@ api.post('/hr/task/:id', express.json(), (req, res) => {
 api.get('/notifications', (req, res) => res.json(store.listNotifications(req.user, req.companyId)));
 api.post('/notifications/read', express.json(), (req, res) => { store.markNotificationsRead(req.user.id, req.body && req.body.lastId); res.json({ ok: true }); });
 
+// ------------------------------------------------------------ whatsapp
+api.get('/wa/status', (req, res) => { const c = wa.publicConfig(req.companyId); res.json({ enabled: c.enabled, autoReceipt: c.autoReceipt }); });
+api.get('/wa/config', allow('OWNER', 'MANAGER'), (req, res) => res.json(wa.publicConfig(req.companyId)));
+api.put('/wa/config', express.json(), allow('OWNER', 'MANAGER'), (req, res) => { store.audit(req.user.id, req.companyId, 'تعديل إعدادات واتساب'); res.json(wa.saveConfig(req.companyId, req.body || {})); });
+api.get('/wa/log', allow('OWNER', 'MANAGER', 'ACCOUNTANT'), (req, res) => res.json(wa.listLog(req.companyId)));
+api.post('/wa/send', express.json({ limit: '50kb' }), staffOnly, async (req, res) => {
+  try { res.json(await wa.send(req.companyId, req.body || {}, req.user.display_name)); } catch (e) { res.status(400).json({ error: e.message }); }
+});
+api.post('/wa/bulk', express.json({ limit: '1mb' }), staffOnly, async (req, res) => {
+  const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
+  if (!wa.publicConfig(req.companyId).enabled) return res.status(400).json({ error: 'واتساب بيزنس غير مفعّل' });
+  store.audit(req.user.id, req.companyId, `إرسال واتساب جماعي (${items.length})`);
+  res.json(await wa.bulk(req.companyId, items, req.user.display_name));
+});
+
 // ------------------------------------------------------------------ fx
 async function refreshFx(force) {
   const cur = store.kvGet('fx:SAR:EGP');
@@ -491,6 +508,7 @@ function sweep() {
       const { version, S } = loadDoc(c.id);
       const released = [];
       for (const d of S.trips) Model.withTrip(S, d.id, () => { for (const code of Engine.releaseExpiredHolds(S, Date.now())) released.push(`${d.trip.code} · ${code}`); });
+      for (const code of Dom.releaseExpired(S, Date.now())) released.push(`سياحة داخلية · ${code}`);
       if (!released.length) continue;
       for (const r of released) S.audit.unshift({ at: Date.now(), by: 'النظام', msg: `تحرير آلي للحجز ${r} لانتهاء مهلة التعليق` });
       const s = store.saveState(c.id, version, Model.serialize(S), 'النظام');

@@ -427,7 +427,7 @@
         ${b.status === 'PENDING_APPROVAL' ? (App.role() === 'OWNER' ? `<button class="btn gold" data-act="approveDiscount" data-id="${b.id}">اعتماد الخصم</button>` : '<span class="chip hold">الخصم بانتظار اعتماد مالك النظام</span>') : ''}
         ${b.status === 'PENDING_PRICING' ? `<button class="btn gold" data-act="priceUnbundled" data-id="${b.id}">تسعير إداري</button>` : ''}
         ${E.LIVE_STATES.includes(b.status) && b.net && (b.paid || 0) < b.net && !['PENDING_APPROVAL', 'PENDING_PRICING'].includes(b.status) ? `<button class="btn primary" data-act="payBooking" data-id="${b.id}">💰 سند قبض</button>` : ''}
-        <button class="btn" data-act="printInvoice" data-id="${b.id}">🖨️ فاتورة</button>
+        <button class="btn gold" data-act="bookingDoc" data-id="${b.id}">📄 وثيقة الحجز</button><button class="btn" data-act="printInvoice" data-id="${b.id}">🖨️ فاتورة</button><button class="btn" data-act="waBooking" data-id="${b.id}">🟢 واتساب</button>
         ${b.agentId && h.agent(b.agentId) && h.agent(b.agentId).tier === 'BROKER' && App.role() === 'OWNER' && E.LIVE_STATES.includes(b.status) ? `<button class="btn" data-act="commAdjForm" data-id="${b.id}">🏷️ تعديل عمولة المندوب</button>` : ''}
         ${E.HOLD_STATES.includes(b.status) ? `<button class="btn ghost" data-act="expireSoon" data-id="${b.id}" title="تجربة">⏩</button>` : ''}
         ${E.LIVE_STATES.includes(b.status) ? `<button class="btn danger" data-act="cancelBooking" data-id="${b.id}">إلغاء الحجز</button>` : ''}
@@ -491,13 +491,13 @@
   };
   App.actions.printInvoice = (d) => {
     const s = S(), f = Model.findBooking(s, d.id), b = f.b, px = f.doc.pax.filter((p) => p.bookingId === b.id), c = s.company;
-    const rate = c.vatEnabled ? Number(c.vatRate) : 0, vat = Acc.r2((b.net || 0) * rate / (100 + rate));
+    const rate = c.vatEnabled ? Number(c.vatRate) : 0, tx = Acc.splitGross(s, b.net || 0), vat = tx.vat;
     const cust = b.customerId && h.customer(b.customerId);
     App.printDoc('Invoice ' + b.code, `<div class="head"><div><h1>فاتورة ${rate ? 'ضريبية' : ''}</h1><div class="muted">${esc(f.doc.trip.name)} · ${esc(f.doc.trip.code)}</div></div>
       <div>رقم: <b>${esc(b.code)}</b><br>التاريخ: ${E.iso(new Date(b.createdAt))}<br>${cust ? `العميل: ${esc(cust.code)} · ${esc(cust.name)}` : `الوكيل: ${esc((h.agent(b.agentId) || {}).name || '')}`}</div></div>
       <table><tr><th>#</th><th>المسافر</th><th>التصنيف</th><th>الجواز</th></tr>${px.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.nameAr)} — ${esc(p.nameEn)}</td><td>${E.PAX_TYPES[p.type].ar}</td><td>${esc(p.passport)}</td></tr>`).join('')}</table>
-      <table style="margin-top:10px;width:50%"><tr><td>${esc(E.SALE_MODES[b.mode])}${b.mode !== 'UNBUNDLED' ? ' — ' + E.ROOM_TYPES[b.roomType].ar : ''}</td><td>${h.n2(b.net - vat)}</td></tr>
-      ${rate ? `<tr><td>ضريبة القيمة المضافة ${rate}%</td><td>${h.n2(vat)}</td></tr>` : ''}<tr><th>الإجمالي</th><th>${h.n2(b.net)} ج.م</th></tr>
+      <table style="margin-top:10px;width:50%"><tr><td>${esc(E.SALE_MODES[b.mode])}${b.mode !== 'UNBUNDLED' ? ' — ' + E.ROOM_TYPES[b.roomType].ar : ''}</td><td>${h.n2(tx.net)}</td></tr>
+      ${rate ? `<tr><td>ضريبة القيمة المضافة ${rate}%</td><td>${h.n2(vat)}</td></tr>` : ''}${tx.stamp ? `<tr><td>ضريبة الدمغة ${c.stampRate}%</td><td>${h.n2(tx.stamp)}</td></tr>` : ''}<tr><th>الإجمالي</th><th>${h.n2(b.net)} ج.م</th></tr><tr><td colspan="2" class="muted">${App.tafqeet(b.net || 0)}</td></tr>
       <tr><td>المسدد</td><td>${h.n2(b.paid)}</td></tr><tr><td>المتبقي</td><td>${h.n2(b.net - b.paid)}</td></tr></table>
       <div class="sign"><div>توقيع العميل ................</div><div>ختم الشركة ................</div></div>`);
   };

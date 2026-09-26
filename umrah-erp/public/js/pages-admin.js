@@ -38,6 +38,7 @@
     <div class="grid g2" style="margin-top:14px">
       <div class="card"><h3>📄 شروط وأحكام وثيقة الحجز</h3><textarea class="input" rows="7" data-bind="company.terms" placeholder="سياسة الإلغاء والاسترداد، مواعيد السداد، المستندات المطلوبة…">${esc(c.terms || '')}</textarea>
         <div class="small muted">تُطبع في وثيقة الحجز التي يستلمها العميل. اتركها فارغة لاستخدام الشروط الافتراضية.</div></div>
+      ${App.waSettingsCard && ['OWNER', 'MANAGER'].includes(App.role()) ? App.waSettingsCard() : ''}
       <div class="card"><h3>⏰ التنبيهات</h3><div class="grid g3">
         <div class="field"><label>تذكير الأقساط قبل (يوم)</label><input class="input" type="number" data-bind="settings.reminderDays" value="${s.settings.reminderDays}"></div>
         <div class="field"><label>تنبيه انتهاء التعليق قبل (ساعة)</label><input class="input" type="number" data-bind="settings.holdAlertHours" value="${s.settings.holdAlertHours}"></div>
