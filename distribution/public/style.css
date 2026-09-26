@@ -695,3 +695,9 @@ tbody tr:hover { background: #f8fafc; }
   .quick-actions-title { flex-basis: 100%; }
   .quick-action { flex: 1 1 calc(50% - 10px); justify-content: center; padding: 9px 8px; font-size: 13px; }
 }
+
+/* ---- العمل بدون إنترنت */
+.offline-chip { position: fixed; bottom: 16px; inset-inline-start: 16px; z-index: 1000; border: 0; border-radius: 999px; padding: 9px 16px; font: inherit; font-size: 13px; color: #fff; cursor: pointer; box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+.offline-chip.off { background: #b3261e; }
+.offline-chip.busy { background: #b7791f; }
+.offline-chip.bad { background: #7a2e0e; }
