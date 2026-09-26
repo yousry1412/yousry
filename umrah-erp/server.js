@@ -24,6 +24,7 @@ const { buildSeed } = require('./public/js/data.js');
 const app = express();
 const PORT = process.env.PORT || 3002;
 const COOKIE = 'umrah_sid';
+const BUILD = (process.env.RENDER_GIT_COMMIT || '').slice(0, 7) || (() => { try { return require('child_process').execSync('git rev-parse --short HEAD', { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch (e) { return 'dev-' + Date.now().toString(36); } })();
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
@@ -81,6 +82,7 @@ auth.post('/login', (req, res) => {
 });
 auth.post('/logout', (req, res) => { store.destroySession(parseCookies(req)[COOKIE]); clearCookie(res, COOKIE); res.json({ ok: true }); });
 app.use('/api/auth', auth);
+app.get('/api/version', (req, res) => res.json({ build: BUILD })); // public: lets open browsers detect a new deploy
 
 // --------------------------------------------------------- guards
 function requireAuth(req, res, next) {
@@ -398,8 +400,14 @@ api.use('/portal', portal);
 app.use('/api', api);
 
 // ------------------------------------------------------------------ static
-app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1h' }));
-app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// Versioned assets: index.html is never cached and references ?v=<build>, so every deploy reaches every browser immediately.
+const INDEX = require('fs').readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8')
+  .replace(/(src="js\/[\w-]+\.js)"/g, `$1?v=${BUILD}"`).replace(/(href="css\/app\.css)"/, `$1?v=${BUILD}"`)
+  .replace('<meta name="theme-color"', `<meta name="app-build" content="${BUILD}">\n  <meta name="theme-color"`);
+const sendIndex = (req, res) => { res.set('Cache-Control', 'no-cache, no-store, must-revalidate'); res.type('html').send(INDEX); };
+app.get(['/', '/index.html'], sendIndex);
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: '30d', index: false }));
+app.get('*', sendIndex);
 
 // ------------------------------------------------------------- background
 function sweep() {

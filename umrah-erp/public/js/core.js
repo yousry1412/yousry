@@ -457,8 +457,26 @@
     }
   }, 1000);
 
+  // --------------------------------------------- deploy / version check
+  const BUILD = (document.querySelector('meta[name="app-build"]') || {}).content || 'local';
+  let updateShown = false;
+  async function checkVersion() {
+    if (!App.online || updateShown) return;
+    try {
+      const r = await fetch('api/version', { cache: 'no-store' }); const d = await r.json();
+      if (d.build && d.build !== BUILD) {
+        updateShown = true;
+        const t = document.createElement('div'); t.className = 'toast warn'; t.style.cursor = 'pointer';
+        t.textContent = '🔄 تم نشر تحديث جديد للبرنامج — اضغط هنا لإعادة التحميل'; t.onclick = () => location.reload();
+        document.getElementById('toasts').appendChild(t);
+      }
+    } catch (e) { /* offline */ }
+  }
+  setInterval(checkVersion, 60000);
+
   // ------------------------------------------------------------ boot
   window.addEventListener('DOMContentLoaded', async () => {
+    const tag = document.getElementById('buildTag'); if (tag) tag.textContent = 'v ' + BUILD;
     App.ui.draft = App.newDraft ? App.newDraft() : null;
     let st = null;
     if (location.protocol !== 'file:') {
