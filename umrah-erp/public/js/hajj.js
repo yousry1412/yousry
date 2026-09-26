@@ -37,7 +37,7 @@
   const ACTIVE = (p) => !['CANCELLED', 'REJECTED', 'WAITLIST'].includes(p.stage);
   const DOCS = { passportFileId: 'صورة الجواز', photoFileId: 'صورة شخصية', vaccineFileId: 'شهادة التطعيمات', medicalFileId: 'التقرير الطبي' };
 
-  const empty = () => ({ seasons: [], packages: [], pilgrims: [], groups: [] });
+  const empty = () => ({ seasons: [], packages: [], pilgrims: [], groups: [], applicants: [], lotteries: [] });
   function normalize(h) { const d = { ...empty(), ...(h || {}) }; for (const k of Object.keys(empty())) if (!Array.isArray(d[k])) d[k] = []; return d; }
   const season = (S, id) => S.hajj.seasons.find((x) => x.id === id);
   const pkg = (S, id) => S.hajj.packages.find((x) => x.id === id);
@@ -254,11 +254,171 @@
       const tot = quotaTotal(ss), used = quotaUsed(S, ss);
       if (tot && used >= tot * 0.9) out.push({ level: used >= tot ? 'err' : 'warn', group: g, text: `الحصة: ${used} من ${tot} تأشيرة`, page: 'hajjDash' });
     }
+    out.push(...regAlerts(S, today));
     for (const p of S.hajj.pilgrims.filter(ACTIVE)) {
       const k = pkg(S, p.packageId); if (!k || (season(S, k.seasonId) || {}).closed) continue;
       const bad = eligibility(S, p).filter((x) => x.level === 'err');
       if (bad.length) out.push({ level: 'err', group: g, text: `${p.code} ${p.nameAr}: ${bad[0].text}`, page: 'hajjPilgrim', ref: p.id });
       for (const i of p.installments || []) if (!i.paid && i.due < today) { out.push({ level: 'warn', group: g, text: `${p.code} ${p.nameAr}: قسط ${i.label} متأخر (${Math.round(i.amount)})`, page: 'hajjPilgrim', ref: p.id }); break; }
+    }
+    return out;
+  }
+
+
+  // ================================================================ applicants → lottery → executive registration
+  const APP_STATUS = {
+    APPLIED: { ar: 'طلب مبدئي', cls: '' }, INELIGIBLE: { ar: 'غير مستوفي', cls: 'danger' }, WON: { ar: 'فائز — بانتظار التنفيذي', cls: 'ok' }, RESERVE: { ar: 'احتياطي', cls: 'hold' },
+    LOST: { ar: 'لم يحالفه الحظ', cls: '' }, EXEC_DONE: { ar: 'تم التسجيل التنفيذي', cls: 'ok' }, EXPIRED: { ar: 'لم يستكمل في المهلة', cls: 'danger' }, WITHDRAWN: { ar: 'اعتذر', cls: '' },
+  };
+  const regOf = (ss) => ({ execDays: 7, trustAmount: 0, reservePct: 20, seniorAge: 65, wSenior: 1, wFirst: 0.5, wTry: 0.25, ...(ss.reg || {}) });
+  const ageAt = (dob, ref) => (dob ? Math.floor((new Date(ref || Date.now()) - new Date(dob)) / (365.25 * 86400000)) : null);
+  /** Birth date & gender from an Egyptian national ID (14 digits: C YYMMDD GG SSSS G). Returns null when not decodable. */
+  function fromNid(nid) {
+    const d = String(nid || '').replace(/\D/g, '');
+    if (d.length !== 14 || !['2', '3'].includes(d[0])) return null;
+    const y = (d[0] === '2' ? 1900 : 2000) + Number(d.slice(1, 3)), m = d.slice(3, 5), day = d.slice(5, 7);
+    if (Number(m) < 1 || Number(m) > 12 || Number(day) < 1 || Number(day) > 31) return null;
+    return { dob: `${y}-${m}-${day}`, gender: Number(d[12]) % 2 ? 'M' : 'F' };
+  }
+  function applicantIssues(S, ss, a) {
+    const r = ss.rules || {}, out = [], age = ageAt(a.dob, ss.tarwiyah);
+    if (!a.nid) out.push({ level: 'err', text: 'الرقم القومي مطلوب' });
+    if (a.lastHajjYear && Number(ss.gregorianYear || new Date().getFullYear()) - Number(a.lastHajjYear) < Number(r.yearsSinceLastHajj ?? 5)) out.push({ level: 'err', text: `آخر حجة ${a.lastHajjYear} — لم تمر ${r.yearsSinceLastHajj ?? 5} سنوات` });
+    if (age != null && r.minAge && age < Number(r.minAge)) out.push({ level: 'err', text: `السن ${age} أقل من ${r.minAge}` });
+    if (age != null && r.maxAge && age > Number(r.maxAge)) out.push({ level: 'warn', text: `السن ${age} — يحتاج موافقة طبية` });
+    if (a.gender === 'F' && r.mahramUnder && age != null && age < Number(r.mahramUnder) && !a.groupKey) out.push({ level: 'warn', text: 'سيدة بدون محرم في نفس المجموعة' });
+    return out;
+  }
+  function apply(S, ssId, d, actor) {
+    const ss = season(S, ssId); if (!ss || ss.closed) throw new Error('الموسم غير متاح');
+    const nid = String(d.nid || '').replace(/\D/g, '');
+    if (!String(d.nameAr || '').trim() || !String(d.phone || '').trim()) throw new Error('اكتب الاسم ورقم الهاتف');
+    if (nid && S.hajj.applicants.some((x) => x.seasonId === ssId && x.nid === nid && x.status !== 'WITHDRAWN')) throw new Error('الرقم القومي مسجل بالفعل في هذا الموسم');
+    const dec = fromNid(nid), now = Date.now();
+    const a = { id: 'HA' + now.toString(36) + Math.random().toString(36).slice(2, 5), code: Acc.nextNo(S, 'HA', 'HA', 5), seasonId: ssId, nameAr: d.nameAr.trim(), nid, phone: d.phone,
+      dob: d.dob || (dec ? dec.dob : ''), gender: d.gender || (dec ? dec.gender : 'M'), governorate: d.governorate || '', lastHajjYear: d.lastHajjYear || '', priorTries: Number(d.priorTries) || 0,
+      level: d.level || 'ECONOMY', packageId: d.packageId || '', groupKey: String(d.groupKey || '').trim(), portalNo: d.portalNo || '', agentId: d.agentId || null, branchId: d.branchId || 'BR1',
+      status: 'APPLIED', rank: null, lotteryId: null, execDeadline: null, pilgrimId: null, notes: d.notes || '', createdAt: now, createdBy: actor.name, log: [{ status: 'APPLIED', at: now, by: actor.name }] };
+    if (applicantIssues(S, ss, a).some((x) => x.level === 'err')) { a.status = 'INELIGIBLE'; a.log.push({ status: 'INELIGIBLE', at: now, by: 'النظام' }); }
+    const c = S.customers.find((x) => (nid && x.nid === nid) || String(x.phone || '').replace(/\D/g, '') === String(d.phone).replace(/\D/g, ''));
+    if (c) a.customerId = c.id;
+    else { const nc = { id: 'CU' + now.toString(36) + Math.random().toString(36).slice(2, 5), code: Acc.nextNo(S, 'C_CUS', 'CUS', 4), name: a.nameAr, phone: d.phone, nid, notes: 'طالب حج', createdAt: now }; S.customers.push(nc); a.customerId = nc.id; }
+    S.hajj.applicants.push(a);
+    return a;
+  }
+  function setApp(a, status, by, note) { a.status = status; (a.log = a.log || []).push({ status, at: Date.now(), by, note: note || '' }); return a; }
+  /** Refundable good-faith deposit still held for the applicant (2109 on his customer account). */
+  const trustBalance = (S, a) => -r2(S.journal.reduce((s, j) => s + j.lines.filter((l) => l.acc === '2109' && l.party && l.party.type === 'customer' && l.party.id === a.customerId).reduce((x, l) => x + l.dr - l.cr, 0), 0));
+
+  // ---- verifiable pseudo-random draw: same seed → same result (xmur3 + mulberry32)
+  function rng(seed) {
+    let h = 1779033703 ^ seed.length;
+    for (let i = 0; i < seed.length; i++) { h = Math.imul(h ^ seed.charCodeAt(i), 3432918353); h = (h << 13) | (h >>> 19); }
+    let a = (h ^ (h >>> 16)) >>> 0;
+    return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }
+  const fnv = (str) => { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16).padStart(8, '0'); };
+  function lotteryUnits(S, ss, level) {
+    const list = S.hajj.applicants.filter((a) => a.seasonId === ss.id && a.status === 'APPLIED' && a.level === level).sort((a, b) => (a.code < b.code ? -1 : 1));
+    const m = new Map(); for (const a of list) { const k = a.groupKey || a.id; if (!m.has(k)) m.set(k, []); m.get(k).push(a); }
+    return [...m.entries()].map(([key, members]) => ({ key, members }));
+  }
+  function unitWeight(ss, u) {
+    const g = regOf(ss), ref = ss.tarwiyah;
+    let w = 1;
+    if (u.members.some((a) => (ageAt(a.dob, ref) || 0) >= g.seniorAge)) w += Number(g.wSenior) || 0;
+    if (u.members.every((a) => !a.lastHajjYear)) w += Number(g.wFirst) || 0;
+    w += (Number(g.wTry) || 0) * Math.max(...u.members.map((a) => a.priorTries || 0));
+    return w;
+  }
+  /**
+   * Internal lottery per level: weighted draw without replacement (Efraimidis–Spirakis keys u^(1/w)),
+   * families as one unit (skipped to the reserve rather than split), ranked reserve list, auditable hash.
+   */
+  function runLottery(S, ssId, { seed, seats, witnesses }, actor, today = E.iso(new Date())) {
+    const ss = season(S, ssId), g = regOf(ss);
+    if (!String(seed || '').trim()) throw new Error('اكتب بذرة القرعة (تُعلن أمام الحضور)');
+    const rand = rng(String(seed).trim()), results = [], deadline = E.iso(E.addDays(today, g.execDays));
+    for (const level of Object.keys(LEVELS)) {
+      const n = Number((seats || {})[level] || 0), units = lotteryUnits(S, ss, level);
+      if (!units.length) continue;
+      const keyed = units.map((u) => ({ u, w: unitWeight(ss, u), k: Math.pow(rand(), 1 / unitWeight(ss, u)) })).sort((a, b) => b.k - a.k);
+      let left = n, rank = 0; const reserveMax = Math.ceil(n * Number(g.reservePct || 0) / 100);
+      for (const x of keyed) {
+        let res;
+        if (x.u.members.length <= left) { res = 'WON'; left -= x.u.members.length; }
+        else if (rank < reserveMax) { res = 'RESERVE'; rank++; }
+        else res = 'LOST';
+        for (const a of x.u.members) { results.push({ applicantId: a.id, code: a.code, level, result: res, rank: res === 'RESERVE' ? rank : null, weight: r2(x.w) }); }
+      }
+    }
+    if (!results.length) throw new Error('لا توجد طلبات مستوفية في انتظار القرعة');
+    const lot = { id: uid('LT'), seasonId: ssId, mode: 'INTERNAL', date: today, seed: String(seed).trim(), seats: { ...seats }, params: { ...g }, witnesses: witnesses || '', by: actor.name, at: Date.now(), results,
+      hash: fnv(results.map((r) => `${r.code}:${r.result}:${r.rank || ''}`).join('|')) };
+    for (const r of results) { const a = S.hajj.applicants.find((x) => x.id === r.applicantId); a.lotteryId = lot.id; a.rank = r.rank; a.execDeadline = r.result === 'WON' ? deadline : null; setApp(a, r.result, actor.name, `قرعة ${lot.date}`); }
+    S.hajj.lotteries.push(lot);
+    return lot;
+  }
+  /** Replay a lottery from its stored inputs → must give the same hash (audit). */
+  function verifyLottery(S, lot) {
+    const saved = S.hajj.applicants;
+    const clone = saved.map((a) => ({ ...a, status: lot.results.some((r) => r.applicantId === a.id) ? 'APPLIED' : a.status === 'APPLIED' ? 'X' : a.status }));
+    const S2 = { ...S, hajj: { ...S.hajj, applicants: clone, lotteries: [] }, counters: { ...S.counters } };
+    const ss = { ...season(S, lot.seasonId), reg: lot.params };
+    S2.hajj.seasons = S.hajj.seasons.map((x) => (x.id === ss.id ? ss : x));
+    try { return runLottery(S2, lot.seasonId, { seed: lot.seed, seats: lot.seats }, { name: 'تحقق' }, lot.date).hash === lot.hash; } catch (e) { return false; }
+  }
+  /** Official (external) results: one line per applicant "رقم قومي أو رقم طلب | فائز/احتياطي/خاسر | ترتيب". */
+  function recordOfficial(S, ssId, text, actor, today = E.iso(new Date())) {
+    const ss = season(S, ssId), g = regOf(ss), map = { 'فائز': 'WON', WON: 'WON', 'احتياطي': 'RESERVE', RESERVE: 'RESERVE', 'خاسر': 'LOST', 'لم يحالفه الحظ': 'LOST', LOST: 'LOST' };
+    const results = [], missing = [];
+    for (const line of String(text || '').split('\n').map((l) => l.trim()).filter(Boolean)) {
+      const [id, res, rank] = line.split(/[|,\t]/).map((x) => x.trim());
+      const a = S.hajj.applicants.find((x) => x.seasonId === ssId && (x.nid === id.replace(/\D/g, '') || (x.portalNo && x.portalNo === id)) && !['EXEC_DONE', 'WITHDRAWN'].includes(x.status));
+      if (!a || !map[res]) { missing.push(line); continue; }
+      results.push({ applicantId: a.id, code: a.code, level: a.level, result: map[res], rank: map[res] === 'RESERVE' ? Number(rank) || null : null });
+    }
+    if (!results.length) throw new Error('لم يتم التعرف على أي سطر');
+    const lot = { id: uid('LT'), seasonId: ssId, mode: 'OFFICIAL', date: today, by: actor.name, at: Date.now(), results, hash: fnv(results.map((r) => `${r.code}:${r.result}:${r.rank || ''}`).join('|')) };
+    for (const r of results) { const a = S.hajj.applicants.find((x) => x.id === r.applicantId); a.lotteryId = lot.id; a.rank = r.rank; a.execDeadline = r.result === 'WON' ? E.iso(E.addDays(today, g.execDays)) : null; setApp(a, r.result, actor.name, 'نتيجة القرعة الرسمية'); }
+    S.hajj.lotteries.push(lot);
+    return { lottery: lot, missing };
+  }
+  /** Next reserve (lowest rank, same level) becomes a winner with a fresh deadline. */
+  function promoteReserve(S, ssId, level, by, today = E.iso(new Date())) {
+    const ss = season(S, ssId), next = S.hajj.applicants.filter((a) => a.seasonId === ssId && a.status === 'RESERVE' && a.level === level).sort((a, b) => (a.rank || 1e9) - (b.rank || 1e9))[0];
+    if (!next) return null;
+    next.execDeadline = E.iso(E.addDays(today, regOf(ss).execDays)); setApp(next, 'WON', by, 'تصعيد من الاحتياطي');
+    return next;
+  }
+  function expireOverdue(S, ssId, by, today = E.iso(new Date())) {
+    const out = { expired: [], promoted: [] };
+    for (const a of S.hajj.applicants.filter((x) => x.seasonId === ssId && x.status === 'WON' && x.execDeadline && x.execDeadline < today)) {
+      setApp(a, 'EXPIRED', by, `انتهت المهلة ${a.execDeadline}`); out.expired.push(a);
+      const p = promoteReserve(S, ssId, a.level, by, today); if (p) out.promoted.push(p);
+    }
+    return out;
+  }
+  function withdraw(S, a, by, reason) {
+    const was = a.status; setApp(a, 'WITHDRAWN', by, reason);
+    return was === 'WON' ? promoteReserve(S, a.seasonId, a.level, by) : null;
+  }
+  /** Winner → pilgrim (contract, installments, file). The good-faith deposit is moved by a DT voucher (UI). */
+  function executiveRegister(S, a, d, actor) {
+    if (a.status !== 'WON') throw new Error('التسجيل التنفيذي للفائزين فقط');
+    const k = pkg(S, d.packageId); if (!k || k.seasonId !== a.seasonId) throw new Error('اختر برنامجاً من نفس الموسم');
+    if (a.level && k.level !== a.level) throw new Error(`الفائز في مستوى ${LEVELS[a.level]} — اختر برنامجاً من نفس المستوى`);
+    const p = register(S, { packageId: k.id, nameAr: a.nameAr, nameEn: d.nameEn || '', gender: a.gender, dob: a.dob, nid: a.nid, phone: a.phone, passport: d.passport || '', passportExp: d.passportExp || '',
+      lastHajjYear: a.lastHajjYear, nusuk: d.nusuk || 'TAMATTU', roomType: d.roomType, familyId: a.groupKey || null, agentId: a.agentId, discountPct: d.discountPct || 0, upgrades: d.upgrades || [], branchId: a.branchId }, actor);
+    if (p.stage === 'WAITLIST') throw new Error('الحصة مكتملة — راجع الحصة قبل التسجيل التنفيذي');
+    p.customerId = a.customerId; p.applicantId = a.id; a.pilgrimId = p.id; setApp(a, 'EXEC_DONE', actor.name, p.code);
+    return { pilgrim: p, trust: trustBalance(S, a) };
+  }
+  function regAlerts(S, today = E.iso(new Date())) {
+    const out = [], soon = E.iso(E.addDays(today, 2));
+    for (const a of S.hajj.applicants.filter((x) => x.status === 'WON' && x.execDeadline)) {
+      if (a.execDeadline < today) out.push({ level: 'err', group: 'الحج', text: `${a.code} ${a.nameAr}: انتهت مهلة التسجيل التنفيذي ${a.execDeadline} — صعّد الاحتياطي`, page: 'hajjApplicants' });
+      else if (a.execDeadline <= soon) out.push({ level: 'warn', group: 'الحج', text: `${a.code} ${a.nameAr}: مهلة التسجيل التنفيذي تنتهي ${a.execDeadline}`, page: 'hajjApplicants' });
     }
     return out;
   }
@@ -306,9 +466,19 @@
       reg.push(p);
     });
     reg[2].stage = 'DOCS'; reg[3].stage = 'SUBMITTED';
+    // initial registrations waiting for the lottery (some as family groups)
+    ss.reg = { initialFrom: day(-20), initialTo: day(40), lotteryDate: day(45), execDays: 7, trustAmount: 10000, reservePct: 30, seniorAge: 65, wSenior: 1, wFirst: 0.5, wTry: 0.25 };
+    // demo national IDs built like real ones: century, YYMMDD, governorate, serial, gender digit (odd = male), check digit
+    const nidOf = (y, m, d, male, i) => `${y >= 2000 ? 3 : 2}${String(y).slice(2)}${m}${d}01${String(1000 + i).slice(1)}${male ? 1 + (i % 5) * 2 : (i % 5) * 2}${i % 10}`;
+    const apps = [['سيد عبد الله', 1956, '03', '15', 1, 'ECONOMY', 'أسرة سيد', 2], ['رشا سيد', 1965, '11', '20', 0, 'ECONOMY', 'أسرة سيد', 0], ['محمد سيد عبد الله', 1988, '07', '01', 1, 'ECONOMY', 'أسرة سيد', 0],
+      ['عادل منصور', 1955, '08', '12', 1, 'ECONOMY', '', 1], ['هدى عادل', 1962, '04', '25', 0, 'ECONOMY', '', 0], ['مصطفى جمعة', 1970, '01', '18', 1, 'ECONOMY', '', 0], ['ليلى فؤاد', 1959, '12', '09', 0, 'ECONOMY', '', 3],
+      ['إبراهيم الدسوقي', 1951, '11', '11', 1, 'FIVE', 'أسرة الدسوقي', 0], ['ثناء إبراهيم', 1956, '10', '10', 0, 'FIVE', 'أسرة الدسوقي', 0], ['طارق سعيد', 1975, '05', '05', 1, 'FIVE', '', 1],
+      ['نهال طارق', 1978, '06', '06', 0, 'FIVE', '', 0], ['وليد حمدي', 1968, '03', '03', 1, 'FIVE', '', 0], ['سامية مختار', 1954, '07', '07', 0, 'FIVE', '', 2]];
+    apps.forEach(([n, y, m, d, male, level, grp, tries], i) => {
+      try { apply(S, ss.id, { nameAr: n, nid: nidOf(y, m, d, male, i), phone: '0111' + String(4440000 + i * 2711), level, groupKey: grp, priorTries: tries }, actor); } catch (e) { /* demo */ } });
     return { season: ss, five, eco, pilgrims: reg };
   }
 
-  return { LEVELS, DURATION, ROUTE, TRANSPORT, MASHAIR, CITIES, ROOMS, NUSUK, NEEDS_HADY, COST_CATS, STAGES, DOCS, ACTIVE, empty, normalize, uid, season, pkg, costCenter, fxOf, hajjDays,
+  return { APP_STATUS, regOf, ageAt, fromNid, applicantIssues, apply, setApp, trustBalance, rng, fnv, lotteryUnits, unitWeight, runLottery, verifyLottery, recordOfficial, promoteReserve, expireOverdue, withdraw, executiveRegister, regAlerts, LEVELS, DURATION, ROUTE, TRANSPORT, MASHAIR, CITIES, ROOMS, NUSUK, NEEDS_HADY, COST_CATS, STAGES, DOCS, ACTIVE, empty, normalize, uid, season, pkg, costCenter, fxOf, hajjDays,
     costSheet, eligibility, priceFor, quotaUsed, quotaTotal, register, promote, setStage, cancelFee, cancel, units, autoGroups, autoRooms, autoTents, packageNumbers, closeSeason, alerts, seedDemo };
 });

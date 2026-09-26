@@ -37,6 +37,9 @@
         ${k.capacity ? h.progress(n.pilgrims, k.capacity) : ''}</div><div style="text-align:end"><b class="num">${n.pilgrims}</b>${k.capacity ? `<span class="small muted"> من ${k.capacity}</span>` : ''}<div class="small ${n.profit < 0 ? 'danger' : 'ok'}">ربح متوقع ${h.n0(n.profit)}</div></div></div>`).join('') || '<div class="muted small">لا برامج — أضف برنامجاً.</div>'}
         <div class="row" style="margin-top:8px"><button class="btn sm" data-act="go" data-page="hajjPackages">إدارة البرامج وكشف التكلفة ←</button></div></div>
       <div class="card"><h3>🔄 مراحل ملفات الحجاج</h3><div class="funnel">${stageCount.map(([st, n]) => `<div class="fn"><span>${esc(Hj.STAGES[st].ar)}</span><b class="num">${n}</b></div>`).join('') || '<div class="muted small">لا حجاج بعد.</div>'}</div>
+        ${(() => { const ap = s.hajj.applicants.filter((a) => a.seasonId === ss.id); if (!ap.length) return ''; const c = (st) => ap.filter((a) => a.status === st).length;
+          return `<h3 style="margin-top:12px">📝 التسجيل والقرعة</h3><div class="funnel">${[['طلبات', ap.length], ['تنتظر القرعة', c('APPLIED')], ['فائز', c('WON')], ['احتياطي', c('RESERVE')], ['تنفيذي', c('EXEC_DONE')], ['لم يستكمل/اعتذر', c('EXPIRED') + c('WITHDRAWN')]].map(([l, n]) => `<div class="fn"><span>${l}</span><b class="num">${n}</b></div>`).join('')}</div>
+          <div class="row" style="margin-top:6px"><button class="btn sm" data-act="go" data-page="hajjApplicants">الطلبات ←</button><button class="btn sm" data-act="go" data-page="hajjLottery">القرعة ←</button></div>`; })()}
         <h3 style="margin-top:12px">💱 الالتزام بالريال</h3><div class="small">المطلوب للموسم ≈ <b class="num">${h.n0(sum('sarNeed'))}</b> ر.س (بسعر التثبيت ${ss.fxLock} = ${h.egp(sum('sarNeed') * ss.fxLock)}) · التنفيذي الآن ${s.fx.current}${ss.fxLock ? ` → فرق ${h.egp(sum('sarNeed') * (s.fx.current - ss.fxLock))}` : ''}</div></div></div>
     <div class="grid g2" style="margin-top:14px">
       <div class="card"><h3>📅 أيام الحج</h3>${days.map((d) => `<div class="task-row ${d.date === today ? 'late' : ''}"><div><b>${esc(d.hijri)}</b> <span class="num muted">${esc(d.date)}</span><div class="small muted">${esc(d.text)}</div></div></div>`).join('') || '<div class="muted small">حدد يوم التروية من إعدادات الموسم.</div>'}</div>
@@ -54,6 +57,11 @@
         ${inp('fxLock', 'سعر تثبيت الريال للتسعير', 'number', 'step="0.01"')}${inp('usdRate', 'سعر الدولار', 'number', 'step="0.01"')}</div></div>
       <div class="card"><h3>✅ شروط الأهلية</h3><div class="grid g2">${inp('rules.yearsSinceLastHajj', 'سنوات من آخر حجة', 'number')}${inp('rules.passportMonths', 'صلاحية الجواز بعد العودة (شهور)', 'number')}
         ${inp('rules.minAge', 'أقل سن', 'number')}${inp('rules.maxAge', 'السن اللي يحتاج موافقة طبية', 'number')}${inp('rules.mahramUnder', 'سيدة أقل من (سنة) تحتاج محرم — 0 = غير مطلوب', 'number')}</div></div></div>
+    <div class="card" style="margin-top:14px"><h3>📝 التسجيل المبدئي والقرعة والتنفيذي</h3><div class="grid g4">
+      ${inp('reg.initialFrom', 'بداية التسجيل المبدئي', 'date')}${inp('reg.initialTo', 'نهاية التسجيل المبدئي', 'date')}${inp('reg.lotteryDate', 'موعد القرعة', 'date')}${inp('reg.execDays', 'مهلة التسجيل التنفيذي (أيام)', 'number')}
+      ${inp('reg.trustAmount', 'مقدم الجدية المسترد (0 = لا يوجد)', 'number')}${inp('reg.reservePct', 'الاحتياطي % من المقاعد', 'number')}${inp('reg.seniorAge', 'سن أولوية كبار السن', 'number')}${inp('reg.wSenior', 'وزن كبار السن', 'number', 'step="0.25"')}
+      ${inp('reg.wFirst', 'وزن أول حجة', 'number', 'step="0.25"')}${inp('reg.wTry', 'وزن كل تقديم سابق', 'number', 'step="0.25"')}</div>
+      <div class="small muted">الوزن الأساسي لكل طالب 1 — الأوزان تزود فرصة الفئات دي في القرعة الداخلية من غير ما تضمن لها مكان.</div></div>
     <div class="card" style="margin-top:14px"><div class="row"><h3 style="margin:0">🎫 الحصة (التأشيرات) ومصادرها</h3><span class="spacer"></span>${ss.closed ? '' : '<button class="btn sm" data-act="hjAddRow" data-k="quota">+ مصدر</button>'}</div>
       <div class="tbl-wrap"><table class="t"><thead><tr><th>المصدر</th><th>الاسم</th><th>عدد التأشيرات</th><th>تكلفة التأشيرة (للشريك)</th><th></th></tr></thead><tbody>${(ss.quota || []).map((q, qi) => `<tr>
         <td><select class="input sm" data-bind="${b(`quota.${qi}.source`)}" ${ro}>${opt('MINISTRY', q.source, 'حصة الشركة')}${opt('PARTNER', q.source, 'شريك / تضامن')}</select></td>
@@ -322,4 +330,175 @@
       <div class="small muted" style="margin-top:6px">فواتير الفنادق وباقات المشاعر والطيران تُسجل على البرنامج في "مصروفات حج مدفوعة مقدماً 1109" وتتحول لتكلفة عند إقفال الموسم.</div></div>`;
   };
   App.actions.hjBill = (d) => { const k = Hj.pkg(S(), d.id); App.openVoucher({ type: 'BILL', tripId: k.id, accountCode: '1109', memo: `فاتورة موسم الحج — ${k.code}` }); };
+})();
+
+/* ---------------------------------------------------------------- initial registration → lottery → executive registration */
+(function () {
+  'use strict';
+  const App = window.App, E = App.E, Acc = App.Acc, Model = App.Model, Hj = window.Hajj, h = App.h, esc = h.esc, opt = h.opt;
+  const S = () => App.S;
+  const done = (msg) => { if (msg) App.audit(msg); App.closeModal(); App.save(); App.render(); };
+  const curSeason = () => { const ss = S().hajj.seasons; return ss.find((x) => x.id === App.ui.hjSs) || ss.filter((x) => !x.closed).slice(-1)[0] || ss.slice(-1)[0]; };
+  const ssPicker = () => `<select class="input" data-ui="hjSs">${S().hajj.seasons.map((x) => opt(x.id, (curSeason() || {}).id, `${x.name}${x.closed ? ' (مقفل)' : ''}`)).join('')}</select>`;
+  const appChip = (st) => `<span class="chip ${Hj.APP_STATUS[st].cls}">${esc(Hj.APP_STATUS[st].ar)}</span>`;
+  const admin = () => ['OWNER', 'MANAGER'].includes(App.role());
+  const app = (id) => S().hajj.applicants.find((a) => a.id === id);
+  const field = (id, label, val, extra = '') => `<div class="field"><label>${label}</label><input class="input" id="${id}" value="${esc(val ?? '')}" ${extra}></div>`;
+
+  // ================================================================ APPLICANTS (initial + executive)
+  App.pages.hajjApplicants = () => {
+    const s = S(), ss = curSeason(); if (!ss) return '<div class="card muted">أنشئ موسماً أولاً.</div>';
+    const g = Hj.regOf(ss), tab = App.ui.haTab || 'apply', today = E.iso(new Date());
+    const all = s.hajj.applicants.filter((a) => a.seasonId === ss.id), cnt = (st) => all.filter((a) => a.status === st).length;
+    const d = App.ui.had || (App.ui.had = { nameAr: '', nid: '', phone: '', dob: '', gender: 'M', governorate: '', lastHajjYear: '', priorTries: 0, level: 'ECONOMY', groupKey: '', portalNo: '', agentId: '', trust: true });
+    const dec = Hj.fromNid(d.nid);
+    const q = String(App.ui.haQ || '').trim(), lv = App.ui.haLv || '';
+    const filt = (list) => list.filter((a) => (!lv || a.level === lv) && (!q || [a.code, a.nameAr, a.nid, a.phone, a.portalNo, a.groupKey].join(' ').includes(q)));
+    const row = (a, actions) => { const iss = Hj.applicantIssues(s, ss, a), tb = Hj.trustBalance(s, a); return `<tr><td class="num">${esc(a.code)}</td><td><b>${esc(a.nameAr)}</b> ${a.gender === 'F' ? '♀' : '♂'}<div class="small muted num">${esc(a.nid)} · ${esc(a.phone)}</div></td>
+      <td>${esc(Hj.LEVELS[a.level])}</td><td class="small">${a.groupKey ? `👪 ${esc(a.groupKey)}` : '—'}</td><td class="num">${Hj.ageAt(a.dob, ss.tarwiyah) ?? '—'}</td><td>${appChip(a.status)}${a.rank ? ` <span class="chip">#${a.rank}</span>` : ''}${iss.length ? `<div class="small ${iss.some((x) => x.level === 'err') ? 'danger' : 'muted'}">${esc(iss[0].text)}</div>` : ''}</td>
+      <td>${tb ? h.egp(tb) : '—'}</td><td class="row" style="gap:4px">${actions(a)}</td></tr>`; };
+    const head = '<thead><tr><th>الكود</th><th>الطالب</th><th>المستوى</th><th>المجموعة</th><th>السن</th><th>الحالة</th><th>مقدم الجدية</th><th></th></tr></thead>';
+    let body = '';
+    if (tab === 'apply') body = `${ss.closed ? '' : `<div class="card"><h3>➕ طلب حج مبدئي</h3><div class="grid g4">
+        <div class="field"><label>الاسم رباعي</label><input class="input" data-ui="had.nameAr" value="${esc(d.nameAr)}"></div>
+        <div class="field"><label>الرقم القومي (14 رقم)</label><input class="input" style="direction:ltr" data-ui="had.nid" value="${esc(d.nid)}" maxlength="14">${dec ? `<div class="small ok">مواليد ${dec.dob} · ${dec.gender === 'F' ? 'أنثى' : 'ذكر'}</div>` : d.nid ? '<div class="small danger">رقم غير صحيح</div>' : ''}</div>
+        <div class="field"><label>الهاتف</label><input class="input" style="direction:ltr" data-ui="had.phone" value="${esc(d.phone)}"></div>
+        <div class="field"><label>المحافظة</label><input class="input" data-ui="had.governorate" value="${esc(d.governorate)}"></div>
+        <div class="field"><label>المستوى المطلوب</label><select class="input" data-ui="had.level">${Object.entries(Hj.LEVELS).map(([k, x]) => opt(k, d.level, x)).join('')}</select></div>
+        <div class="field"><label>سنة آخر حجة (فارغ = أول مرة)</label><input class="input" type="number" data-ui="had.lastHajjYear" value="${esc(d.lastHajjYear)}"></div>
+        <div class="field"><label>مرات تقديم سابقة لم يُوفق فيها</label><input class="input" type="number" min="0" data-ui="had.priorTries" value="${d.priorTries}"></div>
+        <div class="field"><label>التقديم كمجموعة (نفس الاسم = يكسبوا أو يخسروا مع بعض)</label><input class="input" data-ui="had.groupKey" value="${esc(d.groupKey)}" list="ha-groups" placeholder="مثال: أسرة الدسوقي"><datalist id="ha-groups">${[...new Set(all.map((a) => a.groupKey).filter(Boolean))].map((x) => `<option value="${esc(x)}">`).join('')}</datalist></div>
+        <div class="field"><label>رقم الطلب على البوابة الرسمية</label><input class="input" style="direction:ltr" data-ui="had.portalNo" value="${esc(d.portalNo)}"></div>
+        <div class="field"><label>عن طريق</label><select class="input" data-ui="had.agentId">${opt('', d.agentId, 'مباشر')}${s.agents.map((x) => opt(x.id, d.agentId, x.name)).join('')}</select></div>
+        ${g.trustAmount ? `<label class="chk" style="align-self:end"><input type="checkbox" data-ui="had.trust" ${d.trust ? 'checked' : ''}> تحصيل مقدم جدية ${h.n0(g.trustAmount)} (مسترد)</label>` : ''}
+        <div class="field" style="align-self:end"><button class="btn primary" data-act="haApply">💾 تسجيل الطلب</button></div></div>
+        <div class="small muted" style="margin-top:6px">فترة التسجيل المبدئي: ${esc(g.initialFrom || '—')} ← ${esc(g.initialTo || '—')} · القرعة ${esc(g.lotteryDate || '—')} · الطلب اللي عليه مانع أهلية يتسجل "غير مستوفي" ولا يدخل القرعة.</div></div>`}
+      <div class="card" style="margin-top:14px"><div class="tbl-wrap"><table class="t">${head}<tbody>${filt(all.filter((a) => ['APPLIED', 'INELIGIBLE'].includes(a.status))).map((a) => row(a, (x) => `${x.status === 'INELIGIBLE' && admin() ? `<button class="btn sm" data-act="haReinstate" data-id="${x.id}">إدخال القرعة</button>` : ''}<button class="btn sm ghost" data-act="haEdit" data-id="${x.id}">✏️</button><button class="btn sm ghost" data-act="haWithdraw" data-id="${x.id}">اعتذار</button>`)).join('') || '<tr><td colspan="8" class="muted">لا طلبات في انتظار القرعة.</td></tr>'}</tbody></table></div></div>`;
+    else if (tab === 'winners') { const list = filt(all.filter((a) => a.status === 'WON')).sort((a, b) => (a.execDeadline < b.execDeadline ? -1 : 1));
+      body = `<div class="row" style="margin-bottom:10px">${admin() ? '<button class="btn" data-act="haExpire">⏰ مراجعة المهل وتصعيد الاحتياطي</button>' : ''}<button class="btn" data-act="haNotify">🟢 إبلاغ الفائزين بالمهلة (واتساب)</button></div>
+        <div class="card"><div class="tbl-wrap"><table class="t">${head.replace('<th></th></tr>', '<th>مهلة التنفيذي</th><th></th></tr>')}<tbody>${list.map((a) => row(a, (x) => `<button class="btn sm primary" data-act="haExec" data-id="${x.id}">📝 تسجيل تنفيذي</button><button class="btn sm ghost" data-act="haWithdraw" data-id="${x.id}">اعتذار</button>`).replace('<td class="row"', `<td class="num ${a.execDeadline < today ? 'danger' : a.execDeadline <= E.iso(E.addDays(today, 2)) ? 'hold' : ''}">${esc(a.execDeadline || '')}</td><td class="row"`)).join('') || '<tr><td colspan="9" class="muted">لا فائزين بانتظار التنفيذي.</td></tr>'}</tbody></table></div></div>`; }
+    else if (tab === 'reserve') body = `<div class="card"><div class="tbl-wrap"><table class="t">${head}<tbody>${filt(all.filter((a) => a.status === 'RESERVE')).sort((a, b) => (a.level + String(a.rank).padStart(5, '0') < b.level + String(b.rank).padStart(5, '0') ? -1 : 1)).map((a) => row(a, (x) => (admin() ? `<button class="btn sm" data-act="haPromote" data-level="${x.level}">⬆️ تصعيد أول احتياطي</button>` : ''))).join('') || '<tr><td colspan="8" class="muted">لا احتياطي.</td></tr>'}</tbody></table></div></div>`;
+    else body = `<div class="card"><div class="tbl-wrap"><table class="t">${head}<tbody>${filt(all).map((a) => row(a, (x) => `${x.pilgrimId ? `<button class="btn sm" data-act="go" data-page="hajjPilgrim" data-id="${x.pilgrimId}">ملف الحاج</button>` : ''}${['LOST', 'WITHDRAWN', 'EXPIRED'].includes(x.status) && Hj.trustBalance(s, x) > 0 ? `<button class="btn sm" data-act="haRefund" data-id="${x.id}">↩️ رد الجدية</button>` : ''}<button class="btn sm ghost" data-act="haLog" data-id="${x.id}">السجل</button>`)).join('')}</tbody></table></div></div>`;
+    return `<div class="page-head"><div><h2>📝 التسجيل المبدئي والتنفيذي</h2><p>طلب مبدئي ← القرعة ← الفائز يستكمل التسجيل التنفيذي في المهلة ← حاج · الاحتياطي يتصعّد تلقائياً لو فائز اعتذر أو ما استكملش</p></div><div class="row">${ssPicker()}<button class="btn" data-act="go" data-page="hajjLottery">🎲 القرعة</button></div></div>
+    <div class="grid g4"><div class="card kpi"><div class="lbl">طلبات تنتظر القرعة</div><div class="val">${cnt('APPLIED')}</div><div class="hint">${cnt('INELIGIBLE')} غير مستوفي</div></div>
+      <div class="card kpi"><div class="lbl">فائزون بانتظار التنفيذي</div><div class="val gold">${cnt('WON')}</div><div class="hint">${all.filter((a) => a.status === 'WON' && a.execDeadline < today).length} تجاوزوا المهلة</div></div>
+      <div class="card kpi"><div class="lbl">تم التسجيل التنفيذي</div><div class="val ok">${cnt('EXEC_DONE')}</div><div class="hint">${cnt('RESERVE')} احتياطي · ${cnt('LOST')} لم يُوفق · ${cnt('EXPIRED') + cnt('WITHDRAWN')} خرجوا</div></div>
+      <div class="card kpi"><div class="lbl">أمانات الجدية (2109)</div><div class="val">${h.egp(all.reduce((x, a) => x + Hj.trustBalance(s, a), 0))}</div><div class="hint">مسترد — ليس إيراداً</div></div></div>
+    <div class="row" style="margin:14px 0 8px"><div class="tabs" style="margin:0">${[['apply', '📝 الطلبات المبدئية'], ['winners', `🏆 الفائزون (${cnt('WON')})`], ['reserve', `⏳ الاحتياطي (${cnt('RESERVE')})`], ['all', 'كل الطلبات']].map(([k, l]) => `<button class="${tab === k ? 'active' : ''}" data-act="haTab" data-t="${k}">${l}</button>`).join('')}</div>
+      <span class="spacer"></span><select class="input" style="width:auto" data-ui="haLv">${opt('', lv, 'كل المستويات')}${Object.entries(Hj.LEVELS).map(([k, x]) => opt(k, lv, x)).join('')}</select><input class="input" style="width:180px" data-ui="haQ" value="${esc(q)}" placeholder="بحث بالاسم/الرقم القومي"></div>
+    ${body}`;
+  };
+  App.actions.haTab = (d) => { App.ui.haTab = d.t; App.render(); };
+  App.actions.haApply = () => {
+    const s = S(), ss = curSeason(), d = App.ui.had, g = Hj.regOf(ss);
+    let a; try { a = Hj.apply(s, ss.id, d, App.actor()); } catch (e) { return App.toast('⛔ ' + e.message, 'err'); }
+    App.ui.had = { ...App.ui.had, nameAr: '', nid: '', phone: '', dob: '', lastHajjYear: '', priorTries: 0, portalNo: '' };
+    App.audit(`طلب حج مبدئي ${a.code} ${a.nameAr}${a.status === 'INELIGIBLE' ? ' (غير مستوفي)' : ''}`); App.save(); App.render();
+    App.toast(a.status === 'INELIGIBLE' ? `⚠️ ${a.code} غير مستوفي: ${Hj.applicantIssues(s, ss, a).find((x) => x.level === 'err').text}` : `✅ ${a.code} — في انتظار القرعة`, a.status === 'INELIGIBLE' ? 'warn' : '');
+    if (g.trustAmount && d.trust && a.status === 'APPLIED') App.openVoucher({ type: 'RV', party: { type: 'customer', id: a.customerId }, purpose: 'TRUST', amount: g.trustAmount, memo: `مقدم جدية طلب حج ${a.code} (مسترد)`, lockParty: true });
+  };
+  App.actions.haEdit = (d) => {
+    const a = app(d.id);
+    App.modal(`<h3>✏️ ${esc(a.code)}</h3><div class="grid g2">${field('he-n', 'الاسم', a.nameAr)}${field('he-ph', 'الهاتف', a.phone, 'style="direction:ltr"')}${field('he-lh', 'آخر حجة', a.lastHajjYear, 'type="number"')}${field('he-pt', 'مرات سابقة', a.priorTries, 'type="number"')}
+      ${field('he-g', 'المجموعة', a.groupKey)}${field('he-po', 'رقم البوابة', a.portalNo, 'style="direction:ltr"')}<div class="field"><label>المستوى</label><select class="input" id="he-lv">${Object.entries(Hj.LEVELS).map(([k, x]) => opt(k, a.level, x)).join('')}</select></div></div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" data-act="haEditSave" data-id="${a.id}">حفظ</button><button class="btn" data-act="closeModal">إلغاء</button></div>`);
+  };
+  App.actions.haEditSave = (d) => {
+    const s = S(), a = app(d.id), ss = Hj.season(s, a.seasonId);
+    Object.assign(a, { nameAr: App.val('he-n'), phone: App.val('he-ph'), lastHajjYear: document.getElementById('he-lh').value, priorTries: Number(App.val('he-pt')) || 0, groupKey: App.val('he-g'), portalNo: App.val('he-po'), level: App.val('he-lv') });
+    const bad = Hj.applicantIssues(s, ss, a).some((x) => x.level === 'err');
+    if (bad && a.status === 'APPLIED') Hj.setApp(a, 'INELIGIBLE', 'النظام'); else if (!bad && a.status === 'INELIGIBLE') Hj.setApp(a, 'APPLIED', App.actor().name, 'استوفى الشروط بعد التعديل');
+    done(`تعديل طلب ${a.code}`);
+  };
+  App.actions.haReinstate = (d) => { const a = app(d.id), note = prompt('سبب إدخال الطلب القرعة رغم الملاحظة؟'); if (!note) return; Hj.setApp(a, 'APPLIED', App.actor().name, note); done(`إدخال ${a.code} القرعة استثناءً`); };
+  App.actions.haWithdraw = (d) => {
+    const s = S(), a = app(d.id), reason = prompt(`اعتذار ${a.nameAr}؟ اكتب السبب:`); if (!reason) return;
+    const p = Hj.withdraw(s, a, App.actor().name, reason);
+    done(`اعتذار ${a.code}${p ? ` — تصعيد ${p.code}` : ''}`);
+    if (p) App.toast(`⬆️ تم تصعيد ${p.code} ${p.nameAr} من الاحتياطي`);
+    if (Hj.trustBalance(s, a) > 0) App.actions.haRefund({ id: a.id });
+  };
+  App.actions.haRefund = (d) => { const a = app(d.id), tb = Hj.trustBalance(S(), a); if (!tb) return; App.openVoucher({ type: 'PV', party: { type: 'customer', id: a.customerId }, purpose: 'TRUST', amount: tb, memo: `رد مقدم جدية ${a.code}`, lockParty: true }); };
+  App.actions.haPromote = (d) => { const p = Hj.promoteReserve(S(), curSeason().id, d.level, App.actor().name); if (!p) return App.toast('لا يوجد احتياطي', 'err'); done(`تصعيد ${p.code} من الاحتياطي`); App.toast(`⬆️ ${p.code} أصبح فائزاً — مهلته حتى ${p.execDeadline}`); };
+  App.actions.haExpire = () => { const r = Hj.expireOverdue(S(), curSeason().id, App.actor().name); done(`مراجعة المهل: ${r.expired.length} لم يستكمل، ${r.promoted.length} تصعيد`); App.toast(`${r.expired.length} تجاوزوا المهلة · ${r.promoted.length} تم تصعيدهم من الاحتياطي`); };
+  App.actions.haLog = (d) => { const a = app(d.id); App.modal(`<h3>📜 ${esc(a.code)} · ${esc(a.nameAr)}</h3>${(a.log || []).map((x) => `<div class="task-row"><span>${esc(Hj.APP_STATUS[x.status].ar)}${x.note ? ` — ${esc(x.note)}` : ''}</span><span class="small muted">${esc(x.by)} · ${h.dt(x.at)}</span></div>`).join('')}<div class="row" style="margin-top:10px"><button class="btn" data-act="closeModal">إغلاق</button></div>`); };
+  App.actions.haNotify = () => { App.ui.wac = { scope: 'HAJJ_WIN', text: 'مبروك {الاسم} 🎉\nتم اختياركم في قرعة {الموسم}.\nآخر موعد للتسجيل التنفيذي واستلام العقد: {المهلة}\nبرجاء إحضار: الجواز، الرقم القومي، صور شخصية، وسداد المقدم.\n{الشركة}', off: {}, sent: {} }; App.actions.go({ page: 'waCenter' }); };
+  App.actions.haExec = (d) => {
+    const s = S(), a = app(d.id), ks = s.hajj.packages.filter((k) => k.seasonId === a.seasonId && k.level === a.level);
+    if (!ks.length) return App.toast(`لا يوجد برنامج بمستوى ${Hj.LEVELS[a.level]} في الموسم — أضف البرنامج أولاً`, 'err');
+    const k = ks[0], tb = Hj.trustBalance(s, a);
+    App.modal(`<h3>📝 التسجيل التنفيذي — ${esc(a.nameAr)} <span class="chip">${esc(a.code)}</span></h3>
+      <div class="alert info small">مستوى ${esc(Hj.LEVELS[a.level])} · المهلة حتى ${esc(a.execDeadline)}${tb ? ` · مقدم الجدية ${h.n0(tb)} سيُحوّل كأول دفعة` : ''}</div>
+      <div class="grid g2" style="margin-top:8px"><div class="field"><label>البرنامج</label><select class="input" id="hx-k" data-act-change="hxPkg">${ks.map((x) => opt(x.id, k.id, `${x.code} · ${x.name}`)).join('')}</select></div>
+        <div class="field"><label>نوع الغرفة</label><select class="input" id="hx-r">${Object.entries(Hj.ROOMS).filter(([r]) => (k.prices || {})[r]).map(([r, x]) => opt(r, '', `${x.ar} — ${h.n0(k.prices[r])}`)).join('')}</select></div>
+        <div class="field"><label>النسك</label><select class="input" id="hx-n">${Object.entries(Hj.NUSUK).map(([x, y]) => opt(x, 'TAMATTU', y)).join('')}</select></div>
+        ${field('hx-en', 'الاسم بالجواز', '', 'style="direction:ltr"')}${field('hx-pp', 'رقم الجواز', '', 'style="direction:ltr"')}${field('hx-pe', 'انتهاء الجواز', '', 'type="date"')}</div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" data-act="haExecSave" data-id="${a.id}">✅ تسجيل تنفيذي وإنشاء ملف الحاج</button><button class="btn" data-act="closeModal">إلغاء</button></div>`, true);
+  };
+  App.actions.hxPkg = (d) => { const k = Hj.pkg(S(), d.value); document.getElementById('hx-r').innerHTML = Object.entries(Hj.ROOMS).filter(([r]) => (k.prices || {})[r]).map(([r, x]) => opt(r, '', `${x.ar} — ${h.n0(k.prices[r])}`)).join(''); };
+  App.actions.haExecSave = (d) => {
+    const s = S(), a = app(d.id), actor = App.actor();
+    let r;
+    try { r = Hj.executiveRegister(s, a, { packageId: App.val('hx-k'), roomType: App.val('hx-r'), nusuk: App.val('hx-n'), nameEn: App.val('hx-en'), passport: App.val('hx-pp'), passportExp: App.val('hx-pe') }, actor); }
+    catch (e) { return App.toast('⛔ ' + e.message, 'err'); }
+    if (r.trust > 0) {
+      const v = Model.createVoucher(s, { type: 'DT', amount: Math.min(r.trust, r.pilgrim.net), party: { type: 'customer', id: a.customerId }, bookingId: r.pilgrim.id, tripId: r.pilgrim.packageId, memo: `تحويل مقدم جدية ${a.code} إلى حساب الحاج ${r.pilgrim.code}` }, actor);
+      if (App.isApprover()) Model.approve(s, v.id, actor);
+    }
+    done(`تسجيل تنفيذي ${a.code} → ${r.pilgrim.code}`);
+    App.toast(`✅ ${r.pilgrim.code} — ${r.trust ? (App.isApprover() ? 'تم تحويل مقدم الجدية' : 'تحويل مقدم الجدية بانتظار اعتماد المحاسب') : 'سجّل المقدم بسند قبض'}`);
+    App.actions.go({ page: 'hajjPilgrim', id: r.pilgrim.id });
+  };
+
+  // ================================================================ LOTTERY
+  App.pages.hajjLottery = () => {
+    const s = S(), ss = curSeason(); if (!ss) return '<div class="card muted">أنشئ موسماً أولاً.</div>';
+    const g = Hj.regOf(ss), lots = s.hajj.lotteries.filter((l) => l.seasonId === ss.id).slice().reverse();
+    const free = Math.max(0, Hj.quotaTotal(ss) - Hj.quotaUsed(s, ss) - s.hajj.applicants.filter((a) => a.seasonId === ss.id && a.status === 'WON').length);
+    const rows = Object.entries(Hj.LEVELS).map(([lv, name]) => { const units = Hj.lotteryUnits(s, ss, lv), n = units.reduce((x, u) => x + u.members.length, 0); return { lv, name, units: units.length, n }; }).filter((r) => r.n);
+    const seats = App.ui.ltSeats || (App.ui.ltSeats = {});
+    const seed = App.ui.ltSeed || (App.ui.ltSeed = `${E.iso(new Date())}-${String(Math.floor(Math.random() * 900000) + 100000)}`);
+    return `<div class="page-head"><div><h2>🎲 القرعة</h2><p>قرعة داخلية عادلة وقابلة للتحقق (نفس البذرة = نفس النتيجة) بأولويات مرجّحة والأسر كوحدة واحدة — أو تسجيل نتيجة القرعة الرسمية</p></div><div class="row">${ssPicker()}<button class="btn" data-act="go" data-page="hajjApplicants">📝 الطلبات</button></div></div>
+    <div class="grid g2"><div class="card"><h3>📊 الإقبال مقابل المقاعد</h3><div class="tbl-wrap"><table class="t"><thead><tr><th>المستوى</th><th>طلبات مستوفية</th><th>وحدات (أفراد/أسر)</th><th>المقاعد في القرعة</th><th>الإقبال</th></tr></thead><tbody>
+        ${rows.map((r) => `<tr><td>${esc(r.name)}</td><td class="num">${r.n}</td><td class="num">${r.units}</td><td><input class="input sm num" type="number" min="0" style="width:90px" data-ui="ltSeats.${r.lv}" value="${seats[r.lv] ?? ''}"></td><td class="num">${seats[r.lv] ? (r.n / seats[r.lv]).toFixed(1) + '×' : '—'}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">لا طلبات تنتظر القرعة.</td></tr>'}</tbody></table></div>
+        <div class="small muted">المتاح في الحصة حالياً: ${free} مقعد (بعد الحجاج المسجلين والفائزين المنتظرين).</div></div>
+      <div class="card"><h3>⚖️ أوزان الأولوية (من إعدادات الموسم)</h3><table class="t small"><tbody>
+        <tr><td>كبار السن ${g.seniorAge}+ سنة</td><td>+${g.wSenior}</td></tr><tr><td>أول حجة (للمجموعة كلها)</td><td>+${g.wFirst}</td></tr><tr><td>لكل مرة تقديم سابقة لم يُوفق فيها</td><td>+${g.wTry}</td></tr>
+        <tr><td>الاحتياطي</td><td>${g.reservePct}% من المقاعد</td></tr><tr><td>مهلة التسجيل التنفيذي</td><td>${g.execDays} أيام</td></tr></tbody></table>
+        <div class="small muted">الوزن الأساسي 1؛ الوزن الأكبر يزود الفرصة من غير ما يضمنها.</div></div></div>
+    ${admin() && !ss.closed ? `<div class="grid g2" style="margin-top:14px"><div class="card"><h3>🎲 قرعة داخلية</h3>
+        <div class="grid g2"><div class="field"><label>البذرة (تُعلن وتُكتب في المحضر)</label><input class="input" style="direction:ltr" data-ui="ltSeed" value="${esc(seed)}"></div>
+          <div class="field"><label>الحضور / الشهود</label><input class="input" data-ui="ltWit" value="${esc(App.ui.ltWit || '')}" placeholder="الأسماء"></div></div>
+        <button class="btn primary" style="margin-top:10px" data-act="ltRun">🎲 إجراء القرعة</button></div>
+      <div class="card"><h3>🏛️ تسجيل نتيجة القرعة الرسمية</h3><textarea class="input" rows="5" id="lt-off" placeholder="سطر لكل طالب: الرقم القومي أو رقم الطلب | فائز / احتياطي / خاسر | الترتيب\n25603150100010 | فائز\n26511200100121 | احتياطي | 3"></textarea>
+        <button class="btn" style="margin-top:8px" data-act="ltOfficial">💾 تسجيل النتيجة</button></div></div>` : ''}
+    <div class="card" style="margin-top:14px"><h3>📜 سجل القرعات</h3>${lots.map((l) => { const c = (r) => l.results.filter((x) => x.result === r).length; return `<div class="task-row"><div><b>${l.mode === 'INTERNAL' ? '🎲 قرعة داخلية' : '🏛️ نتيجة رسمية'} — ${esc(l.date)}</b>
+      <div class="small muted">${l.seed ? `البذرة <span class="num">${esc(l.seed)}</span> · ` : ''}البصمة <span class="num">${esc(l.hash)}</span> · ${esc(l.by)} · فائز ${c('WON')} · احتياطي ${c('RESERVE')} · لم يُوفق ${c('LOST')}</div></div>
+      <div class="row" style="gap:4px">${l.mode === 'INTERNAL' ? `<button class="btn sm" data-act="ltVerify" data-id="${l.id}">✔️ تحقق</button>` : ''}<button class="btn sm gold" data-act="ltPrint" data-id="${l.id}">🖨️ المحضر</button></div></div>`; }).join('') || '<div class="muted small">لم تُجر قرعة بعد.</div>'}</div>`;
+  };
+  App.actions.ltRun = () => {
+    const s = S(), ss = curSeason(), seats = {}; for (const [k, v] of Object.entries(App.ui.ltSeats || {})) if (Number(v) > 0) seats[k] = Number(v);
+    if (!Object.keys(seats).length) return App.toast('حدد عدد المقاعد لكل مستوى', 'err');
+    if (!confirm(`إجراء القرعة بالبذرة "${App.ui.ltSeed}"؟ النتيجة تُعتمد فوراً ويتم إبلاغ الفائزين بالمهلة.`)) return;
+    try { const lot = Hj.runLottery(s, ss.id, { seed: App.ui.ltSeed, seats, witnesses: App.ui.ltWit || '' }, App.actor());
+      App.ui.ltSeed = null; done(`قرعة ${ss.name} — البصمة ${lot.hash}`); App.toast(`✅ تمت القرعة: ${lot.results.filter((r) => r.result === 'WON').length} فائز`); App.actions.ltPrint({ id: lot.id }); }
+    catch (e) { App.toast('⛔ ' + e.message, 'err'); }
+  };
+  App.actions.ltOfficial = () => {
+    try { const r = Hj.recordOfficial(S(), curSeason().id, document.getElementById('lt-off').value, App.actor()); done(`تسجيل نتيجة القرعة الرسمية (${r.lottery.results.length})`); App.toast(`✅ ${r.lottery.results.length} سطر${r.missing.length ? ` · ${r.missing.length} لم يُتعرف عليه` : ''}`, r.missing.length ? 'warn' : ''); }
+    catch (e) { App.toast('⛔ ' + e.message, 'err'); }
+  };
+  App.actions.ltVerify = (d) => { const l = S().hajj.lotteries.find((x) => x.id === d.id); App.toast(Hj.verifyLottery(S(), l) ? '✅ إعادة القرعة بنفس البذرة أعطت نفس النتيجة بالضبط' : '⛔ النتيجة لا تطابق — تم تعديل البيانات بعد القرعة', Hj.verifyLottery(S(), l) ? '' : 'err'); };
+  App.actions.ltPrint = (d) => {
+    const s = S(), l = s.hajj.lotteries.find((x) => x.id === d.id), ss = Hj.season(s, l.seasonId), A = (id) => s.hajj.applicants.find((a) => a.id === id) || {};
+    const sect = (res, title) => { const rs = l.results.filter((r) => r.result === res).sort((a, b) => (a.level + String(a.rank || 0).padStart(4, '0') < b.level + String(b.rank || 0).padStart(4, '0') ? -1 : 1));
+      return rs.length ? `<h3>${title} (${rs.length})</h3><table><tr><th>#</th><th>الكود</th><th>الاسم</th><th>الرقم القومي</th><th>المستوى</th><th>المجموعة</th>${res === 'RESERVE' ? '<th>الترتيب</th>' : ''}${l.mode === 'INTERNAL' ? '<th>الوزن</th>' : ''}</tr>
+        ${rs.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.code)}</td><td>${esc(A(r.applicantId).nameAr)}</td><td>${esc(A(r.applicantId).nid)}</td><td>${esc(Hj.LEVELS[r.level])}</td><td>${esc(A(r.applicantId).groupKey || '')}</td>${res === 'RESERVE' ? `<td>${r.rank}</td>` : ''}${l.mode === 'INTERNAL' ? `<td>${r.weight}</td>` : ''}</tr>`).join('')}</table>` : ''; };
+    App.printDoc('Lottery minutes', `<div class="head"><div><span class="title">محضر ${l.mode === 'INTERNAL' ? 'قرعة الحج' : 'تسجيل نتيجة القرعة الرسمية'}</span><div class="muted" style="margin-top:6px">${esc(ss.name)}</div></div><div style="text-align:end">التاريخ <b>${esc(l.date)}</b><br>البصمة <b class="num">${esc(l.hash)}</b></div></div>
+      ${l.mode === 'INTERNAL' ? `<table class="kv"><tr><td>البذرة المعلنة</td><td class="num"><b>${esc(l.seed)}</b></td></tr><tr><td>المقاعد</td><td>${Object.entries(l.seats).map(([k, v]) => `${Hj.LEVELS[k]}: ${v}`).join(' · ')}</td></tr>
+        <tr><td>الأوزان</td><td>كبار السن ${l.params.seniorAge}+ : +${l.params.wSenior} · أول حجة: +${l.params.wFirst} · كل تقديم سابق: +${l.params.wTry} · الاحتياطي ${l.params.reservePct}%</td></tr>
+        <tr><td>الطريقة</td><td>سحب مرجّح بدون إرجاع؛ الأسرة/المجموعة وحدة واحدة لا تُفرّق؛ مولد أرقام حتمي من البذرة يمكن إعادته والتحقق منه</td></tr><tr><td>الحضور</td><td>${esc(l.witnesses || '')}</td></tr></table>` : ''}
+      ${sect('WON', '🏆 الفائزون')}${sect('RESERVE', '⏳ الاحتياطي')}${sect('LOST', 'لم يحالفهم الحظ')}
+      <div class="sign"><div>مسؤول القرعة<br><small>${esc(l.by)}</small></div><div>الشهود</div><div>مدير الشركة</div></div>`, false);
+  };
 })();

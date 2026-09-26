@@ -166,7 +166,7 @@
 
   // --------------------------------------------- voucher side-effects
   function onVoucherPosted(S, v) {
-    if (v.type === 'RV' && v.bookingId) {
+    if ((v.type === 'RV' || v.type === 'DT') && v.bookingId) {
       const f = findBooking(S, v.bookingId);
       if (f) {
         const egp = Acc.r2(v.amount * (v.currency === 'EGP' ? 1 : v.fx));

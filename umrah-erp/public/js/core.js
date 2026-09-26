@@ -271,7 +271,7 @@
     ['home', '🏠', 'الرئيسية', [['home', 'لوحة التحكم والتنبيهات', EVERY], ['me', 'حسابي كموظف', EVERY]]],
     ['trips', '🕋', 'العمرة', [['booking', 'حجوزات العمرة', [...SAL, 'OPERATIONS']], ['trips', 'الرحلات', ALL], ['builder', 'التكلفة والتسعير', [...FIN, 'HEAD']], ['heatmap', 'رادار الإتاحات', ALL],
       ['rooms', 'التسكين المزدوج', OPS], ['bus', 'مقاعد الباص', OPS], ['ops', 'العمليات والكشوف', OPS], ['tripfiles', 'ملفات الرحلة', ALL]]],
-    ['hajj', '⛰️', 'الحج', [['hajjDash', 'لوحة الموسم', ALL], ['hajjPilgrims', 'الحجاج والتسجيل', [...SAL, 'OPERATIONS']], ['hajjPackages', 'البرامج وكشف التكلفة', [...FIN, 'HEAD']],
+    ['hajj', '⛰️', 'الحج', [['hajjDash', 'لوحة الموسم', ALL], ['hajjApplicants', 'التسجيل المبدئي والتنفيذي', [...SAL, 'OPERATIONS']], ['hajjLottery', 'القرعة', [...SAL, 'OPERATIONS']], ['hajjPilgrims', 'الحجاج', [...SAL, 'OPERATIONS']], ['hajjPackages', 'البرامج وكشف التكلفة', [...FIN, 'HEAD']],
       ['hajjOps', 'التفويج والتسكين والخيام', OPS], ['hajjSeason', 'إعدادات الموسم والحصة', ADM], ['hajjPnl', 'ربحية الموسم', FIN]]],
     ['dom', '🏖️', 'السياحة الداخلية', [['domBooking', 'حجوزات السياحة الداخلية', [...SAL, 'OPERATIONS']], ['domPrograms', 'البرامج والرحلات', ALL], ['domOps', 'التشغيل والكشوف', OPS],
       ['domHotels', 'الفنادق وأسعار التعاقد', [...FIN, 'OPERATIONS', 'HEAD']], ['domPnl', 'ربحية البرامج', FIN]]],

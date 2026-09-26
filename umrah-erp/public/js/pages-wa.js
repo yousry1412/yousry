@@ -33,6 +33,7 @@
     COLLECT: { ar: '💰 تذكير بالمتبقي (كل من عليه مبالغ)', tpl: 'السلام عليكم {الاسم}\nنذكركم بالمتبقي على حجز {الكود} ({الرحلة}): {المتبقي} ج.م\nموعد السفر {التاريخ}. يمكنكم السداد نقداً أو تحويلاً.\n{الشركة}' },
     AGENTS: { ar: '🤝 كشف رصيد الوكلاء والمناديب', tpl: 'السلام عليكم {الاسم}\nرصيد حسابكم لدى {الشركة}: {الرصيد} ج.م {الحالة}\nلأي استفسار تواصلوا معنا.' },
     TRIP: { ar: '🕋 معتمرو رحلة عمرة', tpl: 'السلام عليكم {الاسم}\nتفاصيل رحلة {الرحلة}: السفر {التاريخ}.\n{الشركة}' },
+    HAJJ_WIN: { ar: '🏆 الفائزون في قرعة الحج (بالمهلة)', tpl: 'مبروك {الاسم} 🎉\nتم اختياركم في قرعة {الموسم}.\nآخر موعد للتسجيل التنفيذي: {المهلة}\n{الشركة}' },
     HAJJ: { ar: '⛰️ حجاج برنامج حج', tpl: 'السلام عليكم الحاج/ة {الاسم}\nتذكير: {القسط} مستحق {التاريخ} بقيمة {المبلغ} ج.م — برنامج {الرحلة}.\nالمتبقي الإجمالي {المتبقي} ج.م\n{الشركة}' },
     PROGRAM: { ar: '🏖️ عملاء برنامج سياحة داخلية', tpl: 'السلام عليكم {الاسم}\nتذكير برحلة {الرحلة} يوم {التاريخ}.\n{الشركة}' },
     CUSTOMERS: { ar: '👥 كل العملاء (رسالة حرة/عروض)', tpl: 'السلام عليكم {الاسم}\nعروض {الشركة} الجديدة…' },
@@ -63,6 +64,8 @@
         const c = custOf(b, { phone: (b.pax[0] || {}).phone, nameAr: (b.pax[0] || {}).name });
         rows.push({ ref: b.code, name: c.name, phone: c.phone, vars: { الكود: b.code, الرحلة: p.name, التاريخ: p.startDate, التجمع: b.pickup || '', المتبقي: h.n0(b.net - b.paid) } });
       }
+    } else if (w.scope === 'HAJJ_WIN') {
+      for (const a of s.hajj.applicants.filter((x) => x.status === 'WON')) { const ss = window.Hajj.season(s, a.seasonId); rows.push({ ref: a.code, name: a.nameAr, phone: a.phone, vars: { الموسم: ss ? ss.name : '', المهلة: a.execDeadline || '', المستوى: window.Hajj.LEVELS[a.level] } }); }
     } else if (w.scope === 'HAJJ') {
       const k = (s.hajj.packages.find((x) => x.id === w.hajjId) || s.hajj.packages[0]);
       if (k) for (const p of s.hajj.pilgrims.filter((x) => x.packageId === k.id && window.Hajj.ACTIVE(x))) {

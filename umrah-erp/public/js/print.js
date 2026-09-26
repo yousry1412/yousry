@@ -72,7 +72,7 @@
   };
 
   // ------------------------------------------------------------ vouchers (سندات)
-  const V_TITLE = { RV: 'سند قبض', PV: 'سند صرف', EXP: 'سند مصروف', TR: 'سند تحويل', BILL: 'فاتورة مورد', JV: 'قيد يومية' };
+  const V_TITLE = { RV: 'سند قبض', PV: 'سند صرف', EXP: 'سند مصروف', TR: 'سند تحويل', BILL: 'فاتورة مورد', JV: 'قيد يومية', DT: 'سند تحويل مقدم جدية' };
   const CUR_AR = { EGP: 'ج.م', SAR: 'ر.س', USD: '$' };
   function voucherCopy(v, copyLabel) {
     const s = S(), cb = h.cashbox(v.cashboxId), f = v.bookingId ? Model.findBooking(s, v.bookingId) : null;

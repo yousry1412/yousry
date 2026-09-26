@@ -127,6 +127,18 @@ function validate(oldS, newS, user) {
       if (o && !o.closed && x.closed && !approver) errors.push('إقفال موسم الحج من صلاحية المحاسب أو المدير');
     }
     for (const o of oldS.hajj.seasons || []) if (!(newS.hajj.seasons || []).some((x) => x.id === o.id)) errors.push('لا يمكن حذف موسم حج');
+    // lottery results are final: nobody edits or deletes a recorded lottery; running one is a management act
+    const oL = new Map((oldS.hajj.lotteries || []).map((l) => [l.id, stable(l)]));
+    for (const [id, v] of oL) { const n = (newS.hajj.lotteries || []).find((l) => l.id === id); if (!n || stable(n) !== v) errors.push('نتيجة القرعة المسجلة لا يمكن تعديلها أو حذفها'); }
+    if ((newS.hajj.lotteries || []).some((l) => !oL.has(l.id)) && !admin) errors.push('إجراء القرعة أو تسجيل نتيجتها من صلاحية المدير');
+    const oA = new Map((oldS.hajj.applicants || []).map((x) => [x.id, x]));
+    for (const x of newS.hajj.applicants || []) {
+      const o = oA.get(x.id);
+      if (!o) { if (!['APPLIED', 'INELIGIBLE'].includes(x.status)) errors.push(`الطلب ${x.code} لازم يبدأ كطلب مبدئي`); continue; }
+      if (o.status !== x.status && ['WON', 'RESERVE', 'LOST', 'EXPIRED'].includes(x.status) && !admin) errors.push(`نتيجة ${x.code} (فائز/احتياطي/مهلة) من صلاحية المدير`);
+      if (o.status === 'INELIGIBLE' && x.status === 'APPLIED' && !admin && stable({ ...o, status: 0, log: 0 }) === stable({ ...x, status: 0, log: 0 })) errors.push(`إدخال ${x.code} القرعة استثناءً من صلاحية المدير`);
+      if (['WON', 'RESERVE', 'LOST'].includes(o.status) && (o.rank !== x.rank || o.level !== x.level || o.groupKey !== x.groupKey)) errors.push(`بيانات ${x.code} مقفلة بعد القرعة`);
+    }
     const money = (k) => stable([k.prices, k.costItems, k.stays, k.plan, k.cancelPolicy, k.upgrades, k.hadySar, k.hadyIncluded, k.partnerVisaFee, k.nonRefundableAfterSubmit]);
     const oK = new Map((oldS.hajj.packages || []).map((k) => [k.id, k]));
     for (const k of newS.hajj.packages || []) {

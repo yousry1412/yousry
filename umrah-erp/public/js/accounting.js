@@ -25,7 +25,7 @@
     ['12', 'الأصول الثابتة', '1'], ['1201', 'أثاث وأجهزة ومعدات', '12'],
     ['2', 'الخصوم'], ['21', 'الخصوم المتداولة', '2'],
     ['2101', 'الموردون', '21'], ['2102', 'ضريبة القيمة المضافة - مخرجات', '21'], ['2103', 'مستحقات الموظفين', '21'], ['2104', 'مصروفات مستحقة', '21'],
-    ['2105', 'ضريبة الخصم والإضافة المستحقة', '21'], ['2106', 'ضريبة الدمغة المستحقة', '21'], ['2107', 'ضريبة الدخل / الزكاة المستحقة', '21'], ['2108', 'مقدمات الحجاج (إيرادات مؤجلة)', '21'],
+    ['2105', 'ضريبة الخصم والإضافة المستحقة', '21'], ['2106', 'ضريبة الدمغة المستحقة', '21'], ['2107', 'ضريبة الدخل / الزكاة المستحقة', '21'], ['2108', 'مقدمات الحجاج (إيرادات مؤجلة)', '21'], ['2109', 'تأمينات جدية طالبي الحج (مستردة)', '21'],
     ['3', 'حقوق الملكية'], ['3101', 'رأس المال', '3'], ['3102', 'الأرباح المحتجزة', '3'], ['3103', 'جاري الشركاء', '3'],
     ['4', 'الإيرادات'], ['4101', 'إيرادات رحلات العمرة', '4'], ['4102', 'إيرادات خدمات منفصلة', '4'],
     ['4103', 'أرباح فروق العملة', '4'], ['4104', 'إيرادات أخرى', '4'], ['4105', 'إيرادات السياحة الداخلية', '4'], ['4106', 'إيرادات رحلات اختيارية وإضافات', '4'], ['4107', 'إيرادات الحج', '4'],
@@ -52,7 +52,7 @@
   const PARTY_AR = { customer: 'عميل', agent: 'وكيل/مندوب', employee: 'موظف', supplier: 'مورد' };
   const APPROVER_ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT'];
   const VOUCHER_TYPES = {
-    RV: 'سند قبض', PV: 'سند صرف', EXP: 'سند مصروف', TR: 'تحويل بين الخزائن/البنوك', BILL: 'فاتورة مورد', JV: 'قيد يومية',
+    RV: 'سند قبض', PV: 'سند صرف', EXP: 'سند مصروف', TR: 'تحويل بين الخزائن/البنوك', BILL: 'فاتورة مورد', JV: 'قيد يومية', DT: 'تحويل مقدم جدية إلى حساب الحاج',
   };
 
   /** Adds system accounts introduced by newer versions to an existing company chart (never removes anything). */
@@ -169,6 +169,7 @@
     if (t === 'EXP' && !S.expenseCategories.find((c) => c.id === data.categoryId)) throw new Error('اختر بند المصروف');
     if (t === 'BILL' && !(data.party && data.party.type === 'supplier')) throw new Error('فاتورة المورد تحتاج مورد');
     if (['RV', 'PV'].includes(t) && !data.party && !data.accountCode) throw new Error('حدد الطرف (عميل/وكيل/مورد/موظف) أو الحساب المقابل');
+    if (t === 'DT' && !(data.party && data.bookingId)) throw new Error('تحويل الجدية يحتاج العميل والحاج');
     const v = {
       id: 'V' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), no: nextNo(S, t, t), type: t,
       date: data.date || E.iso(new Date()), amount, currency: data.currency || 'EGP', fx: Number(data.fx) || 1,
@@ -204,9 +205,12 @@
     const egp = r2(v.amount * (v.currency === 'EGP' ? 1 : v.fx));
     const cb = cashbox(S, v.cashboxId);
     switch (v.type) {
-      case 'RV': return [{ acc: cb.accountCode, dr: egp }, { acc: partyAcc(v.party) || v.accountCode, cr: egp, party: v.party }];
+      // TRUST = refundable good-faith deposit of a Hajj applicant (liability 2109 on the customer's sub-ledger, never revenue)
+      case 'RV': return [{ acc: cb.accountCode, dr: egp }, { acc: v.purpose === 'TRUST' ? '2109' : partyAcc(v.party) || v.accountCode, cr: egp, party: v.party }];
+      case 'DT': return [{ acc: '2109', dr: egp, party: v.party }, { acc: partyAcc(v.party), cr: egp, party: v.party, note: 'مقدم جدية محول كأول دفعة' }];
       case 'PV': {
         // employee: SALARY = direct expense · DUES = paying a posted payroll (clears 2103) · ADVANCE = on the employee's account
+        if (v.purpose === 'TRUST') return [{ acc: '2109', dr: egp, party: v.party, note: 'رد مقدم جدية' }, { acc: cb.accountCode, cr: egp }];
         if (v.party && v.party.type === 'employee' && v.purpose === 'DUES') return [{ acc: '2103', dr: egp, party: v.party, note: 'صرف مستحقات/راتب' }, { acc: cb.accountCode, cr: egp }];
         const pa = v.party && v.party.type === 'employee' && v.purpose === 'SALARY' ? '5201' : partyAcc(v.party) || v.accountCode;
         // Supplier paid in SAR: carry at the trip reference rate, book the FX difference separately.

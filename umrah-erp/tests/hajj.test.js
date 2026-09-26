@@ -94,3 +94,41 @@ test('governance: season & program prices are management data; closed season fro
   n = JSON.parse(Model.serialize(S)); n.hajj.pilgrims[0].paid += 5000;
   assert.ok(gov.validate(old, n, { role: 'SALES', id: 1 }).errors.some((e) => /المسدد/.test(e)));
 });
+
+test('registration: NID decodes birth date & gender; duplicate NID rejected; recent Hajj → ineligible', () => {
+  assert.deepEqual(Hajj.fromNid('28501011234571'), { dob: '1985-01-01', gender: 'M' });
+  assert.equal(Hajj.fromNid('123'), null);
+  const S = demo(), ss = S.hajj.seasons[0];
+  const a = Hajj.apply(S, ss.id, { nameAr: 'اختبار', phone: '01099990000', nid: '28501011234562' }, owner);
+  assert.equal(a.gender, 'F'); assert.equal(a.dob, '1985-01-01'); assert.ok(a.customerId);
+  assert.throws(() => Hajj.apply(S, ss.id, { nameAr: 'x', phone: '1', nid: '28501011234562' }, owner), /مسجل/);
+  const b = Hajj.apply(S, ss.id, { nameAr: 'حج قريب', phone: '01099990001', nid: '28001011234571', lastHajjYear: Number(ss.gregorianYear || 2027) - 1 }, owner);
+  assert.equal(b.status, 'INELIGIBLE');
+});
+
+test('lottery: deterministic by seed, families never split, seats respected, reserve ranked, replay verifies', () => {
+  const S = demo(), ss = S.hajj.seasons[0];
+  const seats = { ECONOMY: 3, FIVE: 3 };
+  const S2 = JSON.parse(Model.serialize(S));
+  const lot = Hajj.runLottery(S, ss.id, { seed: 'محضر-1', seats }, owner, '2027-01-10');
+  const lot2 = Hajj.runLottery(Model.load(S2, 'x'), ss.id, { seed: 'محضر-1', seats }, owner, '2027-01-10');
+  assert.equal(lot.hash, lot2.hash);
+  assert.ok(Hajj.verifyLottery(S, lot));
+  for (const lv of Object.keys(seats)) assert.ok(lot.results.filter((r) => r.level === lv && r.result === 'WON').length <= seats[lv]);
+  const fam = {}; for (const r of lot.results) { const a = S.hajj.applicants.find((x) => x.id === r.applicantId); if (a.groupKey) (fam[a.groupKey] = fam[a.groupKey] || new Set()).add(r.result); }
+  for (const s of Object.values(fam)) assert.equal(s.size, 1, 'family members share one result');
+  const ranks = lot.results.filter((r) => r.result === 'RESERVE').map((r) => r.rank);
+  assert.ok(ranks.every((x) => x >= 1));
+  const tampered = { ...lot, hash: 'deadbeef' }; assert.equal(Hajj.verifyLottery(S, tampered), false);
+});
+
+test('lottery: overdue winner expires and the first reserve of the same level is promoted', () => {
+  const S = demo(), ss = S.hajj.seasons[0];
+  const lot = Hajj.runLottery(S, ss.id, { seed: 's', seats: { ECONOMY: 1, FIVE: 1 } }, owner, '2027-01-10');
+  const won = S.hajj.applicants.filter((a) => a.status === 'WON');
+  const reserves = S.hajj.applicants.filter((a) => a.status === 'RESERVE');
+  const out = Hajj.expireOverdue(S, ss.id, 'o', '2027-03-01');
+  assert.equal(out.expired.length, won.length);
+  if (reserves.length) { assert.ok(out.promoted.length >= 1); assert.equal(out.promoted[0].status, 'WON'); assert.equal(out.promoted[0].execDeadline > '2027-03-01', true); }
+  assert.ok(lot.id);
+});
