@@ -382,7 +382,9 @@
     App.companyId = Number(d.value);
     try { localStorage.setItem('umrah-company', String(App.companyId)); } catch (e) { /* ignore */ }
     App.ui.page = 'home'; App.ui.heatAllot = null;
-    await reloadState(); pollBadges();
+    App.loader(true, 'جارِ فتح الشركة…');
+    try { await reloadState(); } finally { App.loader(false); }
+    pollBadges();
   };
 
   // ------------------------------------------------------------ auth
@@ -405,8 +407,9 @@
   }
   App.renderAuth = renderAuth;
   async function authCall(url, body) {
-    try { const d = await App.api('POST', url, body); await startSession(d.user); }
+    try { const d = await App.api('POST', url, body); App.loader(true, 'أهلاً ' + (d.user.display_name || '') + ' — جارِ تجهيز بياناتك…'); await startSession(d.user); }
     catch (e) { App.toast(e.message, 'err'); }
+    finally { App.loader(false); }
   }
   App.actions.doLogin = () => authCall('api/auth/login', { username: App.val('au-user'), password: App.val('au-pass') });
   App.actions.doSetup = () => authCall('api/auth/setup', { username: App.val('au-user'), display_name: App.val('au-name'), password: App.val('au-pass') });
@@ -492,8 +495,15 @@
   }
   setInterval(checkVersion, 60000);
 
+  // ------------------------------------------------------------ loader (figures running after each other)
+  App.loader = (on, msg) => {
+    const el = document.getElementById('afwajLoader'); if (!el) return;
+    if (msg) document.getElementById('afwajLoaderMsg').textContent = msg;
+    el.classList.toggle('hide', !on);
+  };
   // ------------------------------------------------------------ boot
   window.addEventListener('DOMContentLoaded', async () => {
+    setTimeout(() => App.loader(false), 15000); // never trap the user behind the loader
     const tag = document.getElementById('buildTag'); if (tag) tag.textContent = 'v ' + BUILD;
     App.ui.draft = App.newDraft ? App.newDraft() : null;
     let st = null;
@@ -506,10 +516,10 @@
       App.S = Model.load(doc || window.MockData.buildSeed());
       if (App.S.allotments[0]) App.ui.heatAllot = App.S.allotments[0].id;
       document.getElementById('app').style.display = '';
-      App.render(); return;
+      App.render(); App.loader(false); return;
     }
     App.online = true;
-    if (!st.user) return renderAuth(st.needsSetup);
-    await startSession(st.user);
+    if (!st.user) { App.loader(false); return renderAuth(st.needsSetup); }
+    try { await startSession(st.user); } finally { App.loader(false); }
   });
 })();

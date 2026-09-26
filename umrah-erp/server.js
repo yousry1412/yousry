@@ -50,6 +50,8 @@ app.use('/api', (req, res, next) => {
   next();
 });
 
+try { store.resetOwnerFromEnv(); } catch (e) { console.error('[afwaj] owner reset failed:', e.message); }
+
 // First boot: create a demo company so the owner can explore immediately.
 if (!store.listCompanies().length) {
   const S = Model.load(buildSeed(Date.now()), 'شركة مدار للسياحة (بيانات تجريبية)');

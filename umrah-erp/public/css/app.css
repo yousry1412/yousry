@@ -524,3 +524,29 @@ tr.total td { border-top: 2px solid var(--line-2); }
 .dom-bus .seat { height: 46px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg-2); color: var(--text); cursor: pointer; font: inherit; font-size: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .dom-bus .seat small { font-size: 9px; color: var(--muted); max-width: 50px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .dom-bus .seat.free { border-color: #1b6b47; } .dom-bus .seat.taken { background: #2b1908; border-color: #7e4715; } .dom-bus .seat.mine { background: var(--emerald-2); color: #fff; }
+
+/* ---------------------------------------------------------------- loader: أفواج running after each other */
+.afwaj-loader { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  background: radial-gradient(ellipse at 50% 35%, #0f3f2f 0%, #06140f 70%); transition: opacity .35s ease; }
+.afwaj-loader.hide { opacity: 0; pointer-events: none; }
+.afwaj-loader .track { position: relative; width: min(320px, 80vw); height: 64px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent); }
+.afwaj-loader .track::after { content: ''; position: absolute; left: 0; right: 0; bottom: 3px; height: 1px; background: linear-gradient(90deg, transparent, #d8b25a, transparent); opacity: .6; }
+.afwaj-loader .runner { position: absolute; bottom: 4px; left: 100%; width: 22px; height: 44px; animation: afwaj-run 2.8s linear infinite; }
+.afwaj-loader .runner svg { width: 100%; height: 100%; overflow: visible; animation: afwaj-bob .35s ease-in-out infinite alternate; }
+.afwaj-loader .runner .l1 { transform-origin: 11px 27px; animation: afwaj-leg .35s ease-in-out infinite alternate; }
+.afwaj-loader .runner .l2 { transform-origin: 11px 27px; animation: afwaj-leg .35s ease-in-out infinite alternate-reverse; }
+.afwaj-loader .runner:nth-child(1) { animation-delay: 0s; }
+.afwaj-loader .runner:nth-child(2) { animation-delay: -.47s; transform: scale(.94); }
+.afwaj-loader .runner:nth-child(3) { animation-delay: -.93s; }
+.afwaj-loader .runner:nth-child(4) { animation-delay: -1.4s; transform: scale(.9); }
+.afwaj-loader .runner:nth-child(5) { animation-delay: -1.87s; }
+.afwaj-loader .runner:nth-child(6) { animation-delay: -2.33s; transform: scale(.96); }
+.afwaj-loader .runner:nth-child(even) svg { animation-delay: -.17s; }
+.afwaj-loader .brand-l { display: flex; align-items: center; gap: 10px; color: #e8c874; font-size: 26px; font-weight: 700; }
+.afwaj-loader .brand-l img { width: 52px; height: 52px; filter: drop-shadow(0 0 14px rgba(216, 178, 90, .35)); }
+.afwaj-loader .msg-l { color: #8fb3a5; font-size: 13px; letter-spacing: .3px; }
+@keyframes afwaj-run { from { transform: translateX(0); } to { transform: translateX(calc(-1 * min(320px, 80vw) - 44px)); } }
+@keyframes afwaj-bob { from { transform: translateY(0) rotate(-10deg); } to { transform: translateY(-4px) rotate(-14deg); } }
+@keyframes afwaj-leg { from { transform: rotate(-32deg); } to { transform: rotate(32deg); } }
+@media (prefers-reduced-motion: reduce) { .afwaj-loader .runner, .afwaj-loader .runner svg, .afwaj-loader .runner line { animation-duration: 6s; } }

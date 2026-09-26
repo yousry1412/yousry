@@ -114,7 +114,7 @@ function validatePassword(pw) {
 function createUser({ username, display_name, password, role, company_id, branch_id, agent_ref, phone }) {
   username = String(username || '').trim().toLowerCase();
   display_name = String(display_name || username).trim();
-  if (!/^[a-z0-9._-]{3,32}$/.test(username)) throw new Error('اسم المستخدم: 3–32 حرف إنجليزي صغير أو أرقام أو . _ -');
+  if (!/^[a-z0-9._@+-]{3,64}$/.test(username)) throw new Error('اسم المستخدم: حروف إنجليزية أو أرقام أو إيميل (3–64 حرف، بدون مسافات)');
   validatePassword(password);
   if (!ROLES.includes(role)) throw new Error('صلاحية غير معروفة');
   if (role !== 'OWNER' && !company_id) throw new Error('لازم تحدد الشركة لهذا المستخدم');
@@ -151,6 +151,24 @@ const listUsers = (companyId) => (companyId
   ? db.prepare('SELECT * FROM users WHERE company_id = ? OR company_id IS NULL ORDER BY id').all(companyId)
   : db.prepare('SELECT * FROM users ORDER BY id').all()).map(publicUser);
 const getUser = (id) => publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id));
+/**
+ * Owner recovery (forgotten password): set OWNER_RESET_USERNAME + OWNER_RESET_PASSWORD in the hosting
+ * environment and restart → that owner gets the new password (or is created if the system has no owner
+ * with that username), all his sessions are closed. Remove the two variables after logging in.
+ */
+function resetOwnerFromEnv() {
+  const username = String(process.env.OWNER_RESET_USERNAME || '').trim().toLowerCase(), pw = process.env.OWNER_RESET_PASSWORD;
+  if (!username || !pw) return null;
+  validatePassword(pw);
+  const u = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  if (u) {
+    db.prepare("UPDATE users SET password_hash = ?, role = 'OWNER', company_id = NULL, is_active = 1 WHERE id = ?").run(hashPassword(String(pw)), u.id);
+    db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(u.id);
+  } else createUser({ username, display_name: 'المالك', password: pw, role: 'OWNER' });
+  db.prepare('INSERT INTO audit (user_id, company_id, action) VALUES (NULL, NULL, ?)').run(`استعادة حساب المالك ${username} من إعدادات السيرفر`);
+  console.log(`[afwaj] owner account "${username}" password was reset from environment variables — remove OWNER_RESET_* now`);
+  return username;
+}
 function authenticate(username, password) {
   const u = db.prepare('SELECT * FROM users WHERE username = ?').get(String(username || '').trim().toLowerCase());
   if (!u || !u.is_active || !verifyPassword(String(password || ''), u.password_hash)) return null;
@@ -335,5 +353,5 @@ module.exports = {
   createSession, userFromSession, destroySession, publicUser, listCompanies, getCompany, createCompany, renameCompany,
   getState, getVersion, saveState, snapshot, listVersions, getVersionJson, saveFile, getFile,
   postChat, listChat, markChatRead, chatUnread, notify, listNotifications, markNotificationsRead, kvGet, kvSet, audit, listAudit,
-  exportAll, importAll, autoBackup,
+  exportAll, importAll, autoBackup, resetOwnerFromEnv,
 };
