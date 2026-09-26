@@ -8,7 +8,8 @@
     const s = S(), role = App.role();
     const dom = App.domain(), UMRAH_GROUPS = ['تحصيل', 'حجوزات', 'مستندات', 'ملفات الرحلة'];
     // each line of business sees its own alerts; finance & HR alerts show in both
-    const alerts = Model.alerts(s, role).filter((a) => (dom === 'UMRAH' ? a.group !== 'السياحة الداخلية' : !UMRAH_GROUPS.includes(a.group)));
+    const alerts = Model.alerts(s, role).filter((a) => (dom === 'UMRAH' ? !['السياحة الداخلية', 'الحج'].includes(a.group) : dom === 'HAJJ' ? !UMRAH_GROUPS.includes(a.group) && a.group !== 'السياحة الداخلية' : !UMRAH_GROUPS.includes(a.group) && a.group !== 'الحج'));
+    if (dom === 'HAJJ') return App.pages.hajjDash() + `<div class="card" style="margin-top:14px"><h3>🔔 التنبيهات <span class="sub">${alerts.length}</span></h3><div class="alert-list">${alerts.slice(0, 40).map((a) => `<div class="alert ${a.level === 'err' ? 'err' : a.level === 'warn' ? 'warn' : 'info'}" data-act="go" data-page="${a.page}" data-id="${a.ref || ''}">${esc(a.text)}</div>`).join('') || '<div class="muted">✅ لا توجد تنبيهات.</div>'}</div></div>`;
     const b = Acc.balances(s);
     const bal = (c) => (b.get(c) ? b.get(c).bal : 0);
     const cash = s.cashboxes.reduce((x, c) => x + Acc.cashboxBalance(s, c), 0);

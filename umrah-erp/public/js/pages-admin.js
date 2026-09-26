@@ -77,29 +77,27 @@
   };
 
   // ============================================================ companies & their line of business
-  const ACT = { UMRAH: ['UMRAH'], DOMESTIC: ['DOMESTIC'], BOTH: ['UMRAH', 'DOMESTIC'] };
-  const actKey = (ds) => (ds.includes('UMRAH') && ds.includes('DOMESTIC') ? 'BOTH' : ds.includes('DOMESTIC') ? 'DOMESTIC' : 'UMRAH');
-  const actChips = (ds) => (ds || ['UMRAH']).map((d) => `<span class="chip ${d === 'UMRAH' ? 'gold' : 'ok'}">${Model.DOMAINS[d].icon} ${Model.DOMAINS[d].ar}</span>`).join(' ');
+  const actChips = (ds) => (ds || ['UMRAH']).map((d) => `<span class="chip ${d === 'UMRAH' ? 'gold' : d === 'HAJJ' ? 'hold' : 'ok'}">${Model.DOMAINS[d].icon} ${Model.DOMAINS[d].ar}</span>`).join(' ');
   App.pages.companies = () => {
     if (!App.online) return needOnline('🏢 الشركات وأنشطتها');
-    const nc = App.ui.nc || (App.ui.nc = { act: 'UMRAH', country: 'EG' });
-    const choice = (k, icon, title, desc) => `<button class="act-card ${nc.act === k ? 'on' : ''}" data-act="ncAct" data-k="${k}"><span class="ic">${icon}</span><b>${title}</b><small>${desc}</small></button>`;
-    return `<div class="page-head"><div><h2>🏢 الشركات وأنشطتها</h2><p>كل شركة لها نشاطها: <b>عمرة</b> أو <b>سياحة داخلية</b> أو <b>الاتنين</b> — والنشاط يحدد التبويبات والشاشات اللي تظهر، وكل فرع داخل الشركة يختار نشاطه من "الشركة والفروع والضرائب"</p></div></div>
+    const nc = App.ui.nc || (App.ui.nc = { domains: ['UMRAH'], country: 'EG' });
+    const choice = (k, desc) => `<button class="act-card ${nc.domains.includes(k) ? 'on' : ''}" data-act="ncAct" data-k="${k}"><span class="ic">${Model.DOMAINS[k].icon}</span><b>${nc.domains.includes(k) ? '✓ ' : ''}${Model.DOMAINS[k].ar}</b><small>${desc}</small></button>`;
+    return `<div class="page-head"><div><h2>🏢 الشركات وأنشطتها</h2><p>كل شركة لها نشاطها: <b>عمرة</b> و/أو <b>حج</b> و/أو <b>سياحة داخلية</b> — والنشاط يحدد التبويبات والشاشات اللي تظهر، وكل فرع داخل الشركة يختار نشاطه من "الشركة والفروع والضرائب"</p></div></div>
     <div class="emp-grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">${App.companies.map((c) => `<div class="card ${c.id === App.companyId ? 'co-current' : ''}">
       <div class="row" style="justify-content:space-between"><h3 style="margin:0">${esc(c.name)}</h3>${c.id === App.companyId ? '<span class="chip ok">المفتوحة الآن</span>' : ''}</div>
       <div style="margin:8px 0">${actChips(c.domains)}</div>
-      <div class="small muted">${esc((Model.COUNTRIES[c.country] || {}).ar || '')} · ${c.branches || 0} فرع · ${c.domains && c.domains.includes('UMRAH') ? `${c.trips || 0} رحلة عمرة · ` : ''}${c.domains && c.domains.includes('DOMESTIC') ? `${c.programs || 0} برنامج داخلي · ` : ''}${c.users || 0} مستخدم</div>
+      <div class="small muted">${esc((Model.COUNTRIES[c.country] || {}).ar || '')} · ${c.branches || 0} فرع · ${c.domains && c.domains.includes('UMRAH') ? `${c.trips || 0} رحلة عمرة · ` : ''}${c.domains && c.domains.includes('HAJJ') ? `${c.hajj || 0} برنامج حج · ` : ''}${c.domains && c.domains.includes('DOMESTIC') ? `${c.programs || 0} برنامج داخلي · ` : ''}${c.users || 0} مستخدم</div>
       <div class="row" style="gap:6px;margin-top:10px">${c.id === App.companyId ? '<button class="btn sm" data-act="go" data-page="settings">⚙️ تعديل النشاط والبيانات</button>' : `<button class="btn sm primary" data-act="openCompany" data-id="${c.id}">فتح الشركة</button>`}</div></div>`).join('')}</div>
     <div class="card" style="margin-top:14px"><h3>➕ شركة جديدة</h3>
       <div class="grid g2"><div class="field"><label>اسم الشركة</label><input class="input" id="nc-name" placeholder="مثال: النور للسياحة"></div>
         <div class="field"><label>دولة التشغيل (تحدد العملة والضرائب)</label><select class="input" id="nc-country">${Object.entries(Model.COUNTRIES).map(([k, v]) => opt(k, nc.country, v.ar)).join('')}</select></div></div>
-      <div class="field" style="margin-top:10px"><label>نشاط الشركة</label><div class="act-grid">
-        ${choice('UMRAH', '🕋', 'عمرة', 'رحلات العمرة: التكلفة بالريال، الفنادق في مكة والمدينة، التسكين، التأشيرات، الباص')}
-        ${choice('DOMESTIC', '🏖️', 'سياحة داخلية', 'مصايف ومشاتي، رحلات اليوم الواحد، حجز فنادق وقرى، فنادق عائمة')}
-        ${choice('BOTH', '🕋🏖️', 'الاتنين', 'تبويبين منفصلين في أعلى الشاشة تتنقل بينهم')}</div></div>
+      <div class="field" style="margin-top:10px"><label>نشاط الشركة (اختار واحد أو أكثر — كل نشاط تبويب مستقل)</label><div class="act-grid">
+        ${choice('UMRAH', 'رحلات العمرة: التكلفة بالريال، فنادق مكة والمدينة، التسكين، التأشيرات، الباص')}
+        ${choice('HAJJ', 'مواسم الحج: الحصة والتأشيرات، البرامج وكشف التكلفة، الحجاج والأهلية، التفويج والمشاعر، الإيراد المؤجل')}
+        ${choice('DOMESTIC', 'مصايف ومشاتي، رحلات اليوم الواحد، حجز فنادق وقرى، فنادق عائمة')}</div></div>
       <div class="row" style="margin-top:12px"><label class="chk"><input type="checkbox" id="nc-demo"> ببيانات تجريبية للتجربة</label><span class="spacer"></span><button class="btn primary" data-act="newCompany">إنشاء الشركة</button></div></div>`;
   };
-  App.actions.ncAct = (d) => { App.ui.nc.act = d.k; App.ui.nc.country = App.val('nc-country') || App.ui.nc.country; const n = App.val('nc-name'); App.render(); const el = document.getElementById('nc-name'); if (el) el.value = n || ''; };
+  App.actions.ncAct = (d) => { const nc = App.ui.nc; nc.domains = nc.domains.includes(d.k) ? nc.domains.filter((x) => x !== d.k) : [...nc.domains, d.k]; if (!nc.domains.length) nc.domains = [d.k]; App.ui.nc.country = App.val('nc-country') || App.ui.nc.country; const n = App.val('nc-name'); App.render(); const el = document.getElementById('nc-name'); if (el) el.value = n || ''; };
   App.actions.openCompany = (d) => App.actions.switchCompany({ value: d.id });
 
   // ============================================================ users
@@ -190,7 +188,7 @@
   App.actions.newCompany = async () => {
     const name = String(App.val('nc-name') || '').trim();
     if (name.length < 2) return App.toast('اكتب اسم الشركة', 'err');
-    const domains = App.ui.nc ? ACT[App.ui.nc.act] : Object.keys(Model.DOMAINS).filter((k) => App.val('nc-dom-' + k));
+    const domains = App.ui.nc ? Object.keys(Model.DOMAINS).filter((k) => App.ui.nc.domains.includes(k)) : ['UMRAH'];
     try {
       const c = await App.api('POST', 'api/companies', { name, country: App.val('nc-country'), demo: App.val('nc-demo'), domains: domains.length ? domains : ['UMRAH'] });
       App.companies = await App.api('GET', 'api/companies'); App.toast(`✅ تم إنشاء ${c.name}`);

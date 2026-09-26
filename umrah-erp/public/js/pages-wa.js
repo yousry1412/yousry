@@ -33,6 +33,7 @@
     COLLECT: { ar: '💰 تذكير بالمتبقي (كل من عليه مبالغ)', tpl: 'السلام عليكم {الاسم}\nنذكركم بالمتبقي على حجز {الكود} ({الرحلة}): {المتبقي} ج.م\nموعد السفر {التاريخ}. يمكنكم السداد نقداً أو تحويلاً.\n{الشركة}' },
     AGENTS: { ar: '🤝 كشف رصيد الوكلاء والمناديب', tpl: 'السلام عليكم {الاسم}\nرصيد حسابكم لدى {الشركة}: {الرصيد} ج.م {الحالة}\nلأي استفسار تواصلوا معنا.' },
     TRIP: { ar: '🕋 معتمرو رحلة عمرة', tpl: 'السلام عليكم {الاسم}\nتفاصيل رحلة {الرحلة}: السفر {التاريخ}.\n{الشركة}' },
+    HAJJ: { ar: '⛰️ حجاج برنامج حج', tpl: 'السلام عليكم الحاج/ة {الاسم}\nتذكير: {القسط} مستحق {التاريخ} بقيمة {المبلغ} ج.م — برنامج {الرحلة}.\nالمتبقي الإجمالي {المتبقي} ج.م\n{الشركة}' },
     PROGRAM: { ar: '🏖️ عملاء برنامج سياحة داخلية', tpl: 'السلام عليكم {الاسم}\nتذكير برحلة {الرحلة} يوم {التاريخ}.\n{الشركة}' },
     CUSTOMERS: { ar: '👥 كل العملاء (رسالة حرة/عروض)', tpl: 'السلام عليكم {الاسم}\nعروض {الشركة} الجديدة…' },
   };
@@ -62,6 +63,12 @@
         const c = custOf(b, { phone: (b.pax[0] || {}).phone, nameAr: (b.pax[0] || {}).name });
         rows.push({ ref: b.code, name: c.name, phone: c.phone, vars: { الكود: b.code, الرحلة: p.name, التاريخ: p.startDate, التجمع: b.pickup || '', المتبقي: h.n0(b.net - b.paid) } });
       }
+    } else if (w.scope === 'HAJJ') {
+      const k = (s.hajj.packages.find((x) => x.id === w.hajjId) || s.hajj.packages[0]);
+      if (k) for (const p of s.hajj.pilgrims.filter((x) => x.packageId === k.id && window.Hajj.ACTIVE(x))) {
+        const i = (p.installments || []).find((x) => !x.paid) || {};
+        rows.push({ ref: p.code, name: p.nameAr, phone: p.phone, vars: { الكود: p.code, الرحلة: k.name, القسط: i.label || '', التاريخ: i.due || k.departDate, المبلغ: h.n0(i.amount || 0), المتبقي: h.n0(p.net - p.paid) } });
+      }
     } else for (const c of s.customers) if (c.phone) rows.push({ ref: c.code, name: c.name, phone: c.phone, vars: {} });
     const seen = new Set();
     return rows.filter((r) => { const k = r.ref + '|' + r.phone; if (!r.phone || seen.has(k)) return false; seen.add(k); return true; });
@@ -77,6 +84,7 @@
     <div class="grid g-side"><div class="card"><div class="grid g2">
         <div class="field"><label>المجموعة</label><select class="input" data-act-change="wacScope">${Object.entries(SCOPES).map(([k, x]) => opt(k, w.scope, x.ar)).join('')}</select></div>
         ${w.scope === 'TRIP' ? `<div class="field"><label>الرحلة</label><select class="input" data-ui="wac.tripId">${s.trips.map((d) => opt(d.id, w.tripId, `${d.trip.code} · ${d.trip.name}`)).join('')}</select></div>` : ''}
+        ${w.scope === 'HAJJ' ? `<div class="field"><label>برنامج الحج</label><select class="input" data-ui="wac.hajjId">${s.hajj.packages.map((k) => opt(k.id, w.hajjId, `${k.code} · ${k.name}`)).join('')}</select></div>` : ''}
         ${w.scope === 'PROGRAM' ? `<div class="field"><label>البرنامج</label><select class="input" data-ui="wac.progId">${s.dom.programs.map((p) => opt(p.id, w.progId, `${p.code} · ${p.name}`)).join('')}</select></div>` : ''}</div>
       <div class="field" style="margin-top:8px"><label>نص الرسالة — المتغيرات: {الاسم} {الكود} {الرحلة} {التاريخ} {المتبقي} {الرصيد} {الحالة} {التجمع} {الشركة}</label><textarea class="input" rows="6" data-ui="wac.text">${esc(w.text)}</textarea></div>
       <div class="row" style="margin-top:10px"><button class="btn primary" data-act="wacSend">📤 إرسال للمحددين (${chosen.length})</button><button class="btn ghost" data-act="wacAll" data-v="1">تحديد الكل</button><button class="btn ghost" data-act="wacAll" data-v="0">إلغاء التحديد</button></div></div>
@@ -111,7 +119,8 @@
   App.actions.waBooking = (d) => {
     const s = S(), f = Model.findBooking(s, d.id), b = f.b;
     let phone, name, what, date;
-    if (f.domestic) { const p = b.programId ? window.Dom.program(s, b.programId) : null; phone = (b.pax[0] || {}).phone; name = (b.pax[0] || {}).name; what = p ? p.name : 'حجز فندق'; date = p ? p.startDate : b.hotel.checkIn; }
+    if (f.hajj) { const k = window.Hajj.pkg(s, b.packageId); phone = b.phone; name = b.nameAr; what = k.name; date = k.departDate; }
+    else if (f.domestic) { const p = b.programId ? window.Dom.program(s, b.programId) : null; phone = (b.pax[0] || {}).phone; name = (b.pax[0] || {}).name; what = p ? p.name : 'حجز فندق'; date = p ? p.startDate : b.hotel.checkIn; }
     else { const lead = f.doc.pax.find((p) => p.bookingId === b.id && p.phone) || {}; const c = custOf(b, lead); phone = c.phone; name = c.name; what = f.doc.trip.name; date = f.doc.trip.departDate; }
     const due = Acc.r2((b.net || 0) - (b.paid || 0));
     const text = `السلام عليكم ${name}\nتأكيد حجزكم رقم ${b.code} لدى ${s.company.name}\n${what} — ${date}\nالإجمالي ${h.n0(b.net)} ج.م · المسدد ${h.n0(b.paid)} · المتبقي ${h.n0(due)}\nالحالة: ${E.BOOKING_STATUS[b.status].ar}\nنتمنى لكم رحلة سعيدة 🤍`;

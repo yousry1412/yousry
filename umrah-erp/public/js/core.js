@@ -271,6 +271,8 @@
     ['home', '🏠', 'الرئيسية', [['home', 'لوحة التحكم والتنبيهات', EVERY], ['me', 'حسابي كموظف', EVERY]]],
     ['trips', '🕋', 'العمرة', [['booking', 'حجوزات العمرة', [...SAL, 'OPERATIONS']], ['trips', 'الرحلات', ALL], ['builder', 'التكلفة والتسعير', [...FIN, 'HEAD']], ['heatmap', 'رادار الإتاحات', ALL],
       ['rooms', 'التسكين المزدوج', OPS], ['bus', 'مقاعد الباص', OPS], ['ops', 'العمليات والكشوف', OPS], ['tripfiles', 'ملفات الرحلة', ALL]]],
+    ['hajj', '⛰️', 'الحج', [['hajjDash', 'لوحة الموسم', ALL], ['hajjPilgrims', 'الحجاج والتسجيل', [...SAL, 'OPERATIONS']], ['hajjPackages', 'البرامج وكشف التكلفة', [...FIN, 'HEAD']],
+      ['hajjOps', 'التفويج والتسكين والخيام', OPS], ['hajjSeason', 'إعدادات الموسم والحصة', ADM], ['hajjPnl', 'ربحية الموسم', FIN]]],
     ['dom', '🏖️', 'السياحة الداخلية', [['domBooking', 'حجوزات السياحة الداخلية', [...SAL, 'OPERATIONS']], ['domPrograms', 'البرامج والرحلات', ALL], ['domOps', 'التشغيل والكشوف', OPS],
       ['domHotels', 'الفنادق وأسعار التعاقد', [...FIN, 'OPERATIONS', 'HEAD']], ['domPnl', 'ربحية البرامج', FIN]]],
     ['sales', '🧾', 'العملاء والمناديب', [['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL], ['scores', 'تقييم المناديب والمبيعات', ['OWNER', 'MANAGER', 'HEAD', 'ACCOUNTANT']]]],
@@ -285,7 +287,7 @@
   ];
   const TRIP_PAGES = ['builder', 'heatmap', 'rooms', 'bus', 'ops', 'pnl', 'tripfiles'];
   /** Sidebar groups that belong to one line of business — hidden when the company (or the user's branch) doesn't work in it. */
-  App.GROUP_DOMAIN = { trips: 'UMRAH', dom: 'DOMESTIC' };
+  App.GROUP_DOMAIN = { trips: 'UMRAH', dom: 'DOMESTIC', hajj: 'HAJJ' };
   App.myBranch = () => (App.online && App.me && App.me.role !== 'OWNER' ? App.me.branch_id || null : null);
   /** Lines of business available to this user (company ∩ branch) and the one currently shown. */
   App.domains = () => (App.S ? Object.keys(Model.DOMAINS).filter((d) => Model.hasDomain(App.S, d, App.myBranch())) : ['UMRAH']);
@@ -300,7 +302,7 @@
   };
   try { App.ui.domain = localStorage.getItem('afwaj-domain') || null; } catch (e) { /* ignore */ }
   const pageAllowed = (p) => { for (const g of App.NAV) for (const [k, , roles] of g[3]) if (k === p) return roles.includes(App.role()) && groupOn(g[0]) && itemOn(k); return true; };
-  const pageTitle = (p) => { for (const g of App.NAV) for (const [k, l] of g[3]) if (k === p) return l; return { bookingView: 'تفاصيل الحجز', customerView: 'حساب العميل', partyView: 'كشف حساب', hrEmployee: 'ملف الموظف', domBookingView: 'حجز سياحة داخلية' }[p] || ''; };
+  const pageTitle = (p) => { for (const g of App.NAV) for (const [k, l] of g[3]) if (k === p) return l; return { bookingView: 'تفاصيل الحجز', customerView: 'حساب العميل', partyView: 'كشف حساب', hrEmployee: 'ملف الموظف', domBookingView: 'حجز سياحة داخلية', hajjPilgrim: 'ملف الحاج' }[p] || ''; };
 
   function renderShell() {
     const S = App.S, role = App.role();

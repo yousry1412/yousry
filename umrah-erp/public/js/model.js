@@ -7,9 +7,9 @@
  *    creation (browser + agent portal on the server), alerts centre
  * ===================================================================== */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine.js'), require('./accounting.js'), require('./hr.js'), require('./dom.js'));
-  else root.Model = factory(root.Engine, root.Acc, root.Hr, root.Dom);
-})(typeof self !== 'undefined' ? self : this, function (E, Acc, Hr, Dom) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine.js'), require('./accounting.js'), require('./hr.js'), require('./dom.js'), require('./hajj.js'));
+  else root.Model = factory(root.Engine, root.Acc, root.Hr, root.Dom, root.Hajj);
+})(typeof self !== 'undefined' ? self : this, function (E, Acc, Hr, Dom, Hajj) {
   'use strict';
   const TRIP_KEYS = ['trip', 'bookings', 'pax', 'rooms', 'beds', 'bus', 'roomingLocked', 'settlements', 'fieldExpenses', 'docs'];
   /**
@@ -39,7 +39,7 @@
     MY: { ar: 'ماليزيا', currency: 'MYR', sym: 'RM', dial: '60', vat: 8, wht: 0, stamp: 0, income: 24, incomeLabel: 'ضريبة الدخل', regulator: 'وزارة السياحة (MOTAC)' },
     OTHER: { ar: 'أخرى', currency: 'EGP', sym: '', dial: '', vat: 0, wht: 0, stamp: 0, income: 0, incomeLabel: 'ضريبة الدخل', regulator: '' },
   };
-  const DOMAINS = { UMRAH: { ar: 'العمرة والحج', icon: '🕋' }, DOMESTIC: { ar: 'السياحة الداخلية', icon: '🏖️' } };
+  const DOMAINS = { UMRAH: { ar: 'العمرة', icon: '🕋' }, HAJJ: { ar: 'الحج', icon: '⛰️' }, DOMESTIC: { ar: 'السياحة الداخلية', icon: '🏖️' } };
   /** Apply a country's presets to the company (does not touch the company name or legal data). */
   function applyCountry(c, country) {
     const p = COUNTRIES[country] || COUNTRIES.OTHER;
@@ -80,6 +80,8 @@
     for (const d of S.trips) { const b = d.bookings.find((x) => x.id === bookingId); if (b) return { doc: d, b }; }
     const db = S.dom && S.dom.bookings.find((x) => x.id === bookingId);
     if (db) return { doc: { trip: Dom.costCenter(S, db) }, b: db, domestic: true };
+    const hp = S.hajj && S.hajj.pilgrims.find((x) => x.id === bookingId);
+    if (hp) return { doc: { trip: Hajj.costCenter(S, hp) }, b: hp, hajj: true };
     return null;
   };
   /** Run fn with a given trip mounted, then restore the previous one. */
@@ -103,7 +105,7 @@
       users: [], agents: [], suppliers: [], hotels: [], allotments: [], customers: [], employees: [],
       accounts: Acc.DEFAULT_ACCOUNTS.map((a) => ({ ...a })),
       expenseCategories: Acc.DEFAULT_EXPENSE_CATEGORIES.map((a) => ({ ...a })),
-      cashboxes: [], vouchers: [], journal: [], counters: {}, trips: [], activeTripId: null, audit: [], hr: Hr.empty(), dom: Dom.empty(),
+      cashboxes: [], vouchers: [], journal: [], counters: {}, trips: [], activeTripId: null, audit: [], hr: Hr.empty(), dom: Dom.empty(), hajj: Hajj.empty(),
     };
   }
   function addCashbox(S, { name, type, currency, branchId, bankName, iban }) {
@@ -286,6 +288,7 @@
       for (const l of S.hr.leaves.filter((x) => x.status === 'PENDING')) { const e = S.employees.find((x) => x.id === l.empId); out.push({ level: 'warn', group: g, text: `طلب إجازة ${Hr.LEAVE_TYPES[l.type]} من ${e ? e.name : ''} (${l.from} ← ${l.to}) بانتظار قرارك`, page: 'hrLeaves', ref: l.id }); }
       for (const e of Hr.activeEmps(S)) for (const f of Hr.flags(S, e, month, today)) out.push({ level: f.level, group: g, text: `${e.name}: ${f.text}`, page: 'hrEmployee', ref: e.id });
     }
+    if (S.hajj && S.hajj.seasons.length) out.push(...Hajj.alerts(S, today));
     if (S.dom) {
       const g = 'السياحة الداخلية';
       for (const b of S.dom.bookings) {
@@ -425,7 +428,7 @@
     if (pendingB) createVoucher(S, { type: 'RV', amount: 15000, cashboxId: bank.id, party: { type: 'customer', id: pendingB.customerId }, bookingId: pendingB.id, tripId: trip.id, memo: 'القسط الأول — إيصال إيداع مرفوع من السيلز', method: 'إيداع بنكي' }, { name: 'منة الله (سيلز)', role: 'SALES' });
     Hr.seedDemo(S, s3.seededAt || Date.now());
     // domestic tourism demo: both lines of business, programs, hotels, bookings with approved payments
-    S.company.domains = ['UMRAH', 'DOMESTIC']; for (const b of S.branches) b.domains = ['UMRAH', 'DOMESTIC'];
+    S.company.domains = ['UMRAH', 'HAJJ', 'DOMESTIC']; for (const b of S.branches) b.domains = ['UMRAH', 'HAJJ', 'DOMESTIC'];
     const dm = Dom.seedDemo(S, s3.seededAt || Date.now());
     dm.bookings.forEach((b, i) => {
       if (b.status === 'CONFIRMED' || b.status === 'PENDING_APPROVAL' || i % 3 === 2) return;
@@ -433,6 +436,16 @@
       const v = createVoucher(S, { type: 'RV', amount: amt, cashboxId: cash.id, party: { type: 'customer', id: b.customerId }, bookingId: b.id, tripId: Dom.costCenter(S, b).id, memo: `${i % 2 ? 'سداد كامل' : 'عربون'} ${b.code}`, method: 'نقدي' }, { name: 'منة الله (سيلز)', role: 'SALES' });
       approve(S, v.id, sys);
     });
+    // Hajj demo: season 1448, two programs, pilgrims with deposits through approved receipts, a supplier bill on prepaid Hajj costs
+    const hj = Hajj.seedDemo(S, s3.seededAt || Date.now());
+    hj.pilgrims.forEach((p, i) => {
+      if (p.stage === 'WAITLIST' || i % 4 === 3) return;
+      const v = createVoucher(S, { type: 'RV', amount: p.installments[0].amount, cashboxId: bank.id, party: { type: 'customer', id: p.customerId }, bookingId: p.id, tripId: p.packageId, memo: `مقدم حجز حج ${p.code}`, method: 'تحويل بنكي' }, { name: 'منة الله (سيلز)', role: 'SALES' });
+      approve(S, v.id, sys);
+    });
+    const hsup = { id: 'SHJ', code: nextCode(S, 'SUP', 'SUP'), name: 'شركة خدمات حجاج الخارج (باقات المشاعر)', category: 'HAJJ', currency: 'SAR', phone: '', taxNo: '' }; S.suppliers.push(hsup);
+    const bill = createVoucher(S, { type: 'BILL', amount: 12500 * 7, currency: 'SAR', fx: hj.season.fxLock, party: { type: 'supplier', id: hsup.id }, accountCode: '1109', tripId: hj.five.id, memo: 'دفعة باقات المشاعر — 7 حجاج خمس نجوم' }, sys);
+    approve(S, bill.id, sys);
     return S;
   }
   function counterFromCodes(S, key, codes) {
@@ -450,6 +463,7 @@
     S.fx.history = S.fx.history || []; if (S.fx.alertSpreadPct == null) S.fx.alertSpreadPct = 3;
     S.hr = Hr.normalize(S.hr);
     S.dom = Dom.normalize(S.dom);
+    S.hajj = Hajj.normalize(S.hajj);
     normalizeCompany(S);
     Acc.ensureAccounts(S);
     mountTrip(S, S.activeTripId);

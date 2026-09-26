@@ -19,6 +19,7 @@ function allBookings(S) {
   const m = new Map();
   for (const d of S.trips || []) for (const b of d.bookings || []) m.set(b.id, { b, trip: d.trip });
   for (const b of (S.dom && S.dom.bookings) || []) m.set(b.id, { b, trip: { code: b.programId ? 'سياحة داخلية' : 'فنادق' } });
+  for (const b of (S.hajj && S.hajj.pilgrims) || []) m.set(b.id, { b, trip: { code: 'حج' } });
   return m;
 }
 const stable = (o) => JSON.stringify(o);
@@ -114,6 +115,25 @@ function validate(oldS, newS, user) {
     if (!o && b.status === 'PENDING_APPROVAL') events.push({ roles: ['OWNER'], text: `💸 ${trip.code} · ${b.code}: خصم ${b.discountPct}% بانتظار اعتمادك`, link: 'booking' });
     if (!o && b.status === 'PENDING_PRICING') events.push({ roles: ['OWNER', 'MANAGER'], text: `🔒 ${trip.code} · ${b.code}: خدمات مجزأة بانتظار التسعير`, link: 'booking' });
     if (o && o.b.status !== 'CANCELLED' && b.status === 'CANCELLED') events.push({ roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'], text: `⚠️ ${trip.code} · ${b.code}: تم إلغاء الحجز`, link: 'booking' });
+  }
+  // Hajj: season (quota, lock rate, rules, guarantees) and program prices/costs are management data; closing is an accounting act
+  if (oldS.hajj && newS.hajj) {
+    const strip = (x) => ({ ...x, closed: 0, closedBy: 0, closedAt: 0, deadlines: (x.deadlines || []).map((d) => ({ ...d, done: 0 })) });
+    const oSs = new Map((oldS.hajj.seasons || []).map((x) => [x.id, x]));
+    for (const x of newS.hajj.seasons || []) {
+      const o = oSs.get(x.id);
+      if (!admin && (!o || stable(strip(o)) !== stable(strip(x)))) errors.push('إعدادات موسم الحج والحصة من صلاحية المدير');
+      if (o && o.closed && stable(o) !== stable(x)) errors.push(`${x.name} مقفل ولا يمكن تعديله`);
+      if (o && !o.closed && x.closed && !approver) errors.push('إقفال موسم الحج من صلاحية المحاسب أو المدير');
+    }
+    for (const o of oldS.hajj.seasons || []) if (!(newS.hajj.seasons || []).some((x) => x.id === o.id)) errors.push('لا يمكن حذف موسم حج');
+    const money = (k) => stable([k.prices, k.costItems, k.stays, k.plan, k.cancelPolicy, k.upgrades, k.hadySar, k.hadyIncluded, k.partnerVisaFee, k.nonRefundableAfterSubmit]);
+    const oK = new Map((oldS.hajj.packages || []).map((k) => [k.id, k]));
+    for (const k of newS.hajj.packages || []) {
+      const o = oK.get(k.id);
+      if (!admin && (!o || money(o) !== money(k))) errors.push(`أسعار وتكاليف برنامج الحج ${k.code} من صلاحية المدير`);
+      if (user.role !== 'OWNER' && stable((o && o.commissions) || {}) !== stable(k.commissions || {}) && (o || Object.keys(k.commissions || {}).length)) errors.push(`عمولة المناديب في ${k.code} من صلاحية مالك النظام`);
+    }
   }
   // HR: attendance, leaves, sanctions, evaluations & salaries are HR-admin data; payroll posting is an accounting act
   validateHr(oldS, newS, user, errors, events);

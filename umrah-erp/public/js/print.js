@@ -155,10 +155,30 @@
       ${p && p.itinerary ? `<div class="box"><b>البرنامج</b><br>${nl(p.itinerary)}</div>` : ''}${terms('DOMESTIC')}
       <div class="sign"><div>العميل<br><small>أقر بقبول الشروط</small></div><div>موظف الحجز<br><small>${esc(b.createdBy)}</small></div><div>ختم الشركة</div></div>`;
   }
+  function hajjDoc(s, p) {
+    const Hj = window.Hajj, k = Hj.pkg(s, p.packageId), ss = Hj.season(s, k.seasonId), nl = (x) => esc(x || '').replace(/\n/g, '<br>');
+    const terms = ['يلتزم الحاج بتقديم المستندات المطلوبة (جواز ساري، صور، شهادات التطعيم، التقرير الطبي) في المواعيد التي تحددها الشركة والجهات المختصة.',
+      'قبول الحاج نهائياً مرهون بموافقة الجهات المختصة وصدور التأشيرة؛ وفي حالة الرفض يُرد المسدد بعد خصم ما دُفع فعلياً للجهات ولا يُسترد.',
+      `يُسدد المبلغ حسب جدول الأقساط الموضح، والتأخر عن السداد قبل مواعيد سداد باقات المشاعر يعطي الشركة الحق في إلغاء الحجز.`,
+      `الإلغاء من الحاج يخضع لجدول الغرامات: ${(k.cancelPolicy || []).map((c) => `قبل السفر بأقل من ${c.daysBefore} يوم ${c.feePct}%`).join('، ')}${k.nonRefundableAfterSubmit ? `، وبعد الرفع للجهات لا يُسترد ${h.n0(k.nonRefundableAfterSubmit)} ج.م` : ''}.`,
+      'مواعيد الطيران والتفويج والتسكين في المشاعر تحددها الجهات المختصة، وتلتزم الشركة بإخطار الحاج بأي تغيير فور علمها.',
+      'يلتزم الحاج بتعليمات مشرف الفوج والجهات الرسمية طوال الرحلة.'];
+    const custom = s.company.terms && s.company.terms.trim() ? s.company.terms.split('\n').filter(Boolean) : [];
+    return `<div class="head"><div><span class="title">عقد حج — ${esc(ss.name)}</span><div class="muted" style="margin-top:6px">${esc(k.name)} · ${esc(k.code)}</div></div>
+      <div style="text-align:end">رقم الحاج <b class="num">${esc(p.code)}</b><br>تاريخ التسجيل <b class="num">${E.iso(new Date(p.createdAt))}</b><br>المرحلة: <b>${esc(Hj.STAGES[p.stage].ar)}</b></div></div>
+      <div class="grid"><table class="kv"><tr><td>الحاج</td><td><b>${esc(p.nameAr)}</b><br><span class="ltr">${esc(p.nameEn || '')}</span></td></tr><tr><td>الرقم القومي</td><td class="num">${esc(p.nid || '')}</td></tr>
+        <tr><td>الجواز</td><td class="num">${esc(p.passport || '')} — ينتهي ${esc(p.passportExp || '')}</td></tr><tr><td>الهاتف</td><td class="num">${esc(p.phone)}</td></tr><tr><td>النسك</td><td>${esc(Hj.NUSUK[p.nusuk])}</td></tr></table>
+      <table class="kv"><tr><td>المستوى</td><td>${esc(Hj.LEVELS[k.level])} — ${esc(Hj.DURATION[k.duration])}</td></tr><tr><td>السفر / العودة</td><td class="num">${esc(k.departDate)} ← ${esc(k.returnDate)}</td></tr>
+        <tr><td>المسار</td><td>${esc(Hj.ROUTE[k.route])} · ${esc(Hj.TRANSPORT[k.transport])}</td></tr><tr><td>المشاعر</td><td>${esc(Hj.MASHAIR[k.mashair])}</td></tr><tr><td>الغرفة</td><td>${esc(Hj.ROOMS[p.roomType].ar)}</td></tr></table></div>
+      <table><tr><th>الإقامة</th><th>الفندق</th><th>الليالي</th></tr>${(k.stays || []).map((st) => `<tr><td>${esc(Hj.CITIES[st.city])}</td><td>${esc(st.hotel)}</td><td>${st.nights}</td></tr>`).join('')}</table>
+      <h3>تفاصيل السعر</h3><table><tr><th>البند</th><th>القيمة</th></tr>${p.lines.map((l) => `<tr><td>${esc(l.label)}</td><td>${h.n2(l.total)}</td></tr>`).join('')}</table>${moneyBlock(s, p)}
+      <h3>الشروط والأحكام</h3><ol class="terms">${[...terms, ...custom].map((t) => `<li>${esc(t)}</li>`).join('')}</ol>
+      <div class="sign"><div>الحاج: ${esc(p.nameAr)}<br><small>أقر بصحة البيانات وقبول الشروط</small></div><div>موظف التسجيل<br><small>${esc(p.createdBy)}</small></div><div>ختم الشركة</div></div>`;
+  }
   App.bookingDocHtml = (bookingId) => {
     const s = S(), f = Model.findBooking(s, bookingId);
     if (!f) return '';
-    return f.domestic ? domesticDoc(s, f.b) : Model.withTrip(s, f.doc.id, () => umrahDoc(s, f));
+    return f.hajj ? hajjDoc(s, f.b) : f.domestic ? domesticDoc(s, f.b) : Model.withTrip(s, f.doc.id, () => umrahDoc(s, f));
   };
   App.actions.bookingDoc = (d) => { const f = Model.findBooking(S(), d.id); App.printDoc('Booking ' + f.b.code, App.bookingDocHtml(d.id)); };
 })();

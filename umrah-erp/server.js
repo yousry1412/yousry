@@ -142,7 +142,7 @@ function companySummary(c) {
   try {
     const d = JSON.parse(store.getState(c.id).json), co = d.company || {};
     return { ...c, domains: Array.isArray(co.domains) && co.domains.length ? co.domains : ['UMRAH'], country: co.country || 'EG', branches: (d.branches || []).length,
-      trips: (d.trips || []).length, programs: ((d.dom || {}).programs || []).length, users: store.listUsers(c.id).filter((u) => u.company_id === c.id).length };
+      trips: (d.trips || []).length, programs: ((d.dom || {}).programs || []).length, hajj: ((d.hajj || {}).packages || []).length, users: store.listUsers(c.id).filter((u) => u.company_id === c.id).length };
   } catch (e) { return { ...c, domains: ['UMRAH'] }; }
 }
 api.get('/companies', (req, res) => {
