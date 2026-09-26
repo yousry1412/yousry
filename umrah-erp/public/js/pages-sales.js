@@ -30,7 +30,7 @@
     <div class="grid g2" style="margin-top:14px">
       <div class="card"><h3>⚙️ معاملات الرحلة <span class="sub">تعديل أي قيمة يعيد الاحتساب فوراً</span></h3>
         <div class="grid g3">
-          <div class="field"><label>سعر الصرف المرجعي FX_Ref (EGP/SAR)</label><input class="input" type="number" step="0.01" data-bind="trip.fxRef" value="${t.fxRef}"></div>
+          <div class="field"><label>سعر تسعير الرحلة (ثابت) — التنفيذي الآن ${s.fx.current}</label><input class="input" type="number" step="0.01" data-bind="trip.fxRef" value="${t.fxRef}"></div>
           <div class="field"><label>الطاقة المخططة (مقاعد)</label><input class="input" type="number" data-bind="trip.plannedPax" value="${t.plannedPax}"></div>
           <div class="field"><label>هامش الربح المستهدف %</label><input class="input" type="number" step="0.5" data-bind="trip.marginPct" value="${t.marginPct}"></div>
           <div class="field"><label>ليالي مكة</label><input class="input" type="number" min="1" data-bind="trip.stays.MAK.nights" data-after="restay" value="${t.stays.MAK.nights}"></div>

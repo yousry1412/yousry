@@ -55,7 +55,7 @@
       company: { name: name || 'شركتي للسياحة', country, currency: 'EGP', vatEnabled: false, vatRate: c.vat, taxNo: '', commercialNo: '', address: '', phone: '', email: '', licenseNo: '' },
       settings: { reminderDays: 3, holdAlertHours: 3, docsAlertDays: 14 },
       branches: [{ id: 'BR1', code: 'BR-01', name: 'الفرع الرئيسي', city: '' }],
-      fx: { current: 13.0, global: null },
+      fx: { current: 13.0, global: null, history: [], alertSpreadPct: 3 },
       users: [], agents: [], suppliers: [], hotels: [], allotments: [], customers: [], employees: [],
       accounts: Acc.DEFAULT_ACCOUNTS.map((a) => ({ ...a })),
       expenseCategories: Acc.DEFAULT_EXPENSE_CATEGORIES.map((a) => ({ ...a })),
@@ -230,6 +230,8 @@
       const pend = S.vouchers.filter((v) => v.status === 'PENDING');
       for (const v of pend) out.push({ level: 'warn', group: 'مالية', text: `${Acc.VOUCHER_TYPES[v.type]} ${v.no} بمبلغ ${Math.round(v.amount)} ${v.currency} بانتظار الاعتماد (${v.createdBy})`, page: 'vouchers', ref: v.id });
       for (const cb of S.cashboxes) { const bal = Acc.cashboxBalance(S, cb); if (bal < 0) out.push({ level: 'err', group: 'مالية', text: `رصيد ${cb.name} بالسالب (${Math.round(bal)})`, page: 'treasury' }); }
+      const fx = fxInfo(S);
+      if (fx.alert) out.push({ level: 'warn', group: 'مالية', text: `سعر الصرف التنفيذي ${fx.exec} يختلف عن العالمي ${fx.global} بنسبة ${fx.spreadPct > 0 ? '+' : ''}${fx.spreadPct}% (الحد ${fx.threshold}%) — راجع السعر`, page: 'fx' });
       for (const a of S.agents) if (a.tier === 'B2B' && a.balance < -a.creditLimit * 0.9) out.push({ level: 'warn', group: 'مالية', text: `الوكيل ${a.name} قارب/تجاوز السقف الائتماني`, page: 'agents' });
     }
     for (const doc of S.trips) {
@@ -269,7 +271,7 @@
   /** v3 (single-trip demo document) → v4 company document with full accounting history. */
   function migrateV3(s3, companyName) {
     const S = baseCompany(companyName || 'شركة مدار للسياحة (بيانات تجريبية)', 'EG');
-    Object.assign(S, { fx: { current: s3.fx.current, global: null }, users: s3.users, agents: s3.agents, allotments: s3.allotments, audit: s3.audit || [] });
+    Object.assign(S, { fx: { current: s3.fx.current, global: null, history: [], alertSpreadPct: 3 }, users: s3.users, agents: s3.agents, allotments: s3.allotments, audit: s3.audit || [] });
     S.suppliers = s3.suppliers.map((x) => ({ ...x, code: nextCode(S, 'SUP', 'SUP'), phone: '', taxNo: '' }));
     for (const a of S.allotments) {
       const h = { id: 'H' + a.id, code: nextCode(S, 'HTL_' + a.city, `HTL-${a.city}`), city: a.city, name: a.hotel, nameEn: a.hotelEn, supplierId: a.supplierId, stars: 5, distance: '' };
@@ -369,11 +371,30 @@
     if (S.version === 3) S = migrateV3(S, name);
     for (const d of S.trips) { d.docs = d.docs || []; d.fieldExpenses = d.fieldExpenses || []; d.settlements = d.settlements || []; }
     S.settings = S.settings || { reminderDays: 3, holdAlertHours: 3, docsAlertDays: 14 };
+    S.fx.history = S.fx.history || []; if (S.fx.alertSpreadPct == null) S.fx.alertSpreadPct = 3;
     mountTrip(S, S.activeTripId);
     return S;
   }
   const serialize = (S) => JSON.stringify(S);
 
+  // ------------------------------------------------------------ FX
+  /** Executive rate (manual, what the company actually pays for SAR) vs global market rate (auto, benchmark only). */
+  function fxInfo(S) {
+    const exec = Number(S.fx.current) || 0, g = S.fx.global && Number(S.fx.global.rate);
+    const spreadPct = g ? Acc.r2(((exec - g) / g) * 100) : null;
+    return { exec, global: g || null, globalAt: S.fx.global && S.fx.global.at, spreadPct, threshold: Number(S.fx.alertSpreadPct ?? 3),
+      alert: spreadPct != null && Math.abs(spreadPct) > Number(S.fx.alertSpreadPct ?? 3) };
+  }
+  function setExecRate(S, rate, by, note) {
+    rate = Acc.r2(Number(rate) * 100) / 100;
+    if (!(rate > 0)) throw new Error('سعر صرف غير صحيح');
+    const g = S.fx.global && S.fx.global.rate;
+    S.fx.history = S.fx.history || [];
+    S.fx.history.unshift({ rate, prev: S.fx.current, global: g || null, at: Date.now(), by, note: note || '' });
+    S.fx.history.length = Math.min(S.fx.history.length, 200);
+    S.fx.current = rate;
+  }
+
   return { TRIP_KEYS, COUNTRIES, TRIP_DOC_KINDS, mountTrip, tripDocOf, findBooking, withTrip, nextCode, baseCompany, emptyCompany, addCashbox, newTrip, addTripRooms,
-    findOrCreateCustomer, createVoucher, approve, reject, onVoucherPosted, createBooking, alerts, migrateV3, load, serialize };
+    findOrCreateCustomer, createVoucher, approve, reject, onVoucherPosted, createBooking, alerts, migrateV3, load, serialize, fxInfo, setExecRate };
 });

@@ -42,7 +42,7 @@
       <div class="field"><label>مخصص مكة</label><select class="input" id="tn-mak">${mak.map((a) => opt(a.id, '', `${a.code} · ${a.hotel}`)).join('')}</select></div>
       <div class="field"><label>ليالي المدينة</label><input class="input" id="tn-dn" type="number" value="4"></div>
       <div class="field"><label>مخصص المدينة</label><select class="input" id="tn-mad">${mad.map((a) => opt(a.id, '', `${a.code} · ${a.hotel}`)).join('')}</select></div>
-      <div class="field"><label>سعر الصرف التشغيلي المرجعي</label><input class="input" id="tn-fx" type="number" step="0.01" value="${s.fx.current}"></div>
+      <div class="field"><label>سعر تسعير الرحلة (يبدأ بالتنفيذي)</label><input class="input" id="tn-fx" type="number" step="0.01" value="${s.fx.current}"></div>
       <div class="field"><label>هامش الربح %</label><input class="input" id="tn-margin" type="number" value="12"></div>
       <div class="field"><label>الطاقة المخططة</label><input class="input" id="tn-pax" type="number" value="44"></div>
       <div class="field"><label>الفرع</label><select class="input" id="tn-br">${s.branches.map((b) => opt(b.id, '', b.name)).join('')}</select></div>

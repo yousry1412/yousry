@@ -59,6 +59,11 @@ function validate(oldS, newS, user) {
     if (v.status !== 'PENDING' && !approver) errors.push(`السند ${v.no} لازم يدخل "بانتظار الاعتماد"`);
     if (v.status === 'PENDING') events.push({ roles: APPROVERS, text: `🧾 ${v.no} بمبلغ ${Math.round(v.amount)} ${v.currency} من ${v.createdBy} بانتظار الاعتماد`, link: 'vouchers' });
   }
+  // exchange rates: the executive rate drives every SAR posting → approvers only (global benchmark updates are free)
+  if (!approver && oldS.fx && newS.fx && (Number(oldS.fx.current) !== Number(newS.fx.current) || Number(oldS.fx.alertSpreadPct) !== Number(newS.fx.alertSpreadPct)))
+    errors.push('تعديل سعر الصرف التنفيذي من صلاحية المحاسب أو المدير');
+  if (oldS.fx && newS.fx && Number(oldS.fx.current) !== Number(newS.fx.current) && !(newS.fx.history && newS.fx.history[0] && Number(newS.fx.history[0].rate) === Number(newS.fx.current)))
+    errors.push('تغيير سعر الصرف التنفيذي لازم يتسجل في سجل الأسعار');
   // master-data governance
   if (!admin) {
     if (stable(oldS.accounts) !== stable(newS.accounts) && !approver) errors.push('تعديل شجرة الحسابات من صلاحية المحاسب أو المدير');

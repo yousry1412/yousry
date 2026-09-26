@@ -427,6 +427,6 @@ if (require.main === module) {
   setInterval(sweep, 30000).unref();
   setInterval(() => { try { store.autoBackup(); } catch (e) { console.error('backup failed', e.message); } }, 3600000).unref();
   setTimeout(() => { store.autoBackup(); refreshFx(); }, 5000).unref();
-  app.listen(PORT, () => console.log(`Smart Umrah ERP شغال على http://localhost:${PORT}`));
+  app.listen(PORT, () => console.log(`أفواج (Afwaj) شغال على http://localhost:${PORT}`));
 }
 module.exports = { app, sweep };

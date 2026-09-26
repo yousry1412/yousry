@@ -478,7 +478,7 @@
           <tr><td>بالسعر المرجعي (${t.fxRef})</td><td>${h.egp(p.sarBudgetEGP)}</td></tr>
           <tr><td>الفعلي (مسدد + المتبقي بسعر السوق)</td><td>${h.egp(p.sarActualEGP)}</td></tr>
           <tr><td><b>${p.fxLoss > 0 ? 'خسارة' : 'ربح'} فروق العملة</b></td><td class="${p.fxLoss > 0 ? 'danger' : 'ok'}"><b>${h.egp(Math.abs(p.fxLoss))}</b></td></tr></table>
-          <div class="field" style="margin-top:10px"><label>سعر صرف السوق الحالي (للمتبقي غير المسدد)</label><input class="input" type="number" step="0.01" data-bind="fx.current" value="${s.fx.current}"></div>
+          <div class="small muted" style="margin-top:10px">المتبقي غير المسدد بالريال يُقيَّم بسعر الصرف التنفيذي <b class="num">${s.fx.current}</b> — <a href="#" data-act="go" data-page="fx">تعديله من صفحة أسعار الصرف</a></div>
         </div>
         <div class="card"><h3>🧾 نثريات المشرفين</h3>
           <table class="t">${s.fieldExpenses.map((e) => `<tr><td>${esc(e.label)}</td><td>${h.cur(e.amount, e.currency)}</td></tr>`).join('')}</table>

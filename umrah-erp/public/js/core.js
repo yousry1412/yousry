@@ -223,7 +223,7 @@
       h1,h2{color:#0d3b2c;margin:0 0 4px}.ltr{direction:ltr;text-align:left}.muted{color:#555}.box{border:1px solid #0d3b2c;border-radius:8px;padding:10px;margin:8px 0}
       .head{display:flex;justify-content:space-between;border-bottom:3px solid #b8912f;padding-bottom:8px;margin-bottom:10px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
       .co{font-size:10px;color:#444;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:8px}.sign{display:flex;justify-content:space-between;margin-top:30px}</style>
-      </head><body><div class="co"><b>${esc(c.name)}</b>${c.commercialNo ? ' · س.ت ' + esc(c.commercialNo) : ''}${c.taxNo ? ' · رقم ضريبي ' + esc(c.taxNo) : ''}${c.licenseNo ? ' · ترخيص ' + esc(c.licenseNo) : ''}${c.phone ? ' · ' + esc(c.phone) : ''}${c.address ? ' · ' + esc(c.address) : ''}</div>${bodyHtml}</body></html>`);
+      </head><body><div class="co"><img src="${location.origin + location.pathname.replace(/[^/]*$/, '')}img/logo.svg" alt="" style="width:22px;height:22px;vertical-align:middle;margin-inline-end:6px"><b>${esc(c.name)}</b>${c.commercialNo ? ' · س.ت ' + esc(c.commercialNo) : ''}${c.taxNo ? ' · رقم ضريبي ' + esc(c.taxNo) : ''}${c.licenseNo ? ' · ترخيص ' + esc(c.licenseNo) : ''}${c.phone ? ' · ' + esc(c.phone) : ''}${c.address ? ' · ' + esc(c.address) : ''}</div>${bodyHtml}</body></html>`);
     d.close();
     setTimeout(() => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 1500); }, 250);
   };
@@ -259,7 +259,7 @@
     ['sales', '🧾', 'المبيعات والعملاء', [['booking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL]]],
     ['purch', '🏨', 'الموردون والفنادق', [['suppliers', 'الموردون', [...FIN, 'OPERATIONS']], ['hotels', 'الفنادق والمخصصات', [...FIN, 'OPERATIONS', 'HEAD']]]],
     ['fin', '💰', 'المالية والحسابات', [['treasury', 'الخزائن والبنوك', FIN], ['vouchers', 'السندات والاعتمادات', ALL], ['expenses', 'المصروفات', FIN],
-      ['employees', 'الموظفون', FIN], ['coa', 'شجرة الحسابات', FIN], ['journal', 'القيود اليومية', FIN], ['reports', 'التقارير المالية', FIN], ['pnl', 'أرباح الرحلة', FIN]]],
+      ['employees', 'الموظفون', FIN], ['fx', 'أسعار الصرف', ALL], ['coa', 'شجرة الحسابات', FIN], ['journal', 'القيود اليومية', FIN], ['reports', 'التقارير المالية', FIN], ['pnl', 'أرباح الرحلة', FIN]]],
     ['comm', '💬', 'التواصل', [['chat', 'الشات الداخلي', ALL]]],
     ['admin', '⚙️', 'الإدارة', [['settings', 'الشركة والفروع والضرائب', ADM], ['users', 'المستخدمون والصلاحيات', ADM], ['backup', 'النسخ الاحتياطي والإصدارات', ADM]]],
   ];
@@ -288,7 +288,8 @@
         ${S.trips.length ? `<select data-act-change="switchTrip" title="الرحلة">${S.trips.map((d) => App.h.opt(d.id, S.activeTripId, `${d.trip.code} · ${d.trip.name}`)).join('')}</select>` : ''}
       </div>
       <div class="top-spacer"></div>
-      ${t ? `<span class="chip hide-sm" title="صرف السوق مقابل المرجعي">SAR ${S.fx.current} / مرجعي ${t.fxRef}</span>` : ''}
+      ${(() => { const fx = Model.fxInfo(S); return `<button class="fx-pill hide-sm ${fx.alert ? 'alert' : ''}" data-act="go" data-page="fx" title="سعر الريال: التنفيذي مقابل العالمي">
+        <span>💱 تنفيذي <b class="num">${fx.exec}</b></span><span class="sep"></span><span>عالمي <b class="num">${fx.global ?? '—'}</b></span>${fx.spreadPct != null ? `<span class="spread num">${fx.spreadPct > 0 ? '+' : ''}${fx.spreadPct}%</span>` : ''}</button>`; })()}
       <button class="icon-btn" data-act="go" data-page="home" title="التنبيهات">🔔${unread ? `<span class="badge">${unread > 99 ? '99+' : unread}</span>` : ''}</button>
       ${App.online ? `<button class="icon-btn" data-act="go" data-page="chat" title="الشات">💬${App.chatUnread ? `<span class="badge">${App.chatUnread}</span>` : ''}</button>${syncChip()}` : ''}
       ${App.online ? `<span class="topbar-user hide-sm">👤 ${esc(App.me.display_name)} · ${esc(App.ROLE_LABEL[App.me.role])}</span><button class="btn sm ghost" data-act="logout">خروج</button>`
@@ -381,7 +382,7 @@
     box.style.display = 'grid';
     box.innerHTML = `
       <div class="card auth-card">
-        <div class="auth-brand">🕋 <b>Smart Umrah ERP</b></div>
+        <div class="auth-brand"><img src="img/logo.svg" alt="" width="84" height="84"><div><b>أفواج</b><span>منظومة شركات العمرة والسياحة الدينية</span></div></div>
         <h3>${needsSetup ? '🔐 إعداد حساب المالك لأول مرة' : '🔐 تسجيل الدخول'}</h3>
         ${needsSetup ? '<p class="muted small">أول حساب هو المالك بكل الصلاحيات، وبعدها يضيف حسابات الفريق والمناديب من "المستخدمون والصلاحيات".</p>' : ''}
         <div class="field"><label>اسم المستخدم</label><input class="input" id="au-user" autocomplete="username" autocapitalize="none" style="direction:ltr"></div>
@@ -425,6 +426,11 @@
   async function refreshFx(force) {
     if (!App.online) return;
     try { App.fxGlobal = await App.api('GET', 'api/fx' + (force ? '?refresh=1' : '')); } catch (e) { /* ignore */ }
+    // keep the latest global benchmark inside the company document (feeds the spread alert for everyone)
+    const g = App.fxGlobal;
+    if (g && g.rate && App.S && (!App.S.fx.global || App.S.fx.global.rate !== g.rate || App.S.fx.global.at !== g.at)) {
+      App.S.fx.global = { rate: g.rate, at: g.at, source: g.source, usd: g.usd || null }; App.save(); App.render();
+    }
     return App.fxGlobal;
   }
   App.refreshFx = refreshFx;
@@ -441,6 +447,7 @@
     } catch (e) { if (!e.status) setSync('offline'); }
   }, 5000);
   setInterval(pollBadges, 12000);
+  setInterval(() => refreshFx(), 30 * 60000);
 
   // ------------------------------------------------ TTL ticker
   setInterval(() => {
