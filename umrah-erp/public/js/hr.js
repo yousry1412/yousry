@@ -104,7 +104,7 @@
         if (late > st.graceMin) { out.lateCount++; out.lateMinutes += late; code = 'LATE'; } else { late = 0; code = 'PRESENT'; }
         if (rec.out) { ot = Math.max(0, mins(rec.out) - end); out.overtimeMinutes += ot; out.earlyLeaveMinutes += Math.max(0, end - mins(rec.out)); }
         else if (d < today) out.missingOut++;
-      } else if (d < today || (d === today && mins(localNow(S.company.country).time) > end)) { out.absent++; code = 'ABSENT'; }
+      } else if (d < today || (d === today && localNow(S.company.country).date === today && mins(localNow(S.company.country).time) > end)) { out.absent++; code = 'ABSENT'; }
       if (!off && !beforeHire && d <= today) out.workdays++;
       if (code === 'OFF_WORK' && rec && rec.out) { ot = mins(rec.out) - mins(rec.in); out.overtimeMinutes += Math.max(0, ot); }
       out.days.push({ date: d, code, rec, late, ot, leave: lv || null });

@@ -243,7 +243,7 @@
     const hr = isHrAdmin();
     return `<div class="page-head"><div class="emp-top">${e.photoFileId ? `<img class="avatar lg" src="${App.fileUrl(e.photoFileId)}" alt="">` : `<span class="avatar lg ph">${esc(e.name.slice(0, 1))}</span>`}
         <div><h2>${esc(e.name)}</h2><p>${esc(e.code)} · ${esc(e.job || '')} · ${esc(dept(e.dept))} · ${esc(h.branch(e.branchId).name)}${mgr ? ' · المدير: ' + esc(mgr.name) : ''}</p></div></div>
-      <div class="row">${periodPicker()}${hr ? `<button class="btn" data-act="hrEmpForm" data-id="${e.id}">✏️ تعديل</button><button class="btn" data-act="hrPhoto" data-id="${e.id}">📸 صورة</button>` : ''}${App.online && e.userId ? `<button class="btn" data-act="hrMsg" data-u="${e.userId}">💬 رسالة خاصة</button>` : ''}<button class="btn gold" data-act="hrPrintFile" data-id="${e.id}">🖨️ ملف الأداء</button></div></div>
+      <div class="row">${periodPicker()}${hr ? `<button class="btn" data-act="hrEmpForm" data-id="${e.id}">✏️ تعديل</button><button class="btn" data-act="hrPhoto" data-id="${e.id}">📸 صورة</button>` : ''}${App.online && e.userId ? `<button class="btn" data-act="hrMsg" data-u="${e.userId}">💬 رسالة خاصة</button>` : ''}${App.online && e.userId && ['OWNER', 'MANAGER'].includes(App.role()) ? `<button class="btn" data-act="go" data-page="userView" data-id="${e.userId}">🔐 حساب الدخول والصلاحية</button>` : ''}<button class="btn gold" data-act="hrPrintFile" data-id="${e.id}">🖨️ ملف الأداء</button></div></div>
     ${hr ? `<div class="row" style="margin-bottom:12px"><button class="btn sm" data-act="hrEvalForm" data-id="${e.id}">📝 تقييم</button><button class="btn sm" data-act="hrTargetForm" data-id="${e.id}">🎯 هدف الشهر</button><button class="btn sm" data-act="hrTaskForm" data-id="${e.id}">📌 تكليف بمهمة</button>
       <button class="btn sm" data-act="hrAdjForm" data-id="${e.id}" data-k="REWARD">🎁 مكافأة</button><button class="btn sm" data-act="hrAdjForm" data-id="${e.id}" data-k="WARNING">⚠️ إنذار</button><button class="btn sm" data-act="hrAdjForm" data-id="${e.id}" data-k="PENALTY">⛔ جزاء</button>
       <button class="btn sm ghost" data-act="go" data-page="partyView" data-ptype="employee" data-id="${e.id}">📄 كشف الحساب المالي</button></div>` : ''}
@@ -258,7 +258,8 @@
           <tr><td>الراتب + البدلات</td><td>${h.egp((e.salary || 0) + (e.allowances || 0))}${e.commissionPct ? ` + ${e.commissionPct}% عمولة` : ''}</td></tr>
           <tr><td>الهاتف</td><td class="num">${esc(e.phone || '—')}</td></tr><tr><td>الرقم القومي</td><td class="num">${esc(e.nid || '—')}</td></tr>
           <tr><td>رصيد الإجازات</td><td>اعتيادي ${bal.ANNUAL.remaining} · عارضة ${bal.CASUAL.remaining} · مرضي ${bal.SICK.remaining}</td></tr>
-          <tr><td>السلف/العهد</td><td>${h.egp(Acc.partyBalance(s, 'employee', e.id))}</td></tr></tbody></table></div>
+          <tr><td>السلف/العهد</td><td>${h.egp(Acc.partyBalance(s, 'employee', e.id))}</td></tr>
+          <tr><td>حساب الدخول</td><td>${e.userId ? (() => { const u = App.hrUsers.find((x) => x.id === Number(e.userId)); return `🔗 ${esc(u ? `${u.display_name} · ${App.ROLE_LABEL[u.role] || u.role}` : 'حساب #' + e.userId)}`; })() : '<span class="chip hold">غير مربوط</span>'}</td></tr></tbody></table></div>
       </div>
     </div>
     <div class="card" style="margin-top:14px"><h3>📅 الحضور — ${esc(p)} <span class="sub">${sc.attendance.present} حضور · ${sc.attendance.absent} غياب · ${sc.attendance.lateCount} تأخير (${sc.attendance.lateMinutes} د) · إضافي ${Math.round(sc.attendance.overtimeMinutes / 60)} س</span></h3>${calendar(sc.attendance)}</div>

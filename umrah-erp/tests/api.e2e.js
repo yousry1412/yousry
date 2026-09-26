@@ -256,3 +256,37 @@ test('multi-company: owner creates an empty company; staff are locked to theirs'
   assert.equal((await sales.req('GET', '/api/state')).status, 403);
   sales.setCompany(null);
 });
+
+test('marketing link: public offers + "طلب العمل" → approval with password → held agent bookings → profile edit locks login', async () => {
+  owner.setCompany(companyId);
+  const link = (await owner.req('GET', '/api/marketing-link')).data;
+  const pub = client();
+  const off = await pub.req('GET', '/api/public/offers/' + link.token);
+  assert.equal(off.status, 200); assert.ok(off.data.umrah.length >= 1);
+  assert.equal(off.data.umrah[0].prices.some((p) => p.price > 0), true);
+  assert.equal(JSON.stringify(off.data).includes('cost'), false, 'no cost data leaks to the public page');
+  assert.equal((await pub.req('GET', '/api/public/offers/not-a-real-token')).status, 404);
+  const ap = await pub.req('POST', '/api/public/apply/' + link.token, { name: 'مندوب الرابط', phone: '01055512345', email: 'link.agent@x.com', city: 'قنا' });
+  assert.equal(ap.status, 200);
+  const newAgent = client();
+  const blocked = await newAgent.req('POST', '/api/auth/login', { username: 'link.agent@x.com', password: 'Anything12' });
+  assert.equal(blocked.status, 401, 'no usable password before approval');
+  const pend = (await owner.req('GET', '/api/approvals')).data.find((u) => u.email === 'link.agent@x.com');
+  assert.equal(pend.approval, 'PENDING');
+  assert.equal((await sales.req('GET', '/api/approvals')).status, 403);
+  const ok = await owner.req('POST', `/api/approvals/${pend.id}/approve`, { password: 'LinkAgent1', tier: 'BROKER' });
+  assert.equal(ok.status, 200); assert.ok(ok.data.agent_ref);
+  assert.equal((await newAgent.req('POST', '/api/auth/login', { username: 'link.agent@x.com', password: 'LinkAgent1' })).status, 200);
+  const pv = (await newAgent.req('GET', '/api/portal')).data;
+  const bk = await newAgent.req('POST', '/api/portal/booking', { tripId: pv.trips[0].id, draft: { mode: 'FULL_PACKAGE', roomType: 'QUAD', pax: [{ nameAr: 'عميل', nameEn: 'CLIENT', gender: 'M', type: 'ADULT' }] } });
+  assert.equal(bk.status, 200);
+  const st = (await owner.req('GET', '/api/state')).data;
+  let held = null; for (const d of st.state.trips) for (const b of d.bookings) if (b.agentRequest && b.agentRequest.state === 'PENDING') held = b;
+  assert.ok(held && ['SOFT_HOLD', 'PENDING_APPROVAL', 'PENDING_PRICING'].includes(held.status));
+  const pe = await newAgent.req('POST', '/api/portal/profile', { phone: '01055599999' });
+  assert.equal(pe.status, 200);
+  const again = await newAgent.req('POST', '/api/auth/login', { username: 'link.agent@x.com', password: 'LinkAgent1' });
+  assert.equal(again.status, 403);
+  assert.equal((await owner.req('POST', `/api/approvals/${pend.id}/approve`, {})).status, 200);
+  assert.equal((await newAgent.req('POST', '/api/auth/login', { username: 'link.agent@x.com', password: 'LinkAgent1' })).status, 200);
+});

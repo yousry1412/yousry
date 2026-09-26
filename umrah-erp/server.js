@@ -23,6 +23,7 @@ const Acc = require('./public/js/accounting.js');
 const Model = require('./public/js/model.js');
 const Hr = require('./public/js/hr.js');
 const Dom = require('./public/js/dom.js');
+const Hajj = require('./public/js/hajj.js');
 const { buildSeed } = require('./public/js/data.js');
 
 const app = express();
@@ -81,6 +82,7 @@ auth.post('/login', (req, res) => {
   const key = req.ip + '|' + String((req.body && req.body.username) || '').toLowerCase();
   if (locked(key) || locked(req.ip + '|*', 30)) return res.status(429).json({ error: 'محاولات كثيرة — حاول بعد 15 دقيقة' });
   const u = store.authenticate(req.body && req.body.username, req.body && req.body.password);
+  if (u && u.blocked) return res.status(403).json({ error: u.blocked });
   if (!u) { fail(key); fail(req.ip + '|*'); return res.status(401).json({ error: 'اسم المستخدم أو كلمة السر غير صحيحة' }); }
   attempts.delete(key);
   startSession(req, res, u); store.audit(u.id, u.company_id, 'تسجيل دخول');
@@ -89,6 +91,67 @@ auth.post('/login', (req, res) => {
 auth.post('/logout', (req, res) => { store.destroySession(parseCookies(req)[COOKIE]); clearCookie(res, COOKIE); res.json({ ok: true }); });
 app.use('/api/auth', auth);
 app.get('/api/version', (req, res) => res.json({ build: BUILD })); // public: lets open browsers detect a new deploy
+
+// ============================================================== PUBLIC (marketing link, no login)
+// Each company has an unguessable link token: /o/<token> shows everything open for sale and the "طلب العمل" (join as agent) form.
+function linkToken(companyId, rotate) {
+  let t = store.kvGet('pubtoken:' + companyId);
+  if (!t || rotate) {
+    if (t) store.kvSet('pub:' + t, null);
+    t = require('crypto').randomBytes(9).toString('base64url');
+    store.kvSet('pubtoken:' + companyId, t); store.kvSet('pub:' + t, companyId);
+  }
+  return t;
+}
+const companyOfToken = (t) => (/^[\w-]{8,20}$/.test(String(t)) ? store.kvGet('pub:' + t) : null);
+function publicOffers(S) {
+  const today = Engine.iso(new Date()), doms = S.company.domains || ['UMRAH'];
+  const umrah = !doms.includes('UMRAH') ? [] : S.trips.filter((d) => d.trip.status !== 'CLOSED' && d.trip.departDate >= today).map((d) => Model.withTrip(S, d.id, () => {
+    const pl = Engine.priceList(S), free = Math.min(...['MAK', 'MAD'].map((c) => Engine.breakage(S, c).reduce((x, y) => x + y.free, 0)));
+    const hotels = ['MAK', 'MAD'].map((c) => { const st = d.trip.stays[c] || {}, al = S.allotments.find((x) => x.id === st.allotmentId); return { city: c === 'MAK' ? 'مكة' : 'المدينة', hotel: al ? al.hotel : '', nights: st.nights || 0 }; });
+    return { code: d.trip.code, name: d.trip.name, departDate: d.trip.departDate, returnDate: d.trip.returnDate, hotels, free: Math.max(0, free),
+      prices: Object.keys(Engine.ROOM_TYPES).filter((t) => pl[t] > 0).map((t) => ({ room: Engine.ROOM_TYPES[t].ar, price: pl[t] })), child: pl.CHD, infant: pl.INF };
+  }));
+  const hajj = !doms.includes('HAJJ') ? [] : S.hajj.packages.filter((k) => { const ss = Hajj.season(S, k.seasonId); return ss && !ss.closed; }).map((k) => {
+    const ss = Hajj.season(S, k.seasonId), used = S.hajj.pilgrims.filter((p) => p.packageId === k.id && Hajj.ACTIVE(p)).length;
+    return { code: k.code, name: k.name, level: Hajj.LEVELS[k.level] || k.level, season: ss.name || '', departDate: k.departDate, returnDate: k.returnDate, free: Math.max(0, (k.capacity || 0) - used),
+      hotels: (k.stays || []).map((x) => ({ city: Hajj.CITIES[x.city] || x.city, hotel: x.hotel, nights: x.nights })),
+      prices: Object.entries(k.prices || {}).filter(([, v]) => v > 0).map(([r, v]) => ({ room: (Hajj.ROOMS[r] || {}).ar || r, price: v })), regOpen: !!(ss.reg && ss.reg.open !== false) };
+  });
+  const domestic = !doms.includes('DOMESTIC') ? [] : S.dom.programs.filter((p) => p.status !== 'CLOSED' && p.startDate >= today).map((p) => {
+    const left = Dom.capacityLeft(S, p);
+    const prices = p.kind === 'DAYTRIP' ? [{ room: 'مقعد بالغ', price: p.seatPrice }, ...(p.childSeatPrice ? [{ room: 'مقعد طفل', price: p.childSeatPrice }] : [])]
+      : (p.hotelOptions || []).flatMap((o) => Object.entries(o.prices || {}).filter(([, v]) => v > 0).map(([r, v]) => ({ room: `${(o.hotelId && (Dom.hotel(S, o.hotelId) || {}).name) || o.hotelName || ''} · ${(Dom.ROOMS[r] || {}).ar || r} (${Dom.BOARDS[o.board] || ''})`, price: v })));
+    return { code: p.code, name: p.name, kind: (Dom.KINDS[p.kind] || {}).ar, icon: (Dom.KINDS[p.kind] || {}).icon, city: p.city, startDate: p.startDate, endDate: p.endDate, free: left,
+      transport: Dom.TRANSPORT[(p.transport || {}).type] || '', includes: String(p.includes || '').split('\n').filter(Boolean).slice(0, 8), prices };
+  });
+  return { company: { name: S.company.name, phone: S.company.phone || '', address: S.company.address || '', domains: doms, logo: S.company.logoFileId ? true : false }, umrah, hajj, domestic };
+}
+const pub = express.Router();
+const applyHits = new Map();
+pub.get('/offers/:token', (req, res) => {
+  const cid = companyOfToken(req.params.token);
+  if (!cid || !store.getCompany(cid)) return res.status(404).json({ error: 'الرابط غير صحيح أو تم تغييره' });
+  res.set('Cache-Control', 'no-store');
+  res.json(publicOffers(loadDoc(cid).S));
+});
+pub.post('/apply/:token', express.json({ limit: '20kb' }), (req, res) => {
+  const cid = companyOfToken(req.params.token);
+  if (!cid || !store.getCompany(cid)) return res.status(404).json({ error: 'الرابط غير صحيح أو تم تغييره' });
+  const k = req.ip, e = applyHits.get(k);
+  if (e && Date.now() - e.first < 3600000 && e.n >= 5) return res.status(429).json({ error: 'طلبات كثيرة — حاول بعد ساعة' });
+  if (!e || Date.now() - e.first >= 3600000) applyHits.set(k, { first: Date.now(), n: 1 }); else e.n++;
+  try {
+    if (String((req.body || {}).website || '')) throw new Error('طلب مرفوض'); // honeypot field (bots fill hidden inputs)
+    const u = store.signup(cid, req.body || {});
+    store.audit(null, cid, `طلب انضمام مندوب جديد: ${u.display_name} (${u.phone})`);
+    store.notify(cid, { roles: gov.ACCOUNT_APPROVERS, text: `🆕 طلب عمل جديد من ${u.display_name} — ${u.phone}${u.profile.city ? ' · ' + u.profile.city : ''} — راجع وحدد له كلمة السر`, link: 'approvals' });
+    res.json({ ok: true, name: u.display_name });
+  } catch (err) { res.status(400).json({ error: err.message }); }
+});
+app.use('/api/public', pub);
+const OFFERS = require('fs').readFileSync(path.join(__dirname, 'public', 'offers.html'), 'utf8').replace('/js/offers.js', `/js/offers.js?v=${BUILD}`).replace('/css/app.css', `/css/app.css?v=${BUILD}`);
+app.get('/o/:token', (req, res) => { res.set('Cache-Control', 'no-cache, no-store, must-revalidate'); res.type('html').send(OFFERS); });
 
 // --------------------------------------------------------- guards
 function requireAuth(req, res, next) {
@@ -184,6 +247,57 @@ api.patch('/users/:id', express.json(), canManageUsers, (req, res) => {
 });
 api.get('/users/directory', staffOnly, (req, res) => res.json(store.listUsers(req.companyId).filter((u) => u.is_active && (u.company_id === req.companyId || u.role === 'OWNER'))
   .map(({ id, display_name, role, agent_ref }) => ({ id, display_name, role, agent_ref }))));
+
+// ------------------------------------------------ marketing link & approvals (owner / operations manager)
+const canApproveAccounts = allow(...gov.ACCOUNT_APPROVERS);
+api.get('/marketing-link', staffOnly, (req, res) => res.json({ token: linkToken(req.companyId), path: 'o/' + linkToken(req.companyId) }));
+api.post('/marketing-link/rotate', allow('OWNER'), (req, res) => { const t = linkToken(req.companyId, true); store.audit(req.user.id, req.companyId, 'تغيير رابط التسويق'); res.json({ token: t, path: 'o/' + t }); });
+api.get('/approvals', canApproveAccounts, (req, res) => res.json(store.listPending(req.companyId)));
+api.post('/approvals/:id/approve', express.json(), canApproveAccounts, (req, res) => {
+  try {
+    const id = Number(req.params.id), u = store.getUser(id), b = req.body || {};
+    if (!u || u.company_id !== req.companyId) throw new Error('الطلب غير موجود');
+    if (u.approval === 'PENDING') {
+      let agentRef = b.agentId || null;
+      mutate(req.companyId, req.user.display_name, (S) => {
+        if (agentRef) { if (!S.agents.some((a) => a.id === agentRef)) throw new Error('سجل المندوب غير موجود'); return; }
+        const tier = b.tier === 'B2B' ? 'B2B' : 'BROKER', own = req.user.role === 'OWNER';
+        const a = { id: 'A' + Date.now().toString(36), code: Model.nextCode(S, 'AGT', 'AGT'), name: b.agentName || u.display_name, tier, phone: u.phone, email: u.email, city: u.profile.city || '',
+          currency: 'EGP', balance: 0, creditLimit: 0, overdueDays: 0, blocked: false, pin: '', netDiscountPct: tier === 'B2B' ? Number(b.netDiscountPct) || 0 : 0,
+          commission: tier === 'BROKER' ? { type: 'FIXED', basis: 'PAX', min: own ? Number(b.commissionMin) || 0 : 0, pct: 0 } : null, source: 'طلب عمل من رابط التسويق', userId: id };
+        S.agents.push(a); agentRef = a.id;
+        S.audit.unshift({ at: Date.now(), by: req.user.display_name, msg: `إضافة مندوب ${a.code} ${a.name} من طلب العمل` });
+      });
+      const out = store.approveSignup(id, { password: b.password, agent_ref: agentRef, username: b.username, display_name: b.display_name });
+      store.audit(req.user.id, req.companyId, `قبول طلب عمل ${out.display_name} (${out.username})`);
+      return res.json(out);
+    }
+    if (u.approval === 'CHANGED') {
+      const r = store.approveChange(id);
+      if (r.user.agent_ref) mutate(req.companyId, req.user.display_name, (S) => {
+        const a = S.agents.find((x) => x.id === r.user.agent_ref); if (!a) return;
+        if (r.changes.display_name) a.name = r.changes.display_name;
+        if (r.changes.phone) a.phone = r.changes.phone;
+        if (r.changes.email) a.email = r.changes.email;
+        if (r.changes.profile && r.changes.profile.city) a.city = r.changes.profile.city;
+        S.audit.unshift({ at: Date.now(), by: req.user.display_name, msg: `اعتماد تعديل بيانات المندوب ${a.code}` });
+      });
+      store.notify(req.companyId, { userId: id, text: '✅ تم اعتماد تعديل بياناتك — تقدر تدخل الآن', link: 'portal' });
+      store.audit(req.user.id, req.companyId, `اعتماد تعديل بيانات ${r.user.username}`);
+      return res.json(r.user);
+    }
+    throw new Error('لا يوجد شيء بانتظار الموافقة');
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+api.post('/approvals/:id/reject', express.json(), canApproveAccounts, (req, res) => {
+  try {
+    const id = Number(req.params.id), u = store.getUser(id);
+    if (!u || u.company_id !== req.companyId) throw new Error('الطلب غير موجود');
+    const out = store.rejectUser(id, (req.body || {}).reason);
+    store.audit(req.user.id, req.companyId, `${u.approval === 'CHANGED' ? 'رفض تعديل بيانات' : 'رفض طلب عمل'} ${u.display_name}`);
+    res.json(out);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 
 // --------------------------------------------------------------- state
 api.get('/state', staffOnly, (req, res) => {
@@ -413,7 +527,7 @@ function portalView(S, u) {
     const bookings = [];
     for (const d of S.trips) for (const b of d.bookings.filter((x) => x.agentId === a.id)) {
       bookings.push({ id: b.id, code: b.code, trip: d.trip.code, tripId: d.id, status: b.status, statusAr: Engine.BOOKING_STATUS[b.status].ar, net: b.net, paid: b.paid, mode: b.mode, roomType: b.roomType,
-        createdAt: b.createdAt, holdUntil: b.holdUntil, installments: b.installments || [], agentCommission: b.agentCommission || 0, commissionAdj: b.commissionAdj || 0,
+        createdAt: b.createdAt, holdUntil: b.holdUntil, installments: b.installments || [], request: b.agentRequest || null, agentCommission: b.agentCommission || 0, commissionAdj: b.commissionAdj || 0,
         commissionLog: (b.commissionLog || []).map((x) => ({ adj: x.adj, note: x.note })),
         pax: d.pax.filter((p) => p.bookingId === b.id).map((p) => ({ id: p.id, nameAr: p.nameAr, nameEn: p.nameEn, type: p.type, gender: p.gender, passport: p.passport, passportExp: p.passportExp, photoFileId: p.photoFileId, passportFileId: p.passportFileId })) });
     }
@@ -422,7 +536,16 @@ function portalView(S, u) {
       score: (() => { const r = Model.agentRanking(S, { from: Engine.iso(new Date()).slice(0, 4) + '-01-01' }).find((x) => x.a.id === a.id);
         return { total: r.total, rating: r.rating, parts: r.parts, k: { bookings: r.k.bookings, pax: r.k.pax, net: r.k.net, collectionPct: r.k.collectionPct, cancelPct: r.k.cancelPct, docsPct: r.k.docsPct, commission: r.k.commission } }; })(), bookings: bookings.sort((x, y) => y.createdAt - x.createdAt),
       vouchers: S.vouchers.filter((v) => v.party && v.party.type === 'agent' && v.party.id === a.id).map((v) => ({ no: v.no, type: v.type, date: v.date, amount: v.amount, currency: v.currency, status: v.status, memo: v.memo, rejectReason: v.rejectReason })),
-      cashboxes: S.cashboxes.map((c) => ({ id: c.id, name: c.name, type: c.type, bankName: c.bankName, iban: c.iban })) };
+      cashboxes: S.cashboxes.map((c) => ({ id: c.id, name: c.name, type: c.type, bankName: c.bankName, iban: c.iban })),
+      domains: S.company.domains || ['UMRAH'], profile: (() => { const x = store.getUser(u.id); return { display_name: x.display_name, phone: x.phone, email: x.email, ...x.profile }; })(),
+      domPrograms: S.dom.programs.filter((p) => p.status !== 'CLOSED' && p.startDate >= Engine.iso(new Date())).map((p) => ({ id: p.id, code: p.code, name: p.name, kind: p.kind, city: p.city, startDate: p.startDate, endDate: p.endDate,
+        left: Dom.capacityLeft(S, p), seatPrice: p.seatPrice || 0, pickups: (p.pickups || []).map((x) => x.place), childPolicy: p.childPolicy || {},
+        options: (p.hotelOptions || []).map((o, i) => ({ idx: i, name: (o.hotelId && (Dom.hotel(S, o.hotelId) || {}).name) || o.hotelName || 'فندق', board: Dom.BOARDS[o.board] || '', prices: o.prices || {} })) })),
+      domBookings: S.dom.bookings.filter((b) => b.agentId === a.id).map((b) => ({ code: b.code, program: (Dom.program(S, b.programId) || {}).name || 'فندق', status: b.status, statusAr: (Engine.BOOKING_STATUS[b.status] || {}).ar, net: b.net, paid: b.paid,
+        lead: (b.pax[0] || {}).name, request: b.agentRequest || null, agentCommission: b.agentCommission || 0, createdAt: b.createdAt })).sort((x, y) => y.createdAt - x.createdAt),
+      hajjSeasons: S.hajj.seasons.filter((x) => !x.closed).map((x) => ({ id: x.id, name: x.name, levels: [...new Set(S.hajj.packages.filter((k) => k.seasonId === x.id).map((k) => k.level))].map((l) => ({ k: l, ar: Hajj.LEVELS[l] })),
+        packages: S.hajj.packages.filter((k) => k.seasonId === x.id).map((k) => ({ code: k.code, name: k.name, level: Hajj.LEVELS[k.level], prices: k.prices })) })),
+      hajjApps: S.hajj.applicants.filter((x) => x.agentId === a.id).map((x) => ({ code: x.code, nameAr: x.nameAr, level: Hajj.LEVELS[x.level], status: (Hajj.APP_STATUS[x.status] || {}).ar, request: x.agentRequest || null, createdAt: x.createdAt })).sort((x, y) => y.createdAt - x.createdAt) };
   }
   const key = u.role === 'SUPERVISOR' ? (t) => t.supervisor && t.supervisor.userId === u.id : (t) => t.housingUserId === u.id;
   const trips = S.trips.filter((d) => key(d.trip)).map((d) => Model.withTrip(S, d.id, () => {
@@ -459,9 +582,10 @@ portal.post('/booking', express.json({ limit: '200kb' }), allow('AGENT'), (req, 
           type: Engine.PAX_TYPES[p.type] ? p.type : 'ADULT', dob: String(p.dob || '').slice(0, 10), passport: String(p.passport || '').slice(0, 20), passportExp: String(p.passportExp || '').slice(0, 10),
           nid: String(p.nid || '').slice(0, 14), phone: String(p.phone || '').slice(0, 20), photoFileId: p.photoFileId || null, passportFileId: p.passportFileId || null })) };
       for (const p of draft.pax) for (const f of [p.photoFileId, p.passportFileId]) if (f && !store.getFile(req.companyId, f)) throw new Error('مرفق غير صالح');
-      return Model.withTrip(S, doc.id, () => { const r = Model.createBooking(S, draft, actorOf(u)); return `${doc.trip.code} · ${r.booking.code} (${Engine.BOOKING_STATUS[r.booking.status].ar})`; });
+      draft.ttl = 48; // agent bookings wait on hold for the owner / operations manager
+      return Model.withTrip(S, doc.id, () => { const r = Model.createBooking(S, draft, actorOf(u)); markAgentRequest(r.booking, u); return `${doc.trip.code} · ${r.booking.code} (${Engine.BOOKING_STATUS[r.booking.status].ar})`; });
     });
-    store.notify(req.companyId, { roles: ['OWNER', 'MANAGER', 'SALES', 'HEAD', 'OPERATIONS'], text: `🧾 حجز جديد من المندوب ${req.user.display_name}: ${code}`, link: 'booking' });
+    notifyAgentBooking(req, code);
     res.json({ ok: true, code });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
@@ -495,6 +619,55 @@ portal.post('/pax-docs', express.json(), allow('AGENT'), (req, res) => {
       if (b.photoFileId) p.photoFileId = b.photoFileId;
       if (b.passportFileId) p.passportFileId = b.passportFileId;
     });
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+/** Bookings made from the agent portal are holds that the owner / operations manager accepts or rejects. */
+function markAgentRequest(b, u) { b.agentRequest = { state: 'PENDING', at: Date.now() }; b.agentUserId = u.id; }
+function notifyAgentBooking(req, code) {
+  store.notify(req.companyId, { roles: gov.ACCOUNT_APPROVERS, text: `🟡 حجز معلق من المندوب ${req.user.display_name}: ${code} — بانتظار موافقتك`, link: 'approvals' });
+  store.notify(req.companyId, { roles: ['SALES', 'HEAD', 'OPERATIONS'], text: `🧾 حجز جديد من المندوب ${req.user.display_name}: ${code} (بانتظار موافقة الإدارة)`, link: 'booking' });
+}
+const agentOf = (S, u) => { const a = S.agents.find((x) => x.id === u.agent_ref); if (!a) throw new Error('حساب المندوب غير مرتبط بسجل وكيل'); if (a.blocked) throw new Error('حسابك موقوف — تواصل مع الشركة'); return a; };
+portal.post('/dom-booking', express.json({ limit: '100kb' }), allow('AGENT'), (req, res) => {
+  try {
+    const u = req.user, d = req.body || {};
+    const code = mutate(req.companyId, u.display_name, (S) => {
+      const a = agentOf(S, u), p = Dom.program(S, d.programId);
+      if (!p || p.status === 'CLOSED') throw new Error('البرنامج غير متاح');
+      const rooms = (Array.isArray(d.rooms) ? d.rooms : []).slice(0, 10).map((r) => ({ type: Dom.ROOMS[r.type] ? r.type : 'DBL', adults: Math.max(0, Math.min(6, Number(r.adults) || 0)),
+        children: (Array.isArray(r.children) ? r.children : []).slice(0, 4).map((c) => ({ age: Math.max(0, Math.min(17, Number(c.age) || 0)), bed: !!c.bed })) }));
+      const pax = [{ name: String(d.leadName || '').slice(0, 80), phone: String(d.leadPhone || '').slice(0, 20), nid: String(d.leadNid || '').slice(0, 14) }];
+      const r = Dom.createBooking(S, { programId: p.id, optIdx: Number(d.optIdx) || 0, rooms, pax, extras: {}, pickup: String(d.pickup || '').slice(0, 120), agentId: a.id, discountPct: 0, ttl: 48, notes: String(d.notes || '').slice(0, 500) }, actorOf(u));
+      markAgentRequest(r.booking, u);
+      return `${p.code} · ${r.booking.code}`;
+    });
+    notifyAgentBooking(req, code);
+    res.json({ ok: true, code });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+portal.post('/hajj-apply', express.json({ limit: '50kb' }), allow('AGENT'), (req, res) => {
+  try {
+    const u = req.user, d = req.body || {};
+    const code = mutate(req.companyId, u.display_name, (S) => {
+      const a = agentOf(S, u), ss = S.hajj.seasons.find((x) => !x.closed && x.id === d.seasonId) || S.hajj.seasons.find((x) => !x.closed);
+      if (!ss) throw new Error('لا يوجد موسم حج مفتوح');
+      const x = Hajj.apply(S, ss.id, { nameAr: String(d.nameAr || '').slice(0, 80), phone: String(d.phone || '').slice(0, 20), nid: String(d.nid || '').slice(0, 14), level: Hajj.LEVELS[d.level] ? d.level : 'ECONOMY',
+        groupKey: String(d.groupKey || '').slice(0, 40), lastHajjYear: String(d.lastHajjYear || '').slice(0, 4), agentId: a.id, notes: String(d.notes || '').slice(0, 300) }, actorOf(u));
+      x.agentRequest = { state: 'PENDING', at: Date.now() }; x.agentUserId = u.id;
+      return `${x.code} ${x.nameAr}`;
+    });
+    store.notify(req.companyId, { roles: gov.ACCOUNT_APPROVERS, text: `🕋 طلب حج مبدئي من المندوب ${req.user.display_name}: ${code} — بانتظار موافقتك`, link: 'approvals' });
+    res.json({ ok: true, code });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+/** The agent edits his own data → login stops until the owner / operations manager approves the change. */
+portal.post('/profile', express.json({ limit: '20kb' }), allow('AGENT'), (req, res) => {
+  try {
+    const u = store.requestProfileChange(req.user.id, req.body || {});
+    store.notify(req.companyId, { roles: gov.ACCOUNT_APPROVERS, text: `✏️ المندوب ${u.display_name} عدّل بياناته — الدخول متوقف لحين موافقتك`, link: 'approvals' });
+    clearCookie(res, COOKIE);
     res.json({ ok: true });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });

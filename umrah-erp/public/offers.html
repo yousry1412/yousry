@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#06140f">
+  <title>عروض العمرة والحج والسياحة — أفواج</title>
+  <link rel="icon" type="image/svg+xml" href="/img/favicon.svg">
+  <meta name="description" content="رحلات العمرة وبرامج الحج والسياحة الداخلية — الأسعار والأماكن المتاحة الآن، وقدّم طلب العمل معنا كمندوب">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="pub">
+  <header class="pub-hero">
+    <div class="pub-wrap">
+      <div class="pub-brand"><img src="/img/logo.svg" alt="" width="64" height="64"><div><h1 id="pubName">…</h1><p id="pubSub">عروض متاحة الآن</p></div></div>
+      <div class="pub-cta"><a class="btn gold" href="#join">💼 طلب العمل معنا</a><a class="btn" id="pubWa" href="#" target="_blank" rel="noopener" style="display:none">🟢 تواصل واتساب</a><a class="btn ghost" href="/">🔐 دخول المناديب</a></div>
+    </div>
+  </header>
+  <main class="pub-wrap">
+    <nav class="tabs" id="pubTabs"></nav>
+    <section id="pubList"><div class="card muted">جارِ تحميل العروض…</div></section>
+    <section id="join" class="card pub-join">
+      <h2>💼 طلب العمل معنا كمندوب</h2>
+      <p class="muted">سجّل بياناتك — يصل طلبك للإدارة فوراً، وبعد الموافقة تستلم اسم المستخدم وكلمة السر وتبدأ تحجز لعملائك من بوابتك وتتابع عمولتك.</p>
+      <form id="joinForm" autocomplete="on">
+        <div class="grid g3">
+          <div class="field"><label>الاسم بالكامل *</label><input class="input" name="name" required minlength="3" autocomplete="name"></div>
+          <div class="field"><label>الموبايل *</label><input class="input" name="phone" required inputmode="tel" style="direction:ltr" autocomplete="tel"></div>
+          <div class="field"><label>البريد الإلكتروني</label><input class="input" name="email" type="email" style="direction:ltr" autocomplete="email"></div>
+          <div class="field"><label>المحافظة/المدينة</label><input class="input" name="city"></div>
+          <div class="field"><label>اسم المكتب/الشركة (إن وجد)</label><input class="input" name="office"></div>
+          <div class="field"><label>واتساب (لو مختلف)</label><input class="input" name="whatsapp" inputmode="tel" style="direction:ltr"></div>
+          <div class="field"><label>خبرتك في السياحة</label><select class="input" name="experience"><option value="">—</option><option>بدون خبرة</option><option>أقل من سنة</option><option>1–3 سنوات</option><option>أكثر من 3 سنوات</option><option>مكتب سياحة مرخص</option></select></div>
+          <div class="field"><label>عدد العملاء المتوقع شهرياً</label><input class="input" name="expectedPax" inputmode="numeric"></div>
+          <div class="field"><label>الرقم القومي</label><input class="input" name="nid" inputmode="numeric" style="direction:ltr"></div>
+        </div>
+        <div class="row" style="margin-top:8px" id="joinDomains"></div>
+        <div class="field" style="margin-top:8px"><label>ملاحظات</label><textarea class="input" name="notes" rows="2"></textarea></div>
+        <input name="website" tabindex="-1" autocomplete="off" class="hp" aria-hidden="true">
+        <button class="btn primary" type="submit" style="margin-top:12px">📤 إرسال طلب العمل</button>
+        <div id="joinMsg" style="margin-top:10px"></div>
+      </form>
+    </section>
+    <footer class="pub-foot small muted" id="pubFoot"></footer>
+  </main>
+  <script src="/js/offers.js"></script>
+</body>
+</html>

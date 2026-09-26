@@ -94,7 +94,7 @@
 
   // --------------------------------------------------------- roles
   const ROLE_MAP = { OWNER: 'OWNER', MANAGER: 'SALES', HEAD: 'HEAD', SALES: 'SALES', OPERATIONS: 'SALES', ACCOUNTANT: 'SALES', HR: 'SALES' };
-  App.ROLE_LABEL = { OWNER: 'المالك', MANAGER: 'مدير', ACCOUNTANT: 'محاسب', HR: 'موارد بشرية', HEAD: 'رئيس قسم مبيعات', SALES: 'موظف مبيعات', OPERATIONS: 'عمليات وتسكين', AGENT: 'مندوب/وكيل', SUPERVISOR: 'مشرف رحلة', HOUSING: 'مندوب تسكين' };
+  App.ROLE_LABEL = { OWNER: 'المالك', MANAGER: 'مدير التشغيل', ACCOUNTANT: 'محاسب', HR: 'موارد بشرية', HEAD: 'رئيس قسم مبيعات', SALES: 'موظف مبيعات', OPERATIONS: 'عمليات وتسكين', AGENT: 'مندوب/وكيل', SUPERVISOR: 'مشرف رحلة', HOUSING: 'مندوب تسكين' };
   App.role = () => (App.online ? App.me.role : { OWNER: 'OWNER', MANAGER: 'OWNER', HEAD: 'HEAD', SALES: 'SALES' }[App.h.user().role] || 'SALES');
   App.actor = () => ({ name: App.online ? App.me.display_name : App.h.user().name, role: App.role(), staffId: App.ui.actingUser, userId: App.me && App.me.id });
   App.can = (...roles) => roles.includes(App.role());
@@ -275,7 +275,7 @@
       ['hajjOps', 'التفويج والتسكين والخيام', OPS], ['hajjSeason', 'إعدادات الموسم والحصة', ADM], ['hajjPnl', 'ربحية الموسم', FIN]]],
     ['dom', '🏖️', 'السياحة الداخلية', [['domBooking', 'حجوزات السياحة الداخلية', [...SAL, 'OPERATIONS']], ['domPrograms', 'البرامج والرحلات', ALL], ['domOps', 'التشغيل والكشوف', OPS],
       ['domHotels', 'الفنادق وأسعار التعاقد', [...FIN, 'OPERATIONS', 'HEAD']], ['domPnl', 'ربحية البرامج', FIN]]],
-    ['sales', '🧾', 'العملاء والمناديب', [['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL], ['scores', 'تقييم المناديب والمبيعات', ['OWNER', 'MANAGER', 'HEAD', 'ACCOUNTANT']]]],
+    ['sales', '🧾', 'العملاء والمناديب', [['approvals', 'طلبات بانتظار الموافقة', ADM], ['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL], ['scores', 'تقييم المناديب والمبيعات', ['OWNER', 'MANAGER', 'HEAD', 'ACCOUNTANT']]]],
     ['purch', '🏨', 'الموردون والفنادق', [['suppliers', 'الموردون', [...FIN, 'OPERATIONS']], ['hotels', 'الفنادق والمخصصات', [...FIN, 'OPERATIONS', 'HEAD']]]],
     ['fin', '💰', 'المالية والحسابات', [['treasury', 'الخزائن والبنوك', FIN], ['vouchers', 'السندات والاعتمادات', ALL], ['expenses', 'المصروفات', FIN],
       ['employees', 'الموظفون', FIN], ['fx', 'أسعار الصرف', EVERY], ['coa', 'شجرة الحسابات', FIN], ['journal', 'القيود اليومية', FIN], ['reports', 'التقارير المالية', FIN], ['pnl', 'أرباح الرحلة', FIN]]],
@@ -283,7 +283,7 @@
       ['hrTasks', 'المهام والتكليفات', HRV], ['hrReviews', 'الأهداف والتقييم', HRV], ['hrAdjust', 'المكافآت والجزاءات', HRV], ['hrPayroll', 'مسير الرواتب', [...HRV, 'ACCOUNTANT']],
       ['hrMonitor', 'سجل النشاط والمراقبة', HRV], ['hrSettings', 'إعدادات الدوام والتقييم', HRV]]],
     ['comm', '💬', 'التواصل', [['chat', 'الشات الداخلي', EVERY], ['waCenter', 'رسائل واتساب الجماعية', [...SAL, 'OPERATIONS']]]],
-    ['admin', '⚙️', 'الإدارة', [['companies', 'الشركات وأنشطتها', ['OWNER']], ['settings', 'الشركة والفروع والضرائب', ADM], ['users', 'المستخدمون والصلاحيات', ADM], ['backup', 'النسخ الاحتياطي والإصدارات', ADM]]],
+    ['admin', '⚙️', 'الإدارة', [['companies', 'الشركات وأنشطتها', ['OWNER']], ['settings', 'الشركة والفروع والضرائب', ADM], ['users', 'المستخدمون والصلاحيات', ADM], ['userView', 'ملف المستخدم', ADM, true], ['backup', 'النسخ الاحتياطي والإصدارات', ADM]]],
   ];
   const TRIP_PAGES = ['builder', 'heatmap', 'rooms', 'bus', 'ops', 'pnl', 'tripfiles'];
   /** Sidebar groups that belong to one line of business — hidden when the company (or the user's branch) doesn't work in it. */
@@ -315,7 +315,7 @@
       ${sw ? `<label>النشاط</label>${sw}` : `<span class="domain-one">${Model.DOMAINS[App.domain()].icon} ${Model.DOMAINS[App.domain()].ar}</span>`}
       ${App.online && App.role() === 'OWNER' ? '<button class="btn sm" data-act="go" data-page="companies">🏢 الشركات وأنشطتها</button>' : ''}`;
     document.getElementById('nav').innerHTML = App.NAV.map(([gid, ico, label, items]) => {
-      const vis = groupOn(gid) ? items.filter(([k, , roles]) => roles.includes(role) && itemOn(k)) : [];
+      const vis = groupOn(gid) ? items.filter(([k, , roles, hidden]) => !hidden && roles.includes(role) && itemOn(k)) : [];
       if (!vis.length) return '';
       if (gid === 'home') return vis.map((it, i) => navItem(it, i ? '🪪' : ico)).join('');
       const open = App.ui.navOpen[gid] ?? vis.some(([k]) => k === App.ui.page);
@@ -336,6 +336,7 @@
       ${(() => { const fx = Model.fxInfo(S); return `<button class="fx-pill hide-sm ${fx.alert ? 'alert' : ''}" data-act="go" data-page="fx" title="سعر الريال: التنفيذي مقابل العالمي">
         <span>💱 تنفيذي <b class="num">${fx.exec}</b></span><span class="sep"></span><span>عالمي <b class="num">${fx.global ?? '—'}</b></span>${fx.spreadPct != null ? `<span class="spread num">${fx.spreadPct > 0 ? '+' : ''}${fx.spreadPct}%</span>` : ''}</button>`; })()}
       <button class="icon-btn" data-act="go" data-page="home" title="التنبيهات">🔔${unread ? `<span class="badge">${unread > 99 ? '99+' : unread}</span>` : ''}</button>
+      ${App.online && ['OWNER', 'MANAGER'].includes(App.me.role) && App.pendingCount && (App.pendingCount() + App.heldCount()) ? `<button class="icon-btn" data-act="go" data-page="approvals" title="طلبات بانتظار موافقتك">📥<span class="badge">${App.pendingCount() + App.heldCount()}</span></button>` : ''}
       ${App.online ? `<button class="icon-btn" data-act="go" data-page="chat" title="الشات">💬${App.chatUnread ? `<span class="badge">${App.chatUnread}</span>` : ''}</button>${syncChip()}` : ''}
       ${App.online ? `<span class="topbar-user hide-sm">👤 ${esc(App.me.display_name)} · ${esc(App.ROLE_LABEL[App.me.role])}</span><button class="btn sm ghost" data-act="logout">خروج</button>`
         : `<select class="hide-sm" data-ui="actingUser" title="المستخدم (نسخة العرض)">${S.users.map((u) => App.h.opt(u.id, App.ui.actingUser, `${u.name} · خصم ≤ ${E.ROLES[u.role].maxDiscount}%`)).join('')}</select>`}`;

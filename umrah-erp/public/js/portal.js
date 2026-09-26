@@ -31,14 +31,16 @@
   const blank = () => ({ nameAr: '', nameEn: '', gender: 'M', type: 'ADULT', dob: '', passport: '', passportExp: '', nid: '', phone: '', photoFileId: null, passportFileId: null });
 
   const NAV = {
-    AGENT: [['account', '💼', 'حسابي'], ['bookings', '🧾', 'حجوزاتي'], ['newBooking', '➕', 'حجز جديد'], ['payment', '💰', 'رفع دفعة'], ['chat', '💬', 'الشات']],
+    AGENT: [['account', '💼', 'حسابي'], ['bookings', '🧾', 'حجوزاتي'], ['newBooking', '🕋', 'حجز عمرة', 'UMRAH'], ['domBooking', '🏖️', 'حجز سياحة داخلية', 'DOMESTIC'], ['hajjApply', '🕌', 'تسجيل حج', 'HAJJ'],
+      ['payment', '💰', 'رفع دفعة'], ['profile', '🪪', 'بياناتي'], ['chat', '💬', 'الشات']],
     SUPERVISOR: [['sheets', '🧑‍✈️', 'كشف المشرف'], ['me', '🪪', 'حسابي كموظف'], ['chat', '💬', 'الشات']],
     HOUSING: [['sheets', '🛏️', 'كشف التسكين'], ['me', '🪪', 'حسابي كموظف'], ['chat', '💬', 'الشات']],
   };
   P.render = () => {
     const d = P.data;
     document.getElementById('brandCompany').textContent = d.company.name;
-    document.getElementById('nav').innerHTML = NAV[d.role].map(([k, ico, l]) => `<a class="nav-item ${P.page === k ? 'active' : ''}" data-act="pGo" data-p="${k}"><span class="nav-icon">${ico}</span>${l}</a>`).join('');
+    const doms = d.domains || ['UMRAH'];
+    document.getElementById('nav').innerHTML = NAV[d.role].filter((x) => !x[3] || doms.includes(x[3])).map(([k, ico, l]) => `<a class="nav-item ${P.page === k ? 'active' : ''}" data-act="pGo" data-p="${k}"><span class="nav-icon">${ico}</span>${l}</a>`).join('');
     document.getElementById('top').innerHTML = `<button class="menu-toggle" data-act="toggleMenu">☰</button><div class="topbar-title">${esc((NAV[d.role].find((x) => x[0] === P.page) || [, , ''])[2])}</div><div class="top-spacer"></div>
       <span class="topbar-user">👤 ${esc(d.user.name)} · ${esc(App.ROLE_LABEL[d.role])}</span><button class="btn sm ghost" data-act="pRefresh">↻</button><button class="btn sm ghost" data-act="logout">خروج</button>`;
     let html;
@@ -49,6 +51,7 @@
   App.actions.pRefresh = async () => { await P.load(); P.render(); };
 
   const PAGES = {};
+  const reqChip = (r) => (!r ? '' : r.state === 'PENDING' ? '<span class="chip hold">🟡 بانتظار موافقة الإدارة</span>' : r.state === 'APPROVED' ? '<span class="chip ok">✅ مقبول من الإدارة</span>' : `<span class="chip danger">❌ مرفوض${r.reason ? ': ' + esc(r.reason) : ''}</span>`);
   // ------------------------------------------------------------- agent
   PAGES.account = () => {
     const d = P.data, a = d.agent, st = d.statement;
@@ -73,8 +76,12 @@
   PAGES.bookings = () => {
     const d = P.data;
     return `<div class="page-head"><div><h2>🧾 حجوزاتي (${d.bookings.length})</h2><p>ارفع الصورة الشخصية وصورة الجواز لكل مسافر — الحجز الناقص يظهر عليه تحذير</p></div></div>
+      ${(d.domBookings || []).length ? `<div class="card" style="margin-bottom:12px"><h3>🏖️ حجوزات السياحة الداخلية</h3><div class="tbl-wrap"><table class="t"><thead><tr><th>الحجز</th><th>البرنامج</th><th>العميل</th><th>الحالة</th><th>الصافي</th><th>المسدد</th><th>عمولتك</th></tr></thead><tbody>
+        ${d.domBookings.map((b) => `<tr><td class="num">${esc(b.code)}</td><td>${esc(b.program)}</td><td>${esc(b.lead || '')}</td><td>${h.statusChip(b.status)} ${reqChip(b.request)}</td><td>${h.egp(b.net)}</td><td>${h.egp(b.paid)}</td><td>${b.agentCommission ? h.egp(b.agentCommission) : '—'}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
+      ${(d.hajjApps || []).length ? `<div class="card" style="margin-bottom:12px"><h3>🕌 طلبات الحج</h3><div class="tbl-wrap"><table class="t"><thead><tr><th>الطلب</th><th>الاسم</th><th>المستوى</th><th>الحالة</th></tr></thead><tbody>
+        ${d.hajjApps.map((x) => `<tr><td class="num">${esc(x.code)}</td><td>${esc(x.nameAr)}</td><td>${esc(x.level || '')}</td><td>${esc(x.status || '')} ${reqChip(x.request)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
       <div class="stack">${d.bookings.map((b) => { const missing = b.pax.filter((p) => !p.photoFileId || !p.passportFileId).length; return `<div class="card">
-        <div class="row"><b class="num">${b.code}</b><span class="chip">${esc(b.trip)}</span>${h.statusChip(b.status)}${missing ? `<span class="chip danger">⚠️ ${missing} مسافر بدون مستندات</span>` : '<span class="chip ok">المستندات مكتملة</span>'}
+        <div class="row"><b class="num">${b.code}</b><span class="chip">${esc(b.trip)}</span>${h.statusChip(b.status)}${reqChip(b.request)}${missing ? `<span class="chip danger">⚠️ ${missing} مسافر بدون مستندات</span>` : '<span class="chip ok">المستندات مكتملة</span>'}
           ${b.agentCommission ? `<span class="chip gold">🏷️ عمولتك ${h.egp(b.agentCommission)}${b.commissionAdj ? ` (${b.commissionAdj > 0 ? '+' : ''}${h.n0(b.commissionAdj)})` : ''}</span>` : ''}
           <span class="spacer"></span><span>${h.egp(b.net)} · مسدد ${h.egp(b.paid)}</span>${b.net && b.paid < b.net ? `<button class="btn sm primary" data-act="pPayFor" data-id="${b.id}">💰 دفعة</button>` : ''}</div>
         ${E.HOLD_STATES.includes(b.status) && b.holdUntil ? `<div class="small hold">⏱️ ينتهي التعليق: ${h.countdown(b.holdUntil)}</div>` : ''}
@@ -95,7 +102,7 @@
     if (!d.trips.length) return '<div class="card empty-state"><h3>لا توجد رحلات مفتوحة للحجز حالياً</h3></div>';
     const price = (ty) => { const p = trip.prices[ty]; return d.agent.tier === 'B2B' ? p * (1 - d.agent.netDiscountPct / 100) : p; };
     const inp = (i, k, ph, extra = '') => `<input class="input pax-in" data-i="${i}" data-k="${k}" value="${esc(dr.pax[i][k])}" placeholder="${ph}" ${extra}>`;
-    return `<div class="page-head"><div><h2>➕ حجز جديد</h2><p>يُحفظ الحجز معلقاً 24 ساعة (أو يُخصم من محفظتك إن كنت وكيلاً معتمداً) ويصل للإدارة فوراً</p></div></div>
+    return `<div class="page-head"><div><h2>➕ حجز جديد</h2><p>يُحفظ الحجز معلقاً (هولد) ويصل للمالك/مدير التشغيل كإشعار للموافقة عليه — ويظهر لك قرار الإدارة في "حجوزاتي"</p></div></div>
       <div class="card stack"><div class="grid g3">
         <div class="field"><label>الرحلة</label><select class="input" id="pb-trip" data-act-change="pDraftTrip">${d.trips.map((t) => opt(t.id, dr.tripId, `${t.code} · ${t.name} (${t.departDate})`)).join('')}</select></div>
         <div class="field"><label>مسار البيع</label><select class="input pb-f" data-k="mode">${Object.entries(E.SALE_MODES).filter(([k]) => k !== 'UNBUNDLED').map(([k, v]) => opt(k, dr.mode, v)).join('')}</select></div>
@@ -153,6 +160,77 @@
     if (!p.fileIds.length) return App.toast('ارفع صورة الإيصال', 'err');
     try { const r = await App.api('POST', 'api/portal/payment', { ...p, amount: Number(p.amount), currency: P.data.agent.currency }); App.toast(`📤 ${r.no} أُرسل للمحاسب للمراجعة`); P.pay = null; await P.load(); P.page = 'account'; P.render(); }
     catch (e) { App.toast('⛔ ' + e.message, 'err'); }
+  };
+
+
+  // ------------------------------------------------- domestic booking (held until the owner / operations manager accepts)
+  PAGES.domBooking = () => {
+    const d = P.data, ps = d.domPrograms || [];
+    if (!ps.length) return '<div class="card empty-state"><h3>لا توجد برامج سياحة داخلية مفتوحة حالياً</h3></div>';
+    const f = P.dom || (P.dom = { programId: ps[0].id, optIdx: 0, rooms: [{ type: 'DBL', adults: 2, children: '' }], leadName: '', leadPhone: '', pickup: '', notes: '' });
+    const p = ps.find((x) => x.id === f.programId) || ps[0], o = p.options[f.optIdx] || p.options[0];
+    const RT = { SGL: 'فردية', DBL: 'مزدوجة', TPL: 'ثلاثية', QUAD: 'رباعية' };
+    return `<div class="page-head"><div><h2>🏖️ حجز سياحة داخلية</h2><p>الحجز يدخل معلقاً وتصل للإدارة إشعار بالموافقة</p></div></div>
+      <div class="card stack" style="max-width:860px"><div class="grid g3">
+        <div class="field"><label>البرنامج</label><select class="input" id="pd-prog" data-act-change="pDomProg">${ps.map((x) => opt(x.id, p.id, `${x.code} · ${x.name} (${x.startDate})${x.left != null ? ' — متبقي ' + x.left : ''}`)).join('')}</select></div>
+        ${p.kind === 'DAYTRIP' ? `<div class="field"><label>سعر المقعد</label><div class="input">${h.egp(p.seatPrice)}</div></div>` : `<div class="field"><label>الفندق</label><select class="input" id="pd-opt" data-act-change="pDomOpt">${p.options.map((x) => opt(x.idx, f.optIdx, `${x.name} · ${x.board}`)).join('')}</select></div>`}
+        <div class="field"><label>نقطة التجمع</label><select class="input" id="pd-pick">${opt('', f.pickup, '—')}${p.pickups.map((x) => opt(x, f.pickup, x)).join('')}</select></div></div>
+        ${o ? `<div class="small muted">أسعار الفرد: ${Object.entries(o.prices).filter(([, v]) => v > 0).map(([k, v]) => `${RT[k] || k} ${h.n0(v)}`).join(' · ')}</div>` : ''}
+        <div class="row"><b>🛏️ الغرف</b><span class="spacer"></span><button class="btn sm" data-act="pDomRoom">+ غرفة</button></div>
+        ${f.rooms.map((r, i) => `<div class="grid g3 pd-room" data-i="${i}">${p.kind === 'DAYTRIP' ? '<input type="hidden" class="pd-type" value="DBL">' : `<select class="input pd-type">${Object.keys(RT).filter((k) => !o || (o.prices[k] > 0)).map((k) => opt(k, r.type, RT[k])).join('')}</select>`}
+          <input class="input pd-ad" type="number" min="1" value="${esc(r.adults)}" placeholder="عدد البالغين"><input class="input pd-ch" value="${esc(r.children)}" placeholder="أعمار الأطفال مفصولة بفاصلة (مثال: 4,9)"></div>`).join('')}
+        <div class="grid g3"><div class="field"><label>اسم صاحب الحجز</label><input class="input" id="pd-name" value="${esc(f.leadName)}"></div>
+          <div class="field"><label>موبايل العميل</label><input class="input" id="pd-phone" value="${esc(f.leadPhone)}" style="direction:ltr"></div>
+          <div class="field"><label>ملاحظات</label><input class="input" id="pd-notes" value="${esc(f.notes)}"></div></div>
+        <button class="btn primary" data-act="pDomSubmit">📤 إرسال الحجز للموافقة</button></div>`;
+  };
+  function readDom() {
+    const f = P.dom; if (!f) return;
+    f.pickup = App.val('pd-pick') || ''; f.leadName = App.val('pd-name') || ''; f.leadPhone = App.val('pd-phone') || ''; f.notes = App.val('pd-notes') || '';
+    f.rooms = [...document.querySelectorAll('.pd-room')].map((el) => ({ type: el.querySelector('.pd-type').value, adults: el.querySelector('.pd-ad').value, children: el.querySelector('.pd-ch').value }));
+  }
+  App.actions.pDomProg = (d) => { readDom(); P.dom.programId = d.value; P.dom.optIdx = 0; P.render(); };
+  App.actions.pDomOpt = (d) => { readDom(); P.dom.optIdx = Number(d.value) || 0; P.render(); };
+  App.actions.pDomRoom = () => { readDom(); P.dom.rooms.push({ type: 'DBL', adults: 2, children: '' }); P.render(); };
+  App.actions.pDomSubmit = async () => {
+    readDom(); const f = P.dom;
+    const rooms = f.rooms.map((r) => ({ type: r.type, adults: Number(r.adults) || 0, children: String(r.children || '').split(/[,،\s]+/).filter(Boolean).map((a) => ({ age: Number(a), bed: false })) }));
+    try { const r = await App.api('POST', 'api/portal/dom-booking', { programId: f.programId, optIdx: f.optIdx, rooms, leadName: f.leadName, leadPhone: f.leadPhone, pickup: f.pickup, notes: f.notes });
+      App.toast(`✅ تم إرسال الحجز ${r.code} — بانتظار موافقة الإدارة`); P.dom = null; await P.load(); P.page = 'bookings'; P.render(); } catch (e) { App.toast('⛔ ' + e.message, 'err'); }
+  };
+
+  // ------------------------------------------------- Hajj initial registration on behalf of a client
+  PAGES.hajjApply = () => {
+    const d = P.data, ss = (d.hajjSeasons || [])[0];
+    if (!ss) return '<div class="card empty-state"><h3>لا يوجد موسم حج مفتوح للتسجيل</h3></div>';
+    return `<div class="page-head"><div><h2>🕌 تسجيل مبدئي للحج — ${esc(ss.name || '')}</h2><p>سجّل بيانات العميل، ويدخل القرعة بعد موافقة الإدارة. الأسرة الواحدة تكتب نفس "كود الأسرة" حتى لا تُفرّق في القرعة.</p></div></div>
+      <div class="card stack" style="max-width:860px"><div class="grid g3">
+        <div class="field"><label>الاسم رباعي</label><input class="input" id="ph-name"></div><div class="field"><label>الرقم القومي (14 رقم)</label><input class="input" id="ph-nid" style="direction:ltr" inputmode="numeric"></div>
+        <div class="field"><label>الموبايل</label><input class="input" id="ph-phone" style="direction:ltr"></div>
+        <div class="field"><label>المستوى</label><select class="input" id="ph-level">${ss.levels.map((l) => opt(l.k, '', l.ar)).join('')}</select></div>
+        <div class="field"><label>كود الأسرة/المجموعة (اختياري)</label><input class="input" id="ph-group"></div><div class="field"><label>سنة آخر حجة (إن وجدت)</label><input class="input" id="ph-last" inputmode="numeric"></div></div>
+        <div class="small muted">البرامج: ${ss.packages.map((k) => `${esc(k.name)} (${esc(k.level)})`).join(' · ')}</div>
+        <button class="btn primary" data-act="pHajjSubmit" data-s="${ss.id}">📤 إرسال الطلب</button></div>`;
+  };
+  App.actions.pHajjSubmit = async (d) => {
+    try { const r = await App.api('POST', 'api/portal/hajj-apply', { seasonId: d.s, nameAr: App.val('ph-name'), nid: App.val('ph-nid'), phone: App.val('ph-phone'), level: App.val('ph-level'), groupKey: App.val('ph-group'), lastHajjYear: App.val('ph-last') });
+      App.toast(`✅ تم تسجيل ${r.code} — بانتظار موافقة الإدارة`); await P.load(); P.page = 'bookings'; P.render(); } catch (e) { App.toast('⛔ ' + e.message, 'err'); }
+  };
+
+  // ------------------------------------------------- my data (any change locks the login until approved)
+  PAGES.profile = () => {
+    const x = P.data.profile || {};
+    const f = (id, l, v, ex = '') => `<div class="field"><label>${l}</label><input class="input" id="${id}" value="${esc(v || '')}" ${ex}></div>`;
+    return `<div class="page-head"><div><h2>🪪 بياناتي</h2><p>أي تعديل هنا يُرسل للإدارة، ويتوقف دخولك للحساب لحين الموافقة عليه</p></div></div>
+      <div class="card stack" style="max-width:860px"><div class="grid g3">${f('pf-name', 'الاسم', x.display_name)}${f('pf-phone', 'الموبايل', x.phone, 'style="direction:ltr"')}${f('pf-email', 'البريد الإلكتروني', x.email, 'style="direction:ltr"')}
+        ${f('pf-city', 'المحافظة/المدينة', x.city)}${f('pf-office', 'اسم المكتب/الشركة', x.office)}${f('pf-wa', 'واتساب', x.whatsapp, 'style="direction:ltr"')}${f('pf-addr', 'العنوان', x.address)}${f('pf-nid', 'الرقم القومي', x.nid, 'style="direction:ltr"')}</div>
+        <div class="alert warn">⚠️ بعد الحفظ سيتم تسجيل خروجك، ولن تستطيع الدخول حتى يوافق المالك أو مدير التشغيل على التعديل.</div>
+        <button class="btn primary" data-act="pProfileSave">💾 إرسال التعديل للموافقة</button></div>`;
+  };
+  App.actions.pProfileSave = async () => {
+    if (!confirm('سيتم إيقاف دخولك لحين موافقة الإدارة على التعديل. متابعة؟')) return;
+    try { await App.api('POST', 'api/portal/profile', { display_name: App.val('pf-name'), phone: App.val('pf-phone'), email: App.val('pf-email'), city: App.val('pf-city'), office: App.val('pf-office'), whatsapp: App.val('pf-wa'), address: App.val('pf-addr'), nid: App.val('pf-nid') });
+      alert('تم إرسال التعديل — سيتم فتح حسابك بعد موافقة الإدارة'); location.reload(); } catch (e) { App.toast('⛔ ' + e.message, 'err'); }
   };
 
   // ------------------------------------------------- supervisor / housing

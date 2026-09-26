@@ -319,7 +319,7 @@
   }
   const fnv = (str) => { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16).padStart(8, '0'); };
   function lotteryUnits(S, ss, level) {
-    const list = S.hajj.applicants.filter((a) => a.seasonId === ss.id && a.status === 'APPLIED' && a.level === level).sort((a, b) => (a.code < b.code ? -1 : 1));
+    const list = S.hajj.applicants.filter((a) => a.seasonId === ss.id && a.status === 'APPLIED' && a.level === level && !(a.agentRequest && a.agentRequest.state === 'PENDING')).sort((a, b) => (a.code < b.code ? -1 : 1));
     const m = new Map(); for (const a of list) { const k = a.groupKey || a.id; if (!m.has(k)) m.set(k, []); m.get(k).push(a); }
     return [...m.entries()].map(([key, members]) => ({ key, members }));
   }

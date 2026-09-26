@@ -100,55 +100,6 @@
   App.actions.ncAct = (d) => { const nc = App.ui.nc; nc.domains = nc.domains.includes(d.k) ? nc.domains.filter((x) => x !== d.k) : [...nc.domains, d.k]; if (!nc.domains.length) nc.domains = [d.k]; App.ui.nc.country = App.val('nc-country') || App.ui.nc.country; const n = App.val('nc-name'); App.render(); const el = document.getElementById('nc-name'); if (el) el.value = n || ''; };
   App.actions.openCompany = (d) => App.actions.switchCompany({ value: d.id });
 
-  // ============================================================ users
-  const ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HR', 'HEAD', 'SALES', 'OPERATIONS', 'AGENT', 'SUPERVISOR', 'HOUSING'];
-  const HINT = { OWNER: 'كل الشركات والصلاحيات + النسخ الاحتياطي + وحده يعتمد أي خصم على أي سعر', MANAGER: 'كل شيء في شركته + اعتماد السندات + المستخدمين (الخصومات للمالك فقط)', ACCOUNTANT: 'الحسابات والسندات والاعتماد والتقارير',
-    HR: 'الموارد البشرية: الحضور والإجازات والتقييم والمهام والجزاءات وإعداد الرواتب', HEAD: 'مبيعات وإدارة فريق (الخصم يُرفع للمالك)', SALES: 'حجوزات بدون خصم + رفع دفعات للمراجعة', OPERATIONS: 'التسكين والباص والجوازات والكشوف', AGENT: 'بوابة خاصة: حسابه + حجوزاته + رفع دفعات بالصور',
-    SUPERVISOR: 'بوابة خاصة: كشف المشرف لرحلاته', HOUSING: 'بوابة خاصة: كشف مندوب التسكين لرحلاته' };
-  let users = null;
-  async function loadUsers() { try { users = await App.api('GET', 'api/users'); } catch (e) { users = []; App.toast(e.message, 'err'); } if (App.ui.page === 'users') App.render(); }
-  const roleSel = (id, cur) => `<select class="input" id="${id}">${ROLES.filter((r) => App.me.role === 'OWNER' || !['OWNER', 'MANAGER'].includes(r)).map((r) => opt(r, cur, App.ROLE_LABEL[r])).join('')}</select>`;
-  const agentSel = (id, cur) => `<select class="input" id="${id}"><option value="">—</option>${S().agents.map((a) => opt(a.id, cur, `${a.code} · ${a.name}`)).join('')}</select>`;
-  App.pages.users = () => {
-    if (!App.online) return needOnline('👥 المستخدمون والصلاحيات');
-    if (!users) { loadUsers(); return '<div class="card muted">جارِ التحميل…</div>'; }
-    const companyName = (id) => (App.companies.find((c) => c.id === id) || {}).name || (id ? '#' + id : 'كل الشركات');
-    return `<div class="page-head"><div><h2>👥 المستخدمون والصلاحيات</h2><p>كل موظف ومندوب ومشرف يدخل بحسابه · الصلاحيات تُفرض على السيرفر · تغيير الدور أو كلمة السر يُخرج المستخدم من كل الأجهزة</p></div></div>
-    <div class="grid g-side">
-      <div class="card"><div class="tbl-wrap"><table class="t"><thead><tr><th>المستخدم</th><th>الاسم</th><th>الدور</th><th>الشركة</th><th>الفرع</th><th>مرتبط بمندوب</th><th>نشط</th><th>كلمة سر جديدة</th><th></th></tr></thead><tbody>
-      ${users.map((u) => `<tr><td class="num">${esc(u.username)}</td><td><input class="input" id="un-${u.id}" value="${esc(u.display_name)}"></td><td>${roleSel('ur-' + u.id, u.role)}</td>
-        <td class="small">${App.me.role === 'OWNER' ? `<select class="input" id="uc-${u.id}"><option value="">كل الشركات (مالك)</option>${App.companies.map((c) => opt(c.id, u.company_id, c.name)).join('')}</select>` : esc(companyName(u.company_id))}</td>
-        <td><select class="input" id="ub-${u.id}"><option value="">—</option>${S().branches.map((b) => opt(b.id, u.branch_id, b.name)).join('')}</select></td>
-        <td>${agentSel('ua2-' + u.id, u.agent_ref)}</td>
-        <td><input type="checkbox" id="ua-${u.id}" ${u.is_active ? 'checked' : ''}></td>
-        <td><input class="input" id="up-${u.id}" type="password" placeholder="اتركها فارغة" style="direction:ltr"></td>
-        <td><button class="btn sm primary" data-act="saveUser" data-id="${u.id}">حفظ</button></td></tr>`).join('')}
-      </tbody></table></div></div>
-      <div class="card"><h3>+ إضافة مستخدم</h3>
-        <div class="field"><label>اسم المستخدم (إنجليزي صغير)</label><input class="input" id="nu-user" style="direction:ltr" autocapitalize="none"></div>
-        <div class="field" style="margin-top:8px"><label>الاسم الظاهر</label><input class="input" id="nu-name"></div>
-        <div class="field" style="margin-top:8px"><label>كلمة السر (8+ حروف وأرقام)</label><input class="input" id="nu-pass" type="password" style="direction:ltr"></div>
-        <div class="field" style="margin-top:8px"><label>الدور</label>${roleSel('nu-role', 'SALES')}</div>
-        <div class="field" style="margin-top:8px"><label>الفرع</label><select class="input" id="nu-br"><option value="">—</option>${S().branches.map((b) => opt(b.id, '', b.name)).join('')}</select></div>
-        <div class="field" style="margin-top:8px"><label>ربط بسجل مندوب/وكيل (لدور المندوب)</label>${agentSel('nu-agent', '')}</div>
-        <button class="btn primary" style="margin-top:12px" data-act="addUser">إضافة للشركة الحالية</button>
-        <div class="small muted" style="margin-top:12px">${ROLES.map((r) => `<div><b>${esc(App.ROLE_LABEL[r])}:</b> ${esc(HINT[r])}</div>`).join('')}</div></div>
-    </div>`;
-  };
-  App.actions.addUser = async () => {
-    try {
-      await App.api('POST', 'api/users', { username: App.val('nu-user'), display_name: App.val('nu-name'), password: App.val('nu-pass'), role: App.val('nu-role'),
-        company_id: App.companyId, branch_id: App.val('nu-br') || null, agent_ref: App.val('nu-agent') || null });
-      App.toast('✅ تمت إضافة المستخدم'); loadUsers();
-    } catch (e) { App.toast(e.message, 'err'); }
-  };
-  App.actions.saveUser = async (d) => {
-    const id = d.id, body = { display_name: App.val('un-' + id), role: App.val('ur-' + id), is_active: App.val('ua-' + id), branch_id: App.val('ub-' + id) || null, agent_ref: App.val('ua2-' + id) || null };
-    if (App.me.role === 'OWNER') body.company_id = App.val('uc-' + id) || null;
-    const pw = App.val('up-' + id); if (pw) body.password = pw;
-    try { await App.api('PATCH', 'api/users/' + id, body); App.toast('✅ تم الحفظ'); loadUsers(); } catch (e) { App.toast(e.message, 'err'); }
-  };
-
   // ============================================================ backup / versions / wipe / companies
   let versions = null;
   async function loadVersions() { try { versions = await App.api('GET', 'api/versions'); } catch (e) { versions = []; } if (App.ui.page === 'backup') App.render(); }

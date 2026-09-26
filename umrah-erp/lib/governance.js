@@ -13,6 +13,8 @@ const Hr = require('../public/js/hr.js');
 const APPROVERS = ['OWNER', 'MANAGER', 'ACCOUNTANT'];
 const HR_ADMINS = Hr.HR_ADMINS;
 const ADMINS = ['OWNER', 'MANAGER'];
+/** Owner + operations manager: accept "طلب العمل" accounts, profile edits and agents' held bookings. */
+const ACCOUNT_APPROVERS = ['OWNER', 'MANAGER'];
 const BOOKING_SOURCES = ['BK', 'BKC'];
 
 function allBookings(S) {
@@ -101,6 +103,10 @@ function validate(oldS, newS, user) {
     const o = oldBk.get(id);
     if (!o) { if (!approver && b.channel !== 'B2B' && b.paid > 0) errors.push(`الحجز ${b.code}: السداد يُسجل بسند قبض معتمد`); continue; }
     const ob = o.b;
+    const rq = (x) => (x.agentRequest && x.agentRequest.state) || null;
+    if (rq(ob) !== rq(b) && !ACCOUNT_APPROVERS.includes(user.role)) errors.push(`الحجز ${b.code}: قبول/رفض حجوزات المناديب من صلاحية المالك أو مدير التشغيل`);
+    if (rq(ob) === 'PENDING' && rq(b) === 'APPROVED') events.push({ roles: null, userId: b.agentUserId, text: `✅ تم قبول حجزك ${b.code}` });
+    if (rq(ob) === 'PENDING' && rq(b) === 'REJECTED') events.push({ roles: null, userId: b.agentUserId, text: `❌ تم رفض حجزك ${b.code}${b.agentRequest.reason ? ': ' + b.agentRequest.reason : ''}` });
     if (!approver && Math.abs((b.paid || 0) - (ob.paid || 0)) > 0.01) errors.push(`الحجز ${b.code}: تعديل المسدد يتم بسند قبض معتمد فقط`);
     if (user.role !== 'OWNER' && ob.net !== b.net && !(ob.net == null && b.net == null) && !(ob.status === 'PENDING_PRICING' && admin && !(b.discountPct > 0))) errors.push(`الحجز ${b.code}: تعديل السعر من صلاحية مالك النظام`);
     if (ob.status === 'PENDING_APPROVAL' && !['PENDING_APPROVAL', 'CANCELLED', 'EXPIRED'].includes(b.status) && (MAX_DISC[user.role] ?? 0) < (b.discountPct || 0))
@@ -137,6 +143,8 @@ function validate(oldS, newS, user) {
       if (!o) { if (!['APPLIED', 'INELIGIBLE'].includes(x.status)) errors.push(`الطلب ${x.code} لازم يبدأ كطلب مبدئي`); continue; }
       if (o.status !== x.status && ['WON', 'RESERVE', 'LOST', 'EXPIRED'].includes(x.status) && !admin) errors.push(`نتيجة ${x.code} (فائز/احتياطي/مهلة) من صلاحية المدير`);
       if (o.status === 'INELIGIBLE' && x.status === 'APPLIED' && !admin && stable({ ...o, status: 0, log: 0 }) === stable({ ...x, status: 0, log: 0 })) errors.push(`إدخال ${x.code} القرعة استثناءً من صلاحية المدير`);
+      if (((o.agentRequest || {}).state || null) !== ((x.agentRequest || {}).state || null) && !ACCOUNT_APPROVERS.includes(user.role)) errors.push(`قبول/رفض طلب المندوب ${x.code} من صلاحية المالك أو مدير التشغيل`);
+      if ((o.agentRequest || {}).state === 'PENDING' && (x.agentRequest || {}).state && x.agentRequest.state !== 'PENDING' && x.agentUserId) events.push({ roles: null, userId: x.agentUserId, text: `${x.agentRequest.state === 'APPROVED' ? '✅ تم قبول' : '❌ تم رفض'} طلب الحج ${x.code} ${x.nameAr}` });
       if (['WON', 'RESERVE', 'LOST'].includes(o.status) && (o.rank !== x.rank || o.level !== x.level || o.groupKey !== x.groupKey)) errors.push(`بيانات ${x.code} مقفلة بعد القرعة`);
     }
     const money = (k) => stable([k.prices, k.costItems, k.stays, k.plan, k.cancelPolicy, k.upgrades, k.hadySar, k.hadyIncluded, k.partnerVisaFee, k.nonRefundableAfterSubmit]);
@@ -218,4 +226,4 @@ function validateHr(oldS, newS, user, errors, events) {
   }
 }
 
-module.exports = { validate, APPROVERS, ADMINS, HR_ADMINS };
+module.exports = { validate, APPROVERS, ADMINS, HR_ADMINS, ACCOUNT_APPROVERS };

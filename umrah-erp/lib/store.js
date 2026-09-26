@@ -81,6 +81,12 @@ ensureColumn('users', 'company_id', 'company_id INTEGER');
 ensureColumn('users', 'branch_id', 'branch_id TEXT');
 ensureColumn('users', 'agent_ref', 'agent_ref TEXT');
 ensureColumn('users', 'phone', 'phone TEXT');
+ensureColumn('users', 'email', 'email TEXT');
+ensureColumn('users', 'approval', "approval TEXT NOT NULL DEFAULT 'APPROVED'"); // APPROVED · PENDING (new signup) · CHANGED (edited profile) · REJECTED
+ensureColumn('users', 'profile', 'profile TEXT');   // JSON: signup data (city, national id, office, whatsapp, experience…)
+ensureColumn('users', 'pending', 'pending TEXT');   // JSON: profile changes waiting for approval
+ensureColumn('users', 'last_login', 'last_login TEXT');
+ensureColumn('users', 'signup_at', 'signup_at TEXT');
 ensureColumn('chat_messages', 'to_user_id', 'to_user_id INTEGER');
 ensureColumn('chat_messages', 'to_name', 'to_name TEXT');
 ensureColumn('chat_messages', 'private', 'private INTEGER NOT NULL DEFAULT 0');
@@ -102,8 +108,10 @@ function verifyPassword(pw, stored) {
   const a = Buffer.from(hash, 'hex'), b = crypto.scryptSync(pw, salt, 64);
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
+const pj = (x) => { try { return x ? JSON.parse(x) : null; } catch (e) { return null; } };
 const publicUser = (u) => (u ? { id: u.id, username: u.username, display_name: u.display_name, role: u.role, is_active: !!u.is_active,
-  company_id: u.company_id || null, branch_id: u.branch_id || null, agent_ref: u.agent_ref || null, phone: u.phone || '' } : null);
+  company_id: u.company_id || null, branch_id: u.branch_id || null, agent_ref: u.agent_ref || null, phone: u.phone || '', email: u.email || '',
+  approval: u.approval || 'APPROVED', profile: pj(u.profile) || {}, pending: pj(u.pending), last_login: u.last_login || null, created_at: u.created_at || null, signup_at: u.signup_at || null } : null);
 const isSetup = () => db.prepare('SELECT COUNT(*) AS c FROM users').get().c > 0;
 
 function validatePassword(pw) {
@@ -111,7 +119,7 @@ function validatePassword(pw) {
   if (pw.length < 8) throw new Error('كلمة السر لازم تكون 8 حروف أو أرقام على الأقل');
   if (!/[0-9]/.test(pw) || !/[^0-9]/.test(pw)) throw new Error('كلمة السر لازم تجمع بين حروف وأرقام');
 }
-function createUser({ username, display_name, password, role, company_id, branch_id, agent_ref, phone }) {
+function createUser({ username, display_name, password, role, company_id, branch_id, agent_ref, phone, email }) {
   username = String(username || '').trim().toLowerCase();
   display_name = String(display_name || username).trim();
   if (!/^[a-z0-9._@+-]{3,64}$/.test(username)) throw new Error('اسم المستخدم: حروف إنجليزية أو أرقام أو إيميل (3–64 حرف، بدون مسافات)');
@@ -120,8 +128,8 @@ function createUser({ username, display_name, password, role, company_id, branch
   if (role !== 'OWNER' && !company_id) throw new Error('لازم تحدد الشركة لهذا المستخدم');
   if (role === 'AGENT' && !agent_ref) throw new Error('حساب المندوب لازم يرتبط بسجل وكيل/مندوب');
   if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) throw new Error('اسم المستخدم ده مستخدم بالفعل');
-  const info = db.prepare('INSERT INTO users (username, display_name, password_hash, role, company_id, branch_id, agent_ref, phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(username, display_name, hashPassword(String(password)), role, role === 'OWNER' ? null : Number(company_id), branch_id || null, agent_ref || null, phone || null);
+  const info = db.prepare('INSERT INTO users (username, display_name, password_hash, role, company_id, branch_id, agent_ref, phone, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(username, display_name, hashPassword(String(password)), role, role === 'OWNER' ? null : Number(company_id), branch_id || null, agent_ref || null, phone || null, email ? String(email).trim().toLowerCase() : null);
   return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid));
 }
 function setupOwner(body) {
@@ -141,8 +149,8 @@ function updateUser(id, b) {
   if (role !== 'OWNER' && !company) throw new Error('لازم تحدد الشركة لهذا المستخدم');
   const agent = b.agent_ref !== undefined ? b.agent_ref || null : u.agent_ref;
   if (role === 'AGENT' && !agent) throw new Error('حساب المندوب لازم يرتبط بسجل وكيل/مندوب');
-  db.prepare('UPDATE users SET role = ?, is_active = ?, display_name = ?, company_id = ?, branch_id = ?, agent_ref = ?, phone = ? WHERE id = ?')
-    .run(role, active, b.display_name || u.display_name, company, b.branch_id !== undefined ? b.branch_id || null : u.branch_id, agent, b.phone !== undefined ? b.phone : u.phone, id);
+  db.prepare('UPDATE users SET role = ?, is_active = ?, display_name = ?, company_id = ?, branch_id = ?, agent_ref = ?, phone = ?, email = ? WHERE id = ?')
+    .run(role, active, b.display_name || u.display_name, company, b.branch_id !== undefined ? b.branch_id || null : u.branch_id, agent, b.phone !== undefined ? b.phone : u.phone, b.email !== undefined ? String(b.email || '').trim().toLowerCase() : u.email, id);
   if (b.password) { validatePassword(b.password); db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(String(b.password)), id); }
   if (b.password || !active || role !== u.role) db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(id); // force re-login
   return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id));
@@ -169,10 +177,83 @@ function resetOwnerFromEnv() {
   console.log(`[afwaj] owner account "${username}" password was reset from environment variables — remove OWNER_RESET_* now`);
   return username;
 }
+/** Returns the user, null (bad credentials) or { blocked: message } for accounts waiting for approval. */
 function authenticate(username, password) {
   const u = db.prepare('SELECT * FROM users WHERE username = ?').get(String(username || '').trim().toLowerCase());
-  if (!u || !u.is_active || !verifyPassword(String(password || ''), u.password_hash)) return null;
+  if (!u || !verifyPassword(String(password || ''), u.password_hash)) return null;
+  if (u.approval === 'CHANGED') return { blocked: 'تم تعديل بيانات حسابك — الدخول متوقف لحين موافقة الإدارة على التعديل' };
+  if (u.approval === 'PENDING') return { blocked: 'طلبك قيد المراجعة — ستصلك بيانات الدخول بعد موافقة الإدارة' };
+  if (u.approval === 'REJECTED' || !u.is_active) return null;
+  db.prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?").run(u.id);
   return u;
+}
+
+// ------------------------------------------------ public signup & approvals
+const clean = (v, n = 120) => String(v == null ? '' : v).trim().slice(0, n);
+const PROFILE_FIELDS = ['city', 'nid', 'office', 'whatsapp', 'address', 'experience', 'expectedPax', 'domains', 'notes'];
+/** "طلب العمل" from the public link: creates a locked AGENT account (no usable password) + notifies approvers. */
+function signup(companyId, b) {
+  const name = clean(b.name, 80), phone = clean(b.phone, 20).replace(/[^\d+]/g, ''), email = clean(b.email, 100).toLowerCase();
+  if (name.length < 3) throw new Error('اكتب الاسم بالكامل');
+  if (phone.replace(/\D/g, '').length < 8) throw new Error('اكتب رقم موبايل صحيح');
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('البريد الإلكتروني غير صحيح');
+  const digits = phone.replace(/\D/g, '');
+  if (db.prepare("SELECT 1 FROM users WHERE company_id = ? AND (replace(replace(phone,'+',''),' ','') = ? OR (email <> '' AND email = ?))").get(companyId, digits, email || '\u0000'))
+    throw new Error('هذا الرقم/البريد مسجل بالفعل — لو عندك حساب ادخل به، أو تواصل مع الشركة');
+  let username = (email || digits).toLowerCase();
+  if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) username = `${username}.${Date.now().toString(36).slice(-4)}`;
+  const profile = {}; for (const k of PROFILE_FIELDS) if (b[k] != null && b[k] !== '') profile[k] = Array.isArray(b[k]) ? b[k].map((x) => clean(x, 20)).slice(0, 5) : clean(b[k], 300);
+  const info = db.prepare(`INSERT INTO users (username, display_name, password_hash, role, company_id, phone, email, is_active, approval, profile, signup_at)
+    VALUES (?, ?, ?, 'AGENT', ?, ?, ?, 0, 'PENDING', ?, datetime('now'))`).run(username, name, hashPassword(crypto.randomBytes(24).toString('hex')), companyId, digits, email, JSON.stringify(profile));
+  return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(info.lastInsertRowid));
+}
+const listPending = (companyId) => db.prepare("SELECT * FROM users WHERE company_id = ? AND approval IN ('PENDING','CHANGED') ORDER BY id DESC").all(companyId).map(publicUser);
+/** Approve a signup: set the password, link the agent record, open the account. */
+function approveSignup(id, { password, agent_ref, display_name, username }) {
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!u || u.approval !== 'PENDING') throw new Error('الطلب غير موجود أو تمت مراجعته');
+  validatePassword(password);
+  if (!agent_ref) throw new Error('لازم يرتبط الحساب بسجل مندوب');
+  const un = String(username || u.username).trim().toLowerCase();
+  if (!/^[a-z0-9._@+-]{3,64}$/.test(un)) throw new Error('اسم المستخدم غير صالح');
+  if (un !== u.username && db.prepare('SELECT 1 FROM users WHERE username = ?').get(un)) throw new Error('اسم المستخدم مستخدم بالفعل');
+  db.prepare("UPDATE users SET username = ?, password_hash = ?, agent_ref = ?, display_name = ?, is_active = 1, approval = 'APPROVED' WHERE id = ?")
+    .run(un, hashPassword(String(password)), agent_ref, display_name || u.display_name, id);
+  return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id));
+}
+function rejectUser(id, reason) {
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!u) throw new Error('الطلب غير موجود');
+  if (u.approval === 'CHANGED') { // reject the edit only → old data stays and the account opens again
+    db.prepare("UPDATE users SET pending = NULL, approval = 'APPROVED' WHERE id = ?").run(id);
+  } else {
+    const p = { ...(pj(u.profile) || {}), rejectReason: clean(reason, 300) };
+    db.prepare("UPDATE users SET approval = 'REJECTED', is_active = 0, profile = ? WHERE id = ?").run(JSON.stringify(p), id);
+  }
+  return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id));
+}
+/** An agent edits his own data → saved as pending, account locked (sessions closed) until approved. */
+function requestProfileChange(id, b) {
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!u) throw new Error('مستخدم غير موجود');
+  const ch = {};
+  if (b.display_name != null && clean(b.display_name, 80) !== u.display_name) ch.display_name = clean(b.display_name, 80);
+  if (b.phone != null && clean(b.phone, 20).replace(/[^\d]/g, '') !== (u.phone || '')) ch.phone = clean(b.phone, 20).replace(/[^\d]/g, '');
+  if (b.email != null && clean(b.email, 100).toLowerCase() !== (u.email || '')) ch.email = clean(b.email, 100).toLowerCase();
+  const prof = pj(u.profile) || {};
+  for (const k of PROFILE_FIELDS) if (b[k] != null && clean(b[k], 300) !== (prof[k] || '')) (ch.profile = ch.profile || {})[k] = clean(b[k], 300);
+  if (!Object.keys(ch).length) throw new Error('لم تغير أي بيانات');
+  db.prepare("UPDATE users SET pending = ?, approval = 'CHANGED' WHERE id = ?").run(JSON.stringify({ ...ch, at: new Date().toISOString() }), id);
+  db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(id);
+  return publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id));
+}
+function approveChange(id) {
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  if (!u || u.approval !== 'CHANGED') throw new Error('لا يوجد تعديل بانتظار الموافقة');
+  const ch = pj(u.pending) || {}, prof = { ...(pj(u.profile) || {}), ...(ch.profile || {}) };
+  db.prepare("UPDATE users SET display_name = ?, phone = ?, email = ?, profile = ?, pending = NULL, approval = 'APPROVED' WHERE id = ?")
+    .run(ch.display_name || u.display_name, ch.phone != null ? ch.phone : u.phone, ch.email != null ? ch.email : u.email, JSON.stringify(prof), id);
+  return { user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id)), changes: ch };
 }
 const SESSION_DAYS = 14;
 function createSession(userId) {
@@ -184,7 +265,7 @@ function createSession(userId) {
 function userFromSession(token) {
   if (!token) return null;
   const row = db.prepare('SELECT s.expires_at, u.* FROM auth_sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?').get(token);
-  if (!row) return null;
+  if (!row || (row.approval && row.approval !== 'APPROVED')) return null;
   if (new Date(row.expires_at) < new Date()) { db.prepare('DELETE FROM auth_sessions WHERE token = ?').run(token); return null; }
   return row.is_active ? row : null;
 }
@@ -316,7 +397,7 @@ function importAll(b) {
   if (!b || b.app !== 'umrah-erp' || !b.tables || !Array.isArray(b.tables.users)) throw new Error('ملف النسخة الاحتياطية غير صالح');
   if (!b.tables.users.some((u) => u.role === 'OWNER' && u.is_active)) throw new Error('النسخة لا تحتوي على حساب مالك نشط');
   fs.writeFileSync(path.join(BACKUP_DIR, `before-restore-${Date.now()}.json`), JSON.stringify(exportAll()));
-  const cols = { companies: ['id', 'name', 'created_at'], users: ['id', 'username', 'display_name', 'password_hash', 'role', 'is_active', 'created_at', 'company_id', 'branch_id', 'agent_ref', 'phone'],
+  const cols = { companies: ['id', 'name', 'created_at'], users: ['id', 'username', 'display_name', 'password_hash', 'role', 'is_active', 'created_at', 'company_id', 'branch_id', 'agent_ref', 'phone', 'email', 'approval', 'profile', 'pending', 'last_login', 'signup_at'],
     company_state: ['company_id', 'version', 'json', 'updated_at', 'updated_by'], state_versions: ['id', 'company_id', 'version', 'json', 'saved_at', 'saved_by', 'label'],
     files: ['id', 'company_id', 'name', 'mime', 'size', 'uploaded_by', 'created_at'], chat_messages: ['id', 'company_id', 'channel', 'user_id', 'user_name', 'text', 'file_id', 'created_at', 'to_user_id', 'to_name', 'private'],
     notifications: ['id', 'company_id', 'roles', 'user_id', 'text', 'link', 'created_at'], kv: ['key', 'value'] };
@@ -326,7 +407,7 @@ function importAll(b) {
     for (const t of ['auth_sessions', 'chat_reads', 'notif_reads', ...Object.keys(cols)]) db.exec(`DELETE FROM ${t}`);
     for (const [t, c] of Object.entries(cols)) {
       const st = db.prepare(`INSERT INTO ${t} (${c.join(',')}) VALUES (${c.map(() => '?').join(',')})`);
-      for (const row of b.tables[t] || []) st.run(...c.map((k) => (row[k] == null ? (k === 'private' ? 0 : null) : row[k])));
+      for (const row of b.tables[t] || []) st.run(...c.map((k) => (row[k] == null ? (k === 'private' ? 0 : k === 'approval' ? 'APPROVED' : null) : row[k])));
     }
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); db.exec('PRAGMA foreign_keys = ON'); throw e; }
@@ -349,7 +430,7 @@ function autoBackup() {
 }
 
 module.exports = {
-  db, ROLES, STAFF_ROLES, PORTAL_ROLES, SESSION_DAYS, isSetup, setupOwner, createUser, updateUser, listUsers, getUser, authenticate,
+  db, ROLES, STAFF_ROLES, PORTAL_ROLES, SESSION_DAYS, isSetup, setupOwner, createUser, updateUser, listUsers, getUser, authenticate, signup, listPending, approveSignup, rejectUser, requestProfileChange, approveChange,
   createSession, userFromSession, destroySession, publicUser, listCompanies, getCompany, createCompany, renameCompany,
   getState, getVersion, saveState, snapshot, listVersions, getVersionJson, saveFile, getFile,
   postChat, listChat, markChatRead, chatUnread, notify, listNotifications, markNotificationsRead, kvGet, kvSet, audit, listAudit,
