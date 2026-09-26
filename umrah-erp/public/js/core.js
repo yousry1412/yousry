@@ -113,7 +113,9 @@
     const headers = { 'X-Requested-With': 'umrah' };
     if (App.companyId) headers['X-Company'] = String(App.companyId);
     if (body !== undefined && !raw) headers['Content-Type'] = 'application/json';
-    const r = await fetch(url, { method, headers: raw ? { ...headers, ...raw } : headers, body: body === undefined ? undefined : raw ? body : JSON.stringify(body) });
+    let r;
+    try { r = await fetch(url, { method, headers: raw ? { ...headers, ...raw } : headers, body: body === undefined ? undefined : raw ? body : JSON.stringify(body) }); }
+    catch (err) { throw new Error('📴 لا يوجد اتصال بالإنترنت — العملية دي محتاجة اتصال (التعديلات العادية بتتحفظ على الجهاز)'); }
     const sd = Date.parse(r.headers.get('Date') || ''); if (sd) App.serverSkew = sd - Date.now(); // clock follows the server, not the device
     const d = await r.json().catch(() => ({}));
     if (r.status === 401 && App.me) { renderAuth(false); throw new Error('انتهت الجلسة — سجّل الدخول'); }
@@ -124,6 +126,7 @@
   /** Upload a File/Blob; images are resized to ≤1600px JPEG in the browser first. */
   App.upload = async (file) => {
     if (!App.online) throw new Error('رفع الملفات متاح في النسخة الأونلاين فقط');
+    if (App.offline) throw new Error('📴 رفع الصور والملفات يحتاج إنترنت — ارفعها بعد رجوع الاتصال');
     let blob = file, name = file.name || 'photo.jpg', type = file.type || 'application/octet-stream';
     if (/^image\/(jpeg|png|webp)$/.test(type) && file.size > 350000) {
       try {
@@ -152,28 +155,56 @@
     return out;
   };
 
-  // ------------------------------------------------------ persistence
-  let saveTimer = null, inFlight = false, dirty = false, syncState = 'saved';
+  // ------------------------------------------------------ persistence (online + offline)
+  // Every change is kept on the device (IndexedDB) until the server confirms it. With no internet the program keeps
+  // working on that copy; when the connection returns the device's changes are merged on top of what others saved
+  // meanwhile (Offline.merge3) and uploaded automatically — the server re-checks every rule on upload.
+  let saveTimer = null, inFlight = false, dirty = false, syncState = 'saved', baseJson = null, localTimer = null;
+  const Off = window.Offline;
+  const uid = () => (App.me ? App.me.id : 0);
+  App.offline = false;
   App.save = () => {
     if (!App.online) { try { localStorage.setItem(LS_KEY, Model.serialize(App.S)); } catch (e) { /* private mode */ } return; }
-    dirty = true; setSync('saving');
+    dirty = true; setSync(App.offline ? 'offline' : 'saving');
+    clearTimeout(localTimer); localTimer = setTimeout(keepLocal, 300);
     clearTimeout(saveTimer); saveTimer = setTimeout(flush, 250);
   };
+  function keepLocal() { if (dirty && App.S && App.companyId) Off.saveLocal(App.companyId, uid(), Model.serialize(App.S)); }
+  function confirmBase(json, version) { baseJson = json; App.version = version; if (App.companyId) Off.saveBase(App.companyId, uid(), json, version, !dirty); }
   async function flush() {
     if (inFlight || !dirty) return;
     inFlight = true; dirty = false;
+    const json = Model.serialize(App.S);
     try {
-      const d = await App.api('PUT', 'api/state', { baseVersion: App.version, state: JSON.parse(Model.serialize(App.S)) });
-      App.version = d.version; setSync('saved');
+      const d = await App.api('PUT', 'api/state', { baseVersion: App.version, state: JSON.parse(json) });
+      if (App.offline) { App.offline = false; App.toast('✅ رجع الاتصال — تم رفع كل التعديلات التي تمت بدون إنترنت'); }
+      confirmBase(json, d.version); setSync(dirty ? 'saving' : 'saved');
     } catch (e) {
-      if (e.status === 409 || e.status === 403) {
-        App.toast(e.status === 409 ? '⚠️ مستخدم آخر عدّل البيانات في نفس اللحظة — تم تحميل آخر نسخة، أعد تنفيذ آخر عملية' : '⛔ ' + e.message, e.status === 409 ? 'warn' : 'err');
-        await reloadState();
+      if (e.status === 409 && baseJson) { // someone saved meanwhile → merge instead of throwing this device's work away
+        try { await mergeWithServer(JSON.parse(json)); } catch (err) { dirty = true; }
+      } else if (e.status === 403) {
+        App.toast('⛔ ' + e.message + ' — تم إلغاء التعديل غير المسموح وتحميل آخر نسخة', 'err');
+        dirty = false; await Off.saveLocal(App.companyId, uid(), null); await reloadState();
       } else if (e.status) { dirty = true; App.toast('تعذر الحفظ على السيرفر — سيعاد المحاولة', 'err'); }
-      else { dirty = true; setSync('offline'); }
+      else { dirty = true; goOffline(); }
     }
     inFlight = false;
-    if (dirty) saveTimer = setTimeout(flush, 2000);
+    if (dirty) saveTimer = setTimeout(flush, App.offline ? 5000 : 2000);
+  }
+  /** local = this device's document; rebases it on the newest server version and marks it for upload. */
+  async function mergeWithServer(local) {
+    const d = await App.api('GET', 'api/state');
+    const r = Off.merge3(JSON.parse(baseJson), local, d.state);
+    const fixed = Off.fixDuplicateCodes(r.doc, d.state);
+    const remoteJson = JSON.stringify(d.state);
+    baseJson = remoteJson; App.version = d.version;
+    mountFromDoc(r.doc); dirty = true; keepLocal(); Off.saveBase(App.companyId, uid(), remoteJson, d.version, false);
+    App.toast(`🔀 تم دمج تعديلاتك مع تعديلات تمت من جهاز آخر${fixed.length ? ` · أرقام أُعيد ترقيمها: ${fixed.slice(0, 4).join('، ')}` : ''}${r.conflicts.length ? ` · ${r.conflicts.length} تعارض حُسم لصالح آخر نسخة على السيرفر` : ''}`, 'warn');
+    App.render();
+  }
+  function goOffline() {
+    if (!App.offline) { App.offline = true; App.toast('📴 انقطع الإنترنت — كمّل شغلك عادي، التعديلات محفوظة على الجهاز وهتترفع أول ما النت يرجع', 'warn'); }
+    keepLocal(); setSync('offline');
   }
   function mountFromDoc(doc) {
     const pref = localStorage.getItem('umrah-trip-' + App.companyId);
@@ -184,11 +215,50 @@
   }
   async function reloadState() {
     const d = await App.api('GET', 'api/state');
-    mountFromDoc(d.state); App.version = d.version; setSync('saved'); App.render();
+    const json = JSON.stringify(d.state), saved = await Off.load(App.companyId, uid());
+    if (saved && saved.local && saved.base) { // unsent work from an earlier offline session on this device
+      baseJson = saved.base; App.version = saved.baseVersion;
+      const r = Off.merge3(JSON.parse(saved.base), JSON.parse(saved.local), d.state);
+      const fixed = Off.fixDuplicateCodes(r.doc, d.state);
+      baseJson = json; App.version = d.version;
+      mountFromDoc(r.doc); dirty = true; Off.saveBase(App.companyId, uid(), json, d.version, false); keepLocal();
+      App.toast(`☁️ جارِ رفع تعديلات اتعملت على الجهاز ده بدون إنترنت${fixed.length ? ` (أُعيد ترقيم ${fixed.length})` : ''}`, 'warn');
+      setSync('saving'); App.render(); clearTimeout(saveTimer); saveTimer = setTimeout(flush, 200);
+      return;
+    }
+    mountFromDoc(d.state); dirty = false; confirmBase(json, d.version); setSync('saved'); App.render();
   }
   App.reloadState = reloadState;
+  /** Open the last copy kept on this device (no internet at start-up). */
+  async function bootOffline() {
+    let sess = null; try { sess = JSON.parse(localStorage.getItem('afwaj-session') || 'null'); } catch (e) { sess = null; }
+    if (!sess || !sess.me || !sess.companyId) return false;
+    const saved = await Off.load(sess.companyId, sess.me.id);
+    if (!saved || !saved.base) return false;
+    App.online = true; App.offline = true; App.me = sess.me; App.companies = sess.companies || []; App.companyId = sess.companyId;
+    if (['AGENT', 'SUPERVISOR', 'HOUSING'].includes(App.me.role)) return false;
+    baseJson = saved.base; App.version = saved.baseVersion;
+    mountFromDoc(JSON.parse(saved.local || saved.base)); dirty = !!saved.local;
+    document.getElementById('app').style.display = ''; App.ui.page = 'home';
+    setSync('offline'); App.render();
+    App.toast('📴 بدون إنترنت — شغال على آخر نسخة محفوظة على الجهاز، وأي تعديل هيترفع تلقائياً مع رجوع النت', 'warn');
+    return true;
+  }
+  async function reconnect() {
+    if (!App.offline) return;
+    let st = null;
+    try { const r = await fetch('api/auth/status', { cache: 'no-store' }); if (r.ok) st = await r.json(); } catch (e) { return; }
+    if (!st) return;
+    if (!st.user || st.user.id !== uid()) { keepLocal(); App.offline = false; return renderAuth(false); } // session ended → sign in; the saved work is merged after login
+    App.offline = false; setSync(dirty ? 'saving' : 'saved');
+    if (dirty) { clearTimeout(saveTimer); flush(); } else await reloadState();
+    App.toast('✅ رجع الاتصال بالإنترنت');
+  }
+  window.addEventListener('online', () => { if (App.offline) reconnect(); else if (dirty) flush(); });
+  window.addEventListener('offline', () => { if (App.online && App.me) goOffline(); });
+  setInterval(() => { if (App.offline) reconnect(); }, 10000);
   function setSync(st) { syncState = st; const el = document.getElementById('sync'); if (el) el.outerHTML = syncChip(); }
-  const syncChip = () => `<span id="sync" class="chip ${syncState === 'offline' ? 'danger' : syncState === 'saving' ? 'hold' : 'ok'}" title="حالة الحفظ">${syncState === 'offline' ? '⚠️ غير متصل' : syncState === 'saving' ? '⏳ حفظ' : '☁️ محفوظ'}</span>`;
+  const syncChip = () => `<span id="sync" class="chip ${syncState === 'offline' ? 'danger' : syncState === 'saving' ? 'hold' : 'ok'}" title="${syncState === 'offline' ? 'بدون إنترنت: التعديلات محفوظة على الجهاز وسترفع تلقائياً' : 'حالة الحفظ'}">${syncState === 'offline' ? (dirty ? '📴 بدون نت · تعديلات على الجهاز' : '📴 بدون إنترنت') : syncState === 'saving' ? '⏳ حفظ' : '☁️ محفوظ'}</span>`;
 
   App.switchTrip = (id) => {
     Model.mountTrip(App.S, id);
@@ -415,7 +485,7 @@
   App.actions.switchTrip = (d) => App.switchTrip(d.value);
   App.actions.switchCompany = async (d) => {
     App.companyId = Number(d.value);
-    try { localStorage.setItem('umrah-company', String(App.companyId)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem('umrah-company', String(App.companyId)); const ss = JSON.parse(localStorage.getItem('afwaj-session') || 'null'); if (ss) localStorage.setItem('afwaj-session', JSON.stringify({ ...ss, companyId: App.companyId })); } catch (e) { /* ignore */ }
     App.ui.page = 'home'; App.ui.heatAllot = null;
     App.loader(true, 'جارِ فتح الشركة…');
     try { await reloadState(); } finally { App.loader(false); }
@@ -448,7 +518,9 @@
   }
   App.actions.doLogin = () => authCall('api/auth/login', { username: App.val('au-user'), password: App.val('au-pass') });
   App.actions.doSetup = () => authCall('api/auth/setup', { username: App.val('au-user'), display_name: App.val('au-name'), password: App.val('au-pass') });
-  App.actions.logout = async () => { try { await App.api('POST', 'api/auth/logout', {}); } catch (e) { /* ignore */ } location.reload(); };
+  App.actions.logout = async () => {
+    if (dirty && !confirm('فيه تعديلات لسه ما اترفعتش على السيرفر (بدون إنترنت). لو خرجت هتفضل محفوظة على الجهاز وتترفع لما تدخل تاني. خروج؟')) return;
+    try { await App.api('POST', 'api/auth/logout', {}); } catch (e) { /* ignore */ } try { localStorage.removeItem('afwaj-session'); } catch (e) { /* ignore */ } location.reload(); };
 
   async function startSession(user) {
     App.me = user;
@@ -459,12 +531,13 @@
     App.companyId = user.role === 'OWNER' ? (App.companies.find((c) => c.id === saved) || App.companies[0]).id : user.company_id;
     document.getElementById('app').style.display = '';
     App.ui.page = 'home';
+    try { localStorage.setItem('afwaj-session', JSON.stringify({ me: user, companies: App.companies, companyId: App.companyId })); } catch (e) { /* ignore */ }
     await reloadState();
     pollBadges(); refreshFx(); if (App.loadWa) App.loadWa();
   }
   const portalOn = () => window.Portal && window.Portal.active;
   async function pollBadges() {
-    if (!App.online || !App.me || !App.S || portalOn()) return;
+    if (!App.online || App.offline || !App.me || !App.S || portalOn()) return;
     try {
       App.notifications = await App.api('GET', 'api/notifications');
       const u = await App.api('GET', 'api/chat/unread');
@@ -486,14 +559,14 @@
 
   // Pull other users' changes (skipped while typing / dialog open / unsaved local changes).
   setInterval(async () => {
-    if (!App.online || !App.me || !App.S || inFlight || dirty || portalOn()) return;
+    if (!App.online || App.offline || !App.me || !App.S || inFlight || dirty || portalOn()) return;
     const a = document.activeElement;
     if (document.querySelector('.modal-bg') || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName))) return;
     try {
       const d = await App.api('GET', 'api/state?since=' + App.version);
-      if (d.changed && !dirty && !inFlight) { mountFromDoc(d.state); App.version = d.version; App.render(); }
+      if (d.changed && !dirty && !inFlight) { mountFromDoc(d.state); confirmBase(JSON.stringify(d.state), d.version); App.render(); }
       if (syncState === 'offline') setSync('saved');
-    } catch (e) { if (!e.status) setSync('offline'); }
+    } catch (e) { if (!e.status) goOffline(); }
   }, 5000);
   setInterval(pollBadges, 12000);
   setInterval(() => refreshFx(), 30 * 60000);
@@ -539,12 +612,14 @@
   // ------------------------------------------------------------ boot
   window.addEventListener('DOMContentLoaded', async () => {
     setTimeout(() => App.loader(false), 15000); // never trap the user behind the loader
+    if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('/sw.js').catch(() => { /* not critical */ });
     const tag = document.getElementById('buildTag'); if (tag) tag.textContent = 'v ' + BUILD;
     App.ui.draft = App.newDraft ? App.newDraft() : null;
     let st = null;
     if (location.protocol !== 'file:') {
       try { const r = await fetch('api/auth/status'); if (r.ok && (r.headers.get('content-type') || '').includes('json')) st = await r.json(); } catch (e) { /* no API */ }
     }
+    if (!st && location.protocol !== 'file:' && await bootOffline()) { App.loader(false); return; }
     if (!st) { // offline single-user demo
       let doc = null;
       try { doc = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { doc = null; }

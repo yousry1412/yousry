@@ -681,6 +681,7 @@ const INDEX = require('fs').readFileSync(path.join(__dirname, 'public', 'index.h
   .replace('<meta name="theme-color"', `<meta name="app-build" content="${BUILD}">\n  <meta name="theme-color"`);
 const sendIndex = (req, res) => { res.set('Cache-Control', 'no-cache, no-store, must-revalidate'); res.type('html').send(INDEX); };
 app.get(['/', '/index.html'], sendIndex);
+app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.type('application/javascript').sendFile(path.join(__dirname, 'public', 'sw.js')); });
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: '30d', index: false }));
 app.get('*', sendIndex);
 
