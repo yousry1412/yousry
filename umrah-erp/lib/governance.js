@@ -22,6 +22,7 @@ function allBookings(S) {
   for (const d of S.trips || []) for (const b of d.bookings || []) m.set(b.id, { b, trip: d.trip });
   for (const b of (S.dom && S.dom.bookings) || []) m.set(b.id, { b, trip: { code: b.programId ? 'سياحة داخلية' : 'فنادق' } });
   for (const b of (S.hajj && S.hajj.pilgrims) || []) m.set(b.id, { b, trip: { code: 'حج' } });
+  for (const b of (S.resale && S.resale.bookings) || []) m.set(b.id, { b, trip: { code: 'برنامج مشترى' } });
   return m;
 }
 const stable = (o) => JSON.stringify(o);
@@ -146,6 +147,13 @@ function validate(oldS, newS, user) {
       if (((o.agentRequest || {}).state || null) !== ((x.agentRequest || {}).state || null) && !ACCOUNT_APPROVERS.includes(user.role)) errors.push(`قبول/رفض طلب المندوب ${x.code} من صلاحية المالك أو مدير التشغيل`);
       if ((o.agentRequest || {}).state === 'PENDING' && (x.agentRequest || {}).state && x.agentRequest.state !== 'PENDING' && x.agentUserId) events.push({ roles: null, userId: x.agentUserId, text: `${x.agentRequest.state === 'APPROVED' ? '✅ تم قبول' : '❌ تم رفض'} طلب الحج ${x.code} ${x.nameAr}` });
       if (['WON', 'RESERVE', 'LOST'].includes(o.status) && (o.rank !== x.rank || o.level !== x.level || o.groupKey !== x.groupKey)) errors.push(`بيانات ${x.code} مقفلة بعد القرعة`);
+    }
+    {
+      const oR = new Map(((oldS.resale && oldS.resale.programs) || []).map((p) => [p.id, p]));
+      for (const p of (newS.resale && newS.resale.programs) || []) {
+        const o = oR.get(p.id), terms = (x) => stable([x.rows, x.mode, x.currency, x.fx, x.commissions, x.supplierId]);
+        if (!admin && (!o || terms(o) !== terms(p))) errors.push(`شراء البرنامج ${p.code} وأسعاره وتكلفته من صلاحية المالك أو مدير التشغيل`);
+      }
     }
     const money = (k) => stable([k.prices, k.costItems, k.stays, k.plan, k.cancelPolicy, k.upgrades, k.hadySar, k.hadyIncluded, k.partnerVisaFee, k.nonRefundableAfterSubmit]);
     const oK = new Map((oldS.hajj.packages || []).map((k) => [k.id, k]));

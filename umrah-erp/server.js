@@ -24,6 +24,7 @@ const Model = require('./public/js/model.js');
 const Hr = require('./public/js/hr.js');
 const Dom = require('./public/js/dom.js');
 const Hajj = require('./public/js/hajj.js');
+const Resale = require('./public/js/resale.js');
 const { buildSeed } = require('./public/js/data.js');
 
 const app = express();
@@ -693,6 +694,7 @@ function sweep() {
       const released = [];
       for (const d of S.trips) Model.withTrip(S, d.id, () => { for (const code of Engine.releaseExpiredHolds(S, Date.now())) released.push(`${d.trip.code} · ${code}`); });
       for (const code of Dom.releaseExpired(S, Date.now())) released.push(`سياحة داخلية · ${code}`);
+      for (const code of Resale.releaseExpired(S, Date.now())) released.push(`برنامج مشترى · ${code}`);
       if (!released.length) continue;
       for (const r of released) S.audit.unshift({ at: Date.now(), by: 'النظام', msg: `تحرير آلي للحجز ${r} لانتهاء مهلة التعليق` });
       const s = store.saveState(c.id, version, Model.serialize(S), 'النظام');

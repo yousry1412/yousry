@@ -104,3 +104,28 @@ test('governance: discount/commission/domestic paid are protected for non-owners
   n = clone(base); n.trips[0].trip.commissions = { default: 999 };
   assert.ok(gov.validate(old, n, { role: 'MANAGER', id: 2 }).errors.length);
 });
+
+// ---------------------------------------------------------------- resale (programs bought from other companies)
+const Resale = require('../public/js/resale.js');
+test('resale: block program — booking revenue 4108, owner-only discount, profit counts unsold seats until returned', () => {
+  const Model2 = require('../public/js/model.js'), Acc2 = require('../public/js/accounting.js');
+  const S = Model2.load(require('../public/js/data.js').buildSeed(Date.now()), 'x');
+  const p = S.resale.programs[0];
+  assert.ok(p && S.resale.bookings.length >= 3);
+  const r0 = Resale.pnl(S, p);
+  assert.equal(r0.sold, 9);
+  assert.equal(r0.committed, 12 * 41000 + 6 * 44500 + 4 * 49000);
+  assert.ok(r0.unsoldCost > 0 && r0.profit < 0, 'unsold block seats weigh on profit');
+  assert.ok(r0.breakEven > r0.sold);
+  const sales = { name: 's', role: 'SALES', staffId: 'U1' };
+  const d = Resale.createBooking(S, { programId: p.id, lines: [{ rowId: 'R1', qty: 2 }], lead: { name: 'x', phone: '0109' }, discountPct: 5 }, sales).booking;
+  assert.equal(d.status, 'PENDING_APPROVAL');
+  assert.throws(() => Resale.createBooking(S, { programId: p.id, lines: [{ rowId: 'R3', qty: 3 }], lead: { name: 'x', phone: '0108' } }, sales), /المتبقي/);
+  // returning 6 unsold quad seats before the release date lowers the committed cost
+  const before = Resale.pnl(S, p).committed; p.rows[0].returned = 6;
+  assert.equal(Resale.pnl(S, p).committed, before - 6 * 41000);
+  const b = S.resale.bookings[0];
+  b.status = 'CONFIRMED'; Acc2.syncBooking(S, Resale.costCenter(S, b), b, 'o');
+  assert.ok(S.journal.some((j) => j.source.id === b.id && j.lines.some((l) => l.acc === '4108')));
+  const tb = Acc2.trialBalance(S); assert.ok(Math.abs(tb.tot.dr - tb.tot.cr) < 0.01);
+});

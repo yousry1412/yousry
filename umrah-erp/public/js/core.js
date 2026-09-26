@@ -346,7 +346,7 @@
     ['dom', '🏖️', 'السياحة الداخلية', [['domBooking', 'حجوزات السياحة الداخلية', [...SAL, 'OPERATIONS']], ['domPrograms', 'البرامج والرحلات', ALL], ['domOps', 'التشغيل والكشوف', OPS],
       ['domHotels', 'الفنادق وأسعار التعاقد', [...FIN, 'OPERATIONS', 'HEAD']], ['domPnl', 'ربحية البرامج', FIN]]],
     ['sales', '🧾', 'العملاء والمناديب', [['approvals', 'طلبات بانتظار الموافقة', ADM], ['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL], ['scores', 'تقييم المناديب والمبيعات', ['OWNER', 'MANAGER', 'HEAD', 'ACCOUNTANT']]]],
-    ['purch', '🏨', 'الموردون والفنادق', [['suppliers', 'الموردون', [...FIN, 'OPERATIONS']], ['hotels', 'الفنادق والمخصصات', [...FIN, 'OPERATIONS', 'HEAD']]]],
+    ['purch', '🏨', 'المشتريات والموردون', [['resale', 'برامج مشتراة من شركات أخرى', [...SAL, 'OPERATIONS']], ['resaleView', 'برنامج مشترى', [...SAL, 'OPERATIONS'], true], ['suppliers', 'الموردون', [...FIN, 'OPERATIONS']], ['hotels', 'الفنادق والمخصصات', [...FIN, 'OPERATIONS', 'HEAD']]]],
     ['fin', '💰', 'المالية والحسابات', [['treasury', 'الخزائن والبنوك', FIN], ['vouchers', 'السندات والاعتمادات', ALL], ['expenses', 'المصروفات', FIN],
       ['employees', 'الموظفون', FIN], ['fx', 'أسعار الصرف', EVERY], ['coa', 'شجرة الحسابات', FIN], ['journal', 'القيود اليومية', FIN], ['reports', 'التقارير المالية', FIN], ['pnl', 'أرباح الرحلة', FIN]]],
     ['hr', '👥', 'الموارد البشرية', [['hrDash', 'لوحة الأداء والمراقبة', HRV], ['hrEmployees', 'ملفات الموظفين', HRV], ['hrAttendance', 'الحضور والانصراف', HRV], ['hrLeaves', 'الإجازات', HRV],

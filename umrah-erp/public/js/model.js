@@ -7,9 +7,9 @@
  *    creation (browser + agent portal on the server), alerts centre
  * ===================================================================== */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine.js'), require('./accounting.js'), require('./hr.js'), require('./dom.js'), require('./hajj.js'));
-  else root.Model = factory(root.Engine, root.Acc, root.Hr, root.Dom, root.Hajj);
-})(typeof self !== 'undefined' ? self : this, function (E, Acc, Hr, Dom, Hajj) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine.js'), require('./accounting.js'), require('./hr.js'), require('./dom.js'), require('./hajj.js'), require('./resale.js'));
+  else root.Model = factory(root.Engine, root.Acc, root.Hr, root.Dom, root.Hajj, root.Resale);
+})(typeof self !== 'undefined' ? self : this, function (E, Acc, Hr, Dom, Hajj, Resale) {
   'use strict';
   const TRIP_KEYS = ['trip', 'bookings', 'pax', 'rooms', 'beds', 'bus', 'roomingLocked', 'settlements', 'fieldExpenses', 'docs'];
   /**
@@ -82,6 +82,8 @@
     if (db) return { doc: { trip: Dom.costCenter(S, db) }, b: db, domestic: true };
     const hp = S.hajj && S.hajj.pilgrims.find((x) => x.id === bookingId);
     if (hp) return { doc: { trip: Hajj.costCenter(S, hp) }, b: hp, hajj: true };
+    const rb = S.resale && S.resale.bookings.find((x) => x.id === bookingId);
+    if (rb) return { doc: { trip: Resale.costCenter(S, rb) }, b: rb, resale: true };
     return null;
   };
   /** Run fn with a given trip mounted, then restore the previous one. */
@@ -105,7 +107,7 @@
       users: [], agents: [], suppliers: [], hotels: [], allotments: [], customers: [], employees: [],
       accounts: Acc.DEFAULT_ACCOUNTS.map((a) => ({ ...a })),
       expenseCategories: Acc.DEFAULT_EXPENSE_CATEGORIES.map((a) => ({ ...a })),
-      cashboxes: [], vouchers: [], journal: [], counters: {}, trips: [], activeTripId: null, audit: [], hr: Hr.empty(), dom: Dom.empty(), hajj: Hajj.empty(),
+      cashboxes: [], vouchers: [], journal: [], counters: {}, trips: [], activeTripId: null, audit: [], hr: Hr.empty(), dom: Dom.empty(), hajj: Hajj.empty(), resale: Resale.empty(),
     };
   }
   function addCashbox(S, { name, type, currency, branchId, bankName, iban }) {
@@ -289,6 +291,7 @@
       for (const e of Hr.activeEmps(S)) for (const f of Hr.flags(S, e, month, today)) out.push({ level: f.level, group: g, text: `${e.name}: ${f.text}`, page: 'hrEmployee', ref: e.id });
     }
     if (S.hajj && S.hajj.seasons.length) out.push(...Hajj.alerts(S, today));
+    if (S.resale && S.resale.programs.length) out.push(...Resale.alerts(S, today));
     if (S.dom) {
       const g = 'السياحة الداخلية';
       for (const b of S.dom.bookings) {
@@ -446,6 +449,10 @@
     const hsup = { id: 'SHJ', code: nextCode(S, 'SUP', 'SUP'), name: 'شركة خدمات حجاج الخارج (باقات المشاعر)', category: 'HAJJ', currency: 'SAR', phone: '', taxNo: '' }; S.suppliers.push(hsup);
     const bill = createVoucher(S, { type: 'BILL', amount: 12500 * 7, currency: 'SAR', fx: hj.season.fxLock, party: { type: 'supplier', id: hsup.id }, accountCode: '1109', tripId: hj.five.id, memo: 'دفعة باقات المشاعر — 7 حجاج خمس نجوم' }, sys);
     approve(S, bill.id, sys);
+    // a complete Umrah program bought from another company (block of seats) and resold with a deposit
+    Resale.seedDemo(S, s3.seededAt || Date.now());
+    const rb = S.resale.bookings[0];
+    if (rb) approve(S, createVoucher(S, { type: 'RV', amount: Math.round(rb.net * 0.3), cashboxId: cash.id, party: { type: 'customer', id: rb.customerId }, bookingId: rb.id, tripId: rb.programId, memo: `عربون حجز ${rb.code}` }, sys).id, sys);
     return S;
   }
   function counterFromCodes(S, key, codes) {
@@ -464,6 +471,7 @@
     S.hr = Hr.normalize(S.hr);
     S.dom = Dom.normalize(S.dom);
     S.hajj = Hajj.normalize(S.hajj);
+    S.resale = Resale.normalize(S.resale);
     normalizeCompany(S);
     Acc.ensureAccounts(S);
     mountTrip(S, S.activeTripId);
