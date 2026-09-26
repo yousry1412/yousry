@@ -133,12 +133,13 @@ Pages.productsList = async function () {
         products.length === 0
           ? '<div class="empty-state">لا يوجد منتجات بعد</div>'
           : `<div class="table-wrap"><table><thead><tr>
-              <th></th><th>المنتج</th><th>التصنيف</th><th>النوع</th><th>المتاح</th><th>تكلفة الوحدة</th><th>سعر البيع</th><th>قيمة المخزون</th><th></th>
+              <th></th><th>الكود</th><th>المنتج</th><th>التصنيف</th><th>النوع</th><th>المتاح</th><th>تكلفة الوحدة</th><th>سعر البيع</th><th>قيمة المخزون</th><th></th>
             </tr></thead><tbody>
               ${products
                 .map(
                   (p) => `<tr>
                   <td>${p.photo ? `<img src="${p.photo}" style="width:34px; height:34px; object-fit:cover; border-radius:6px" />` : '-'}</td>
+                  <td class="muted" style="direction:ltr; text-align:right">${UI.escapeHtml(p.sku || '-')}</td>
                   <td><a href="#/products/${p.id}">${UI.escapeHtml(p.name)}</a></td>
                   <td class="muted">${UI.escapeHtml(p.category_name || '-')}</td>
                   <td>${UI.badge(KIND_LABELS[p.kind], KIND_BADGE[p.kind])}</td>
@@ -170,7 +171,7 @@ Pages.productDetail = async function (id) {
   UI.setContent(`
     <div class="card">
       <div class="card-header">
-        <h2>${UI.escapeHtml(p.name)} ${UI.badge(KIND_LABELS[p.kind], KIND_BADGE[p.kind])}</h2>
+        <h2>${UI.escapeHtml(p.name)} ${UI.badge(KIND_LABELS[p.kind], KIND_BADGE[p.kind])} <span class="muted" style="font-size:13px; font-weight:400; direction:ltr; display:inline-block">${UI.escapeHtml(p.sku || '')}</span></h2>
         <a class="btn secondary small" href="#/products">رجوع للمنتجات</a>
       </div>
       <div class="grid cols-4">
