@@ -164,13 +164,17 @@ Pages.productionNew = async function () {
     updateAvail();
   }
 
-  async function loadBom() {
+  // فتح الصفحة بيحمّل التركيبة تلقائيًا بهدوء: لو المنتج ملوش تركيبة بنحط سطر مكوّن فاضي
+  // بدل رسالة خطأ في وش المستخدم قبل ما يعمل أي حاجة. الرسالة بتظهر بس لو داس زرار التحميل بنفسه
+  async function loadBom(silent = false) {
     const productId = Number(document.getElementById('productSelect').value);
+    if (!productId) return;
     const qtyProduced = Number(document.getElementById('qtyProduced').value) || 0;
     const product = await Api.get(`/products/${productId}`);
     tbody.innerHTML = '';
     if (product.bom.length === 0) {
-      UI.toast('لا يوجد تركيبة محفوظة لهذا المنتج، أضف المكونات يدويًا', 'error');
+      addEmptyRow();
+      if (!silent) UI.toast('لا يوجد تركيبة محفوظة لهذا المنتج، أضف المكونات يدويًا', 'info');
       return;
     }
     product.bom.forEach((b) => {
@@ -181,15 +185,17 @@ Pages.productionNew = async function () {
     });
   }
 
-  document.getElementById('loadBomBtn').addEventListener('click', loadBom);
-  document.getElementById('addCompRow').addEventListener('click', () => {
+  function addEmptyRow() {
     const tr = document.createElement('tr');
     tr.innerHTML = compRowHtml(components, null, 0);
     tbody.appendChild(tr);
     bindRow(tr);
-  });
+  }
 
-  loadBom();
+  document.getElementById('loadBomBtn').addEventListener('click', () => loadBom(false));
+  document.getElementById('addCompRow').addEventListener('click', addEmptyRow);
+
+  loadBom(true);
 
   document.getElementById('productionForm').addEventListener('submit', async (e) => {
     e.preventDefault();

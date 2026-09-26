@@ -104,7 +104,7 @@ const ROUTES = [
   { re: /^#\/units$/, title: 'وحدات القياس', render: () => Pages.unitsOverview() },
 
   { re: /^#\/purchases$/, title: 'فواتير الشراء', render: () => Pages.purchasesList() },
-  { re: /^#\/purchases\/new$/, title: 'فاتورة شراء جديدة', render: () => Pages.purchaseNew() },
+  { re: /^#\/purchases\/new(?:\?.*)?$/, title: 'فاتورة شراء جديدة', render: () => Pages.purchaseNew() },
   { re: /^#\/purchases\/(\d+)$/, title: 'فاتورة شراء', render: (m) => Pages.purchaseDetail(m[1]) },
 
   { re: /^#\/production$/, title: 'أوامر التصنيع', render: () => Pages.productionList() },
@@ -127,6 +127,7 @@ const ROUTES = [
   { re: /^#\/damages$/, title: 'التوالف والهالك', render: () => Pages.damagesList() },
   { re: /^#\/expenses$/, title: 'المصروفات العامة', render: () => Pages.expensesList() },
   { re: /^#\/vouchers$/, title: 'سندات القبض والصرف', render: () => Pages.vouchersList() },
+  { re: /^#\/vouchers\/new$/, title: 'سند قبض / صرف جديد', render: () => Pages.vouchersList({ openNew: true }) },
   { re: /^#\/treasury$/, title: 'الخزنة الرئيسية', render: () => Pages.treasuryHome() },
   { re: /^#\/employees$/, title: 'الموظفون', render: () => Pages.employeesList() },
   { re: /^#\/employees\/(\d+)$/, title: 'كشف حساب موظف', render: (m) => Pages.employeeStatement(m[1]) },
@@ -198,7 +199,7 @@ async function router() {
   updateActiveNav(hash);
 
   try {
-    content.innerHTML = '<div class="empty-state">جارِ التحميل...</div>';
+    content.innerHTML = Brand.loaderHtml();
     const m = hash.match(match.re);
     const html = await match.render(m);
     if (typeof html === 'string') content.innerHTML = html;
@@ -277,5 +278,6 @@ async function startApp() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('brandLogo').innerHTML = Brand.logoSvg({ size: 46 });
   Auth.init(startApp);
 });

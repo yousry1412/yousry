@@ -8,8 +8,9 @@ const Auth = (() => {
       <div style="min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--bg);">
         <div class="card" style="width:100%; max-width:380px;">
           <div style="text-align:center; margin-bottom:16px;">
-            <div style="font-size:34px;">🚚</div>
-            <h2 style="margin:6px 0 0">إدارة التوزيع</h2>
+            <div class="auth-logo">${Brand.logoSvg({ size: 150, animated: !Brand.reducedMotion(), orbitSeconds: 5 })}</div>
+            <h2 class="auth-title">مدار</h2>
+            <div class="auth-tagline">لإدارة التوزيع والإنتاج</div>
             <p class="muted" style="font-size:13px">${isSetup ? 'أول استخدام - اعمل حساب المالك' : 'سجّل دخولك للمتابعة'}</p>
           </div>
           <form id="authForm">

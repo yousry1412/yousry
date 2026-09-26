@@ -1304,6 +1304,14 @@ function dashboardSummary(companyId, branchId) {
     ? db.prepare(`SELECT COUNT(*) AS c FROM trips WHERE company_id = ? AND branch_id = ? AND status = 'open'`).get(companyId, branchId)
     : db.prepare(`SELECT COUNT(*) AS c FROM trips WHERE company_id = ? AND status = 'open'`).get(companyId);
 
+  const productionParams = branchId ? [today(), companyId, monthStart, branchId] : [today(), companyId, monthStart];
+  const monthProduction = db
+    .prepare(
+      `SELECT COUNT(*) AS c, COALESCE(SUM(CASE WHEN order_date = ? THEN 1 ELSE 0 END),0) AS today_c
+       FROM production_orders WHERE company_id = ? AND order_date >= ? ${branchFilter}`
+    )
+    .get(...productionParams);
+
   return {
     cash: round2(cash),
     bank: round2(bank),
@@ -1316,10 +1324,74 @@ function dashboardSummary(companyId, branchId) {
     monthNetProfit: monthIncome.netProfit,
     lowStockCount,
     openTrips: openTripsQuery.c,
+    todayExpenses: operatingExpenses(companyId, today(), today(), branchId),
+    monthExpenses: operatingExpenses(companyId, monthStart, today(), branchId),
+    monthProductionOrders: monthProduction.c,
+    todayProductionOrders: monthProduction.today_c,
+    custodyGoods: round2(accountBalance(companyId, ACC.CUSTODY, branchId)),
+    custodyCash: round2(accountBalance(companyId, ACC.PETTY_CUSTODY, branchId)),
   };
 }
 
+// المصروفات التشغيلية من دفتر الأستاذ مباشرة (كل حسابات المصروفات ماعدا تكلفة البضاعة المباعة)،
+// عشان الرقم يطابق قائمة الدخل بالظبط ويشمل مصروفات الرحلات والرواتب والمصروفات العامة معًا
+function operatingExpenses(companyId, from, to, branchId) {
+  const branchFilter = branchId ? 'AND jl.branch_id = ?' : '';
+  const params = branchId ? [companyId, ACC.COGS, from, to, branchId] : [companyId, ACC.COGS, from, to];
+  const row = db
+    .prepare(
+      `SELECT COALESCE(SUM(jl.debit),0) AS d, COALESCE(SUM(jl.credit),0) AS c
+       FROM journal_lines jl
+       JOIN journal_entries je ON je.id = jl.entry_id
+       JOIN accounts a ON a.id = jl.account_id
+       WHERE a.company_id = ? AND a.type = 'expense' AND a.code != ?
+         AND je.entry_date BETWEEN ? AND ? ${branchFilter}`
+    )
+    .get(...params);
+  return round2(row.d - row.c);
+}
+
+// الرحلات الجارية بتفاصيلها للوحة التحكم: المحمّل المعتمد، والمتبقي فعليًا في السيارة بعد
+// المبيعات والمرتجعات والتوالف - نفس حسبة التسوية بالظبط (tripRemainingQty)
+function openTripsOverview(companyId, branchId) {
+  const trips = branchId
+    ? db
+        .prepare(
+          `SELECT t.*, v.name AS vehicle_name, e.name AS responsible_employee_name FROM trips t
+           JOIN vehicles v ON v.id = t.vehicle_id LEFT JOIN employees e ON e.id = t.responsible_employee_id
+           WHERE t.company_id = ? AND t.branch_id = ? AND t.status = 'open' ORDER BY t.id DESC`
+        )
+        .all(companyId, branchId)
+    : db
+        .prepare(
+          `SELECT t.*, v.name AS vehicle_name, e.name AS responsible_employee_name FROM trips t
+           JOIN vehicles v ON v.id = t.vehicle_id LEFT JOIN employees e ON e.id = t.responsible_employee_id
+           WHERE t.company_id = ? AND t.status = 'open' ORDER BY t.id DESC`
+        )
+        .all(companyId);
+  return trips.map((t) => {
+    const loadedValue = db
+      .prepare(`SELECT COALESCE(SUM(qty_loaded * unit_cost),0) AS v FROM trip_loads WHERE trip_id = ? AND status = 'approved'`)
+      .get(t.id).v;
+    const products = db.prepare(`SELECT DISTINCT product_id FROM trip_loads WHERE trip_id = ? AND status = 'approved'`).all(t.id);
+    const remainingValue = products.reduce(
+      (s, row) => s + tripRemainingQty(t.id, row.product_id) * tripLoadUnitCost(t.id, row.product_id),
+      0
+    );
+    return {
+      id: t.id,
+      trip_no: t.trip_no,
+      trip_date: t.trip_date,
+      vehicle_name: t.vehicle_name,
+      responsible_employee_name: t.responsible_employee_name,
+      loaded_value: round2(loadedValue),
+      remaining_value: round2(remainingValue),
+    };
+  });
+}
+
 module.exports = {
+  openTripsOverview,
   trialBalance,
   incomeStatement,
   balanceSheet,

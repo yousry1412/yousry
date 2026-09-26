@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>مدار</title>
+<link rel="icon" type="image/svg+xml" href="logo.svg" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -14,8 +15,8 @@
       <div class="brand">
         <div class="brand-company" id="brandCompany"></div>
         <div class="brand-app">
-          <span class="brand-icon">🚚</span>
-          <span class="brand-text">مدار لإدارة التوزيع والإنتاج</span>
+          <span class="brand-icon" id="brandLogo" aria-hidden="true"></span>
+          <span class="brand-text"><strong class="brand-name">مدار</strong><span class="brand-tagline">لإدارة التوزيع والإنتاج</span></span>
         </div>
       </div>
       <nav class="nav" id="nav"></nav>
@@ -23,19 +24,23 @@
 
     <div class="main">
       <header class="topbar">
-        <button class="menu-toggle" id="menuToggle">☰</button>
+        <button class="menu-toggle" id="menuToggle" aria-label="القائمة">☰</button>
         <div class="topbar-title" id="pageTitle">لوحة التحكم</div>
         <div class="context-switcher" id="contextSwitcher">
-          <select id="companySelect" title="المنشأة"></select>
-          <select id="branchSelect" title="الفرع"></select>
+          <span class="ctx-swap" title="تبديل المنشأة والفرع"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4"/><path d="M3 8h14"/><path d="m17 20 4-4-4-4"/><path d="M21 16H7"/></svg></span>
+          <label class="ctx-field" title="المنشأة"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16"/><path d="M15 10h4a1 1 0 0 1 1 1v10"/><path d="M8 8h3M8 12h3M8 16h3"/><path d="M2 21h20"/></svg><select id="companySelect" aria-label="المنشأة"></select></label>
+          <label class="ctx-field" title="الفرع"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg><select id="branchSelect" aria-label="الفرع"></select></label>
         </div>
-        <div class="topbar-date" id="topDate"></div>
-        <div class="topbar-user" id="topUser"></div>
-        <button class="btn secondary small" id="logoutBtn" title="تسجيل الخروج">خروج</button>
+        <div class="topbar-meta">
+          <div class="topbar-date" id="topDate"></div>
+          <div class="topbar-user" id="topUser"></div>
+          <button class="btn secondary small" id="logoutBtn" title="تسجيل الخروج">خروج</button>
+        </div>
       </header>
       <div class="context-switcher-mobile" id="contextSwitcherMobile">
-        <select id="companySelectMobile" title="المنشأة"></select>
-        <select id="branchSelectMobile" title="الفرع"></select>
+        <span class="ctx-swap" title="تبديل المنشأة والفرع"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4 3 8l4 4"/><path d="M3 8h14"/><path d="m17 20 4-4-4-4"/><path d="M21 16H7"/></svg></span>
+        <label class="ctx-field" title="المنشأة"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16"/><path d="M15 10h4a1 1 0 0 1 1 1v10"/><path d="M8 8h3M8 12h3M8 16h3"/><path d="M2 21h20"/></svg><select id="companySelectMobile" aria-label="المنشأة"></select></label>
+        <label class="ctx-field" title="الفرع"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></svg><select id="branchSelectMobile" aria-label="الفرع"></select></label>
       </div>
       <main class="content" id="content"></main>
     </div>
@@ -46,6 +51,7 @@
     <div class="modal-box" id="modalBox"></div>
   </div>
 
+  <script src="js/brand.js"></script>
   <script src="js/context.js"></script>
   <script src="js/api.js"></script>
   <script src="js/ui.js"></script>

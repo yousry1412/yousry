@@ -32,6 +32,15 @@ const UI = (() => {
     return v.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + currency;
   }
 
+  // نفس money بس كـ HTML: الرقم والعملة في عنصرين جنب بعض بيتقفلوا على سطر واحد دايمًا
+  // (مفيش "ر.س" بتنزل لسطر لوحدها في الكروت الضيقة)، والعملة أصغر شوية من الرقم
+  function moneyHtml(n) {
+    const v = Number(n) || 0;
+    const currency = (typeof Context !== 'undefined' && Context.getCompany && Context.getCompany()?.currency) || 'ج.م';
+    const num = v.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return `<span class="money"><span class="money-num">${num}</span><span class="money-cur">${escapeHtml(currency)}</span></span>`;
+  }
+
   function num(n, digits = 2) {
     const v = Number(n) || 0;
     return v.toLocaleString('ar-EG', { minimumFractionDigits: 0, maximumFractionDigits: digits });
@@ -251,6 +260,7 @@ const UI = (() => {
   return {
     toast,
     money,
+    moneyHtml,
     num,
     escapeHtml,
     todayStr,

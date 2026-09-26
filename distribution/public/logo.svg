@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 140" width="512" height="448" role="img" aria-label="مدار" >
+  <title>مدار</title>
+  <defs>
+    <radialGradient id="madar1-ocean" cx="36%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#3fb58f"/>
+      <stop offset="55%" stop-color="#1d6f5e"/>
+      <stop offset="100%" stop-color="#0f3d31"/>
+    </radialGradient>
+    <radialGradient id="madar1-shade" cx="36%" cy="30%" r="72%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.38"/>
+      <stop offset="38%" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#001a12" stop-opacity="0.42"/>
+    </radialGradient>
+    <clipPath id="madar1-globe"><circle cx="80" cy="74" r="38"/></clipPath>
+    <mask id="madar1-occlude" maskUnits="userSpaceOnUse" x="0" y="0" width="160" height="140">
+      <rect x="-40" y="-40" width="240" height="220" fill="#fff"/>
+      <g transform="rotate(-14 80 74)">
+        <path d="M41.5,74 A38.5,38.5 0 0,0 118.5,74 Z" fill="#000"/>
+      </g>
+    </mask>
+  </defs>
+
+  <circle cx="80" cy="74" r="41.5" fill="none" stroke="#3fb58f" stroke-opacity="0.22" stroke-width="4"/>
+
+  <g transform="rotate(-14 80 74)">
+    <ellipse cx="80" cy="74" rx="66" ry="21" fill="none" stroke="#c9a24b" stroke-opacity="0.55" stroke-width="2"/>
+  </g>
+
+  <circle cx="80" cy="74" r="38" fill="url(#madar1-ocean)"/>
+  <g clip-path="url(#madar1-globe)">
+    <g fill="#a8e6c5" fill-opacity="0.92" transform="translate(10 74)">
+      
+      <g><path d="M14,-26 C22,-30 30,-24 28,-16 C26,-9 20,-8 21,-2 C22,4 28,8 26,16 C24,24 18,30 15,24 C12,18 14,10 10,4 C6,-2 4,-10 7,-18 C9,-23 11,-25 14,-26 Z"/><path d="M40,-30 C44,-33 50,-32 50,-28 C50,-25 44,-24 41,-26 Z"/><path d="M62,-24 C70,-28 80,-26 82,-18 C84,-12 78,-10 80,-4 C83,4 86,8 82,16 C78,24 72,28 68,22 C64,16 66,8 62,2 C58,-4 54,-8 56,-14 C57,-20 58,-22 62,-24 Z"/><path d="M96,-22 C106,-28 124,-26 132,-18 C138,-12 134,-6 126,-4 C120,-2 116,4 110,2 C104,0 100,-6 96,-8 C92,-10 90,-18 96,-22 Z"/><path d="M118,12 C124,8 132,10 132,16 C132,22 124,24 119,21 C115,19 114,15 118,12 Z"/></g>
+      <g transform="translate(152 0)"><path d="M14,-26 C22,-30 30,-24 28,-16 C26,-9 20,-8 21,-2 C22,4 28,8 26,16 C24,24 18,30 15,24 C12,18 14,10 10,4 C6,-2 4,-10 7,-18 C9,-23 11,-25 14,-26 Z"/><path d="M40,-30 C44,-33 50,-32 50,-28 C50,-25 44,-24 41,-26 Z"/><path d="M62,-24 C70,-28 80,-26 82,-18 C84,-12 78,-10 80,-4 C83,4 86,8 82,16 C78,24 72,28 68,22 C64,16 66,8 62,2 C58,-4 54,-8 56,-14 C57,-20 58,-22 62,-24 Z"/><path d="M96,-22 C106,-28 124,-26 132,-18 C138,-12 134,-6 126,-4 C120,-2 116,4 110,2 C104,0 100,-6 96,-8 C92,-10 90,-18 96,-22 Z"/><path d="M118,12 C124,8 132,10 132,16 C132,22 124,24 119,21 C115,19 114,15 118,12 Z"/></g>
+    </g>
+    <g fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="0.8">
+      <ellipse cx="80" cy="74" rx="38" ry="6"/>
+      <ellipse cx="80" cy="55" rx="32.68" ry="4.5"/>
+      <ellipse cx="80" cy="93" rx="32.68" ry="4.5"/>
+    </g>
+  </g>
+  <circle cx="80" cy="74" r="38" fill="url(#madar1-shade)"/>
+  <circle cx="80" cy="74" r="38" fill="none" stroke="#123f32" stroke-width="1.3"/>
+
+  <g transform="rotate(-14 80 74)">
+    <path d="M14,74 A66,21 0 0,1 146,74" fill="none" stroke="#c9a24b" stroke-width="2.4" stroke-linecap="round" ></path>
+  </g>
+
+  <g mask="url(#madar1-occlude)">
+    <g transform="rotate(-14 80 74)"><g transform="translate(107.89 54.97) rotate(8.44)">
+      <rect x="-15.5" y="-18" width="20" height="14" rx="1.8" fill="#fdfaf2" stroke="#123f32" stroke-width="1"/>
+      <rect x="-15.5" y="-11.2" width="20" height="2.4" fill="#c9a24b"/>
+      <path d="M4.5,-4 L4.5,-14.5 L10.6,-14.5 L15.2,-8.2 L15.6,-4 Z" fill="#1d6f5e" stroke="#123f32" stroke-width="0.8" stroke-linejoin="round"/>
+      <path d="M6.3,-13 L10,-13 L13.1,-8.6 L6.3,-8.6 Z" fill="#d6f3e8"/>
+      <rect x="-15.8" y="-5" width="31.6" height="2.6" rx="1" fill="#123f32"/>
+      <circle cx="15" cy="-6" r="0.95" fill="#ffe08a"/>
+      <g>
+      <circle cx="-9" cy="-1.5" r="3.1" fill="#1b1f1d"/>
+      <g>
+        <circle cx="-9" cy="-1.5" r="1.25" fill="#cfd8d3"/>
+        <rect x="-9.35" y="-4.2" width="0.7" height="5.4" fill="#cfd8d3" opacity="0.7"/>
+      </g>
+    </g>
+      <g>
+      <circle cx="9.2" cy="-1.5" r="3.1" fill="#1b1f1d"/>
+      <g>
+        <circle cx="9.2" cy="-1.5" r="1.25" fill="#cfd8d3"/>
+        <rect x="8.85" y="-4.2" width="0.7" height="5.4" fill="#cfd8d3" opacity="0.7"/>
+      </g>
+    </g></g></g>
+  </g>
+</svg>

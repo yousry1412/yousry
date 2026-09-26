@@ -178,6 +178,19 @@ Pages.purchaseNew = async function () {
     }
   }
   const ctl = wireItemsTable(tbody, products, recalc);
+
+  // جاي من "أصناف قاربت على النفاد" في لوحة التحكم: نختار الصنف ونقترح كمية العجز عن حد الطلب
+  const query = new URLSearchParams(location.hash.split('?')[1] || '');
+  const prefillProduct = products.find((p) => p.id === Number(query.get('product')));
+  if (prefillProduct) {
+    const firstRow = tbody.querySelector('tr');
+    const productSelect = firstRow.querySelector('.it-product');
+    productSelect.value = String(prefillProduct.id);
+    productSelect.dispatchEvent(new Event('change'));
+    const shortfall = Number(query.get('qty')) || 0;
+    if (shortfall > 0) firstRow.querySelector('.it-qty').value = shortfall;
+    if (prefillProduct.cost_price > 0) firstRow.querySelector('.it-cost').value = prefillProduct.cost_price;
+  }
   recalc();
   document.getElementById('addRowBtn').addEventListener('click', () => {
     ctl.addRow();

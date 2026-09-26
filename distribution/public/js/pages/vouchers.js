@@ -91,7 +91,7 @@ function wireVoucherForm(customers, suppliers, partners, employees) {
   updateFields();
 }
 
-Pages.vouchersList = async function () {
+Pages.vouchersList = async function (opts = {}) {
   const rows = await Api.get('/vouchers');
   UI.setContent(`
     <div class="card">
@@ -166,6 +166,13 @@ Pages.vouchersList = async function () {
       }
     });
   });
+
+  // جاي من "إجراءات سريعة" في لوحة التحكم: نفتح نموذج سند جديد على طول، ونرجّع الرابط لقائمة
+  // السندات عشان التحديث بعد الحفظ (أو إعادة تحميل الصفحة) مايفتحش النموذج تاني
+  if (opts.openNew) {
+    history.replaceState(null, '', '#/vouchers');
+    document.getElementById('addVoucherBtn').click();
+  }
 };
 
 window.Pages = Pages;

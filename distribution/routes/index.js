@@ -1433,6 +1433,11 @@ router.get(
   allow(...PARTNER_G),
   handle((req) => reports.dashboardSummary(ctx(req, { needBranch: false }).company_id, reportBranch(req)))
 );
+router.get(
+  '/dashboard/open-trips',
+  allow(...ALL_ROLES),
+  handle((req) => reports.openTripsOverview(ctx(req, { needBranch: false }).company_id, reportBranch(req)))
+);
 
 // ---------------------------------------------------------------------------
 // واتساب
