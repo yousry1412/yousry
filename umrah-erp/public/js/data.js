@@ -21,13 +21,13 @@
     const users = [
       { id: 'U1', name: 'منة الله (سيلز)', role: 'SALES' },
       { id: 'U2', name: 'أ. شريف (رئيس قسم)', role: 'HEAD' },
-      { id: 'U3', name: 'أ. هشام (مدير المبيعات)', role: 'MANAGER' },
+      { id: 'U3', name: 'أ. هشام (مدير المبيعات)', role: 'OWNER' },
     ];
     const agents = [
       { id: 'A1', code: 'AG-201', name: 'النور للسياحة – أسيوط', tier: 'B2B', currency: 'EGP', balance: 185000, creditLimit: 250000, overdueDays: 0, blocked: false, netDiscountPct: 6, pin: '4411', phone: '01001234567' },
       { id: 'A2', code: 'AG-202', name: 'الصفوة ترافل – المنصورة', tier: 'B2B', currency: 'SAR', balance: 9500, creditLimit: 15000, overdueDays: 0, blocked: false, netDiscountPct: 5, pin: '7720', phone: '01112223344' },
       { id: 'A3', code: 'AG-203', name: 'رحلات الفجر – طنطا', tier: 'B2B', currency: 'EGP', balance: -198000, creditLimit: 200000, overdueDays: 19, blocked: false, netDiscountPct: 5, pin: '1903', phone: '01223334455' },
-      { id: 'A4', code: 'BR-301', name: 'الوسيط/ عادل الشاذلي', tier: 'BROKER', currency: 'EGP', balance: 0, creditLimit: 0, overdueDays: 0, blocked: false, commissionPct: 4, pin: '5050', phone: '01098765432' },
+      { id: 'A4', code: 'BR-301', name: 'الوسيط/ عادل الشاذلي', tier: 'BROKER', currency: 'EGP', balance: 0, creditLimit: 0, overdueDays: 0, blocked: false, commissionPct: 4, commission: { type: 'FIXED', basis: 'PAX', min: 500, pct: 0 }, pin: '5050', phone: '01098765432' },
     ];
     const suppliers = [
       { id: 'S1', name: 'شركة إعمار الضيافة (فندق مكة)', category: 'HOTEL', currency: 'SAR' },
@@ -86,6 +86,7 @@
         { id: 'C10', cat: 'OPEX',     name: 'تسويق وإعلانات الرحلة',             supplierId: 'S6', currency: 'EGP', unitPrice: 8000,  qty: 1, behavior: 'FIXED' },
       ],
       supervisor: { name: 'الشيخ/ محمد عبد الرحيم', phoneEG: '01005556677', phoneSA: '0551234567' },
+      commissions: { default: 600 }, // agent commission per person for this trip (never below each agent's minimum)
       bank: 'بنك مصر – حساب رقم 1230001234567 – شركة مدار للسياحة',
       boardingPoints: ['مقر الشركة – مدينة نصر', 'ميدان الجيزة', 'مطار القاهرة – مبنى 2'],
       itinerary: [
@@ -163,7 +164,7 @@
     P('B8', 'سلمى إبراهيم نصر', 'SALMA IBRAHIM NASR', 'F', 'ADULT', '2010-09-09', { stage: 2 });
     P('B8', 'زياد إبراهيم نصر', 'ZIAD IBRAHIM NASR', 'M', 'CHD', '2018-03-03', { stage: 2 });
 
-    B({ id: 'B9', code: 'BK-1009', channel: 'BROKER', agentId: 'A4', mode: 'PRIVATE_ROOM', roomType: 'DBL', status: 'DEPOSIT', net: pk('DBL') * 2, paid: 50000, agentCommission: Math.round(pk('DBL') * 2 * 0.04) });
+    B({ id: 'B9', code: 'BK-1009', channel: 'BROKER', agentId: 'A4', mode: 'PRIVATE_ROOM', roomType: 'DBL', status: 'DEPOSIT', net: pk('DBL') * 2, paid: 50000, agentCommission: 1000, commissionBase: 1200, commissionAdj: -200, commissionLog: [{ adj: -200, note: 'خصم لتأخير مستندات الجوازات', by: 'أ. هشام (مدير المبيعات)', at: now - 3 * 86400000 }] });
     P('B9', 'عبد الله رجب منصور', 'ABDALLA RAGAB MANSOUR', 'M', 'ADULT', '1955-01-10', { stage: 1 });
     P('B9', 'زينب علي منصور', 'ZEINAB ALY MANSOUR', 'F', 'ADULT', '1959-06-21', { stage: 1 });
 
@@ -209,7 +210,7 @@
     P('B20', 'عفاف سالم القاضي', 'AFAF SALEM ELKADY', 'F', 'ADULT', '1963-10-27', { stage: 3 });
     P('B20', 'إيمان رشاد حلمي', 'EMAN RASHAD HELMY', 'F', 'ADULT', '1978-05-16', { stage: 3 });
 
-    B({ id: 'B21', code: 'BK-1021', channel: 'BROKER', agentId: 'A4', mode: 'FULL_PACKAGE', roomType: 'QUAD', status: 'DEPOSIT', net: pk('QUAD'), paid: 20000, agentCommission: Math.round(pk('QUAD') * 0.04) });
+    B({ id: 'B21', code: 'BK-1021', channel: 'BROKER', agentId: 'A4', mode: 'FULL_PACKAGE', roomType: 'QUAD', status: 'DEPOSIT', net: pk('QUAD'), paid: 20000, agentCommission: 750, commissionBase: 600, commissionAdj: 150, commissionLog: [{ adj: 150, note: 'حافز إضافي — أول حجز للمندوب في الموسم', by: 'أ. هشام (مدير المبيعات)', at: now - 3 * 86400000 }] });
     P('B21', 'ياسر فوزي الحلواني', 'YASSER FAWZY ELHALWANY', 'M', 'ADULT', '1983-11-03', { stage: 1 });
 
     // Installment schedules for deposit bookings.

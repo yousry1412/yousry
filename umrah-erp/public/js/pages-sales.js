@@ -225,6 +225,7 @@
     ...d, userId: d.channel === 'DIRECT' ? App.ui.actingUser : null, agentId: d.channel === 'DIRECT' ? null : d.agentId,
     discountPct: d.channel === 'B2B' ? 0 : d.discountPct, incentive: d.channel === 'DIRECT' ? 0 : d.incentive,
     deposit: d.channel === 'B2B' ? 0 : d.deposit,
+    commissionAdj: d.channel === 'BROKER' && App.role() === 'OWNER' ? Number(d.commissionAdj || 0) : 0,
   });
 
   App.partials.bookingSummary = () => {
@@ -240,7 +241,7 @@
         ${v.discount ? `<tr><td>خصم مطلوب ${d.discountPct}%</td><td class="ok">−${h.egp(v.discount)}</td></tr>` : ''}
         ${v.incentiveDiscount ? `<tr><td>عمولة تشجيعية موجهة كخصم للعميل</td><td class="ok">−${h.egp(v.incentiveDiscount)}</td></tr>` : ''}
         <tr><td><b>الصافي المستحق</b></td><td><b class="gold">${h.egp(v.net)}</b></td></tr>
-        ${v.agentCommission ? `<tr><td>🏷️ عمولة الوسيط (${agent.commissionPct}%)</td><td><span class="chip gold">${h.egp(v.agentCommission)}</span></td></tr>` : ''}
+        ${v.commission ? `<tr><td>🏷️ عمولة المندوب: ${v.commission.rate != null ? `${h.n0(v.commission.rate)} × ${v.commission.units} ${v.commission.basis === 'BOOKING' ? 'حجز' : 'فرد'}` : ''} <span class="faint small">(${esc(v.commission.source)})</span>${Number(d.commissionAdj || 0) && App.role() === 'OWNER' ? ` ${d.commissionAdj > 0 ? '+' : '−'} ${h.n0(Math.abs(d.commissionAdj))} تعديل` : ''}</td><td><span class="chip gold">${h.egp(v.agentCommission)}</span></td></tr>` : ''}
         ${v.incentive && d.incentiveMode === 'AGENT_CREDIT' ? `<tr><td>رصيد دائن معلق للوكيل (يصرف بعد السداد الكامل)</td><td><span class="chip gold">${h.egp(v.incentive)}</span></td></tr>` : ''}
       </tbody></table>`}
       <div class="row" style="margin-top:10px"><span class="muted">الحالة عند الحفظ:</span> ${statusBox}
@@ -282,6 +283,8 @@
           <div class="field"><label>إيصال العربون ${App.isApprover() ? '' : '(إلزامي)'}</label><button class="btn" data-act="draftReceipt">📎 ${d.depositFileIds.length ? `${d.depositFileIds.length} مرفق` : 'إرفاق صورة'}</button></div>` : '<div class="field"><label>السداد</label><input class="input" readonly value="خصم فوري من المحفظة"></div>'}
           ${d.channel !== 'DIRECT' ? `<div class="field"><label>عمولة تشجيعية/فرد</label><input class="input" type="number" min="0" data-live="draft.incentive" data-num value="${d.incentive}"></div>
           <div class="field"><label>توجيه العمولة التشجيعية</label><select class="input" data-ui="draft.incentiveMode">${opt('CLIENT_DISCOUNT', d.incentiveMode, 'خصم مباشر لحجز العميل')}${opt('AGENT_CREDIT', d.incentiveMode, 'رصيد دائن بمحفظة الوكيل')}</select></div>` : ''}
+          ${d.channel === 'BROKER' && App.role() === 'OWNER' ? `<div class="field"><label>زيادة (+) / خصم (−) على عمولة المندوب</label><input class="input" type="number" step="50" data-live="draft.commissionAdj" data-num value="${d.commissionAdj || 0}"></div>
+          <div class="field"><label>سبب تعديل العمولة</label><input class="input" data-ui="draft.commissionNote" value="${esc(d.commissionNote || '')}"></div>` : ''}
           <div class="field"><label>الفرع</label><select class="input" data-ui="draft.branchId">${s.branches.map((b) => opt(b.id, d.branchId, b.name)).join('')}</select></div>
         </div>
         ${d.mode === 'UNBUNDLED' ? `<div class="alert warn">🔒 خدمات مجزأة: تُقفل خانة السعر وتتحول الحالة إلى "بانتظار تسعير الإدارة".
@@ -421,10 +424,11 @@
     <div class="page-head"><div><h2>🧾 ${b.code} ${h.statusChip(b.status)} ${b.pendingPay ? '<span class="chip hold">💰 دفعة بانتظار الاعتماد</span>' : ''}</h2>
       <p>${esc(t.code)} · ${esc(t.name)} · ${h.channelLabel(b)} · ${esc(E.SALE_MODES[b.mode])}${b.mode !== 'UNBUNDLED' ? ' · ' + E.ROOM_TYPES[b.roomType].ar : ''} · أنشأه ${esc(b.createdBy || '')} ${h.dt(b.createdAt)}</p></div>
       <div class="row">
-        ${b.status === 'PENDING_APPROVAL' ? `<button class="btn gold" data-act="approveDiscount" data-id="${b.id}">اعتماد الخصم</button>` : ''}
+        ${b.status === 'PENDING_APPROVAL' ? (App.role() === 'OWNER' ? `<button class="btn gold" data-act="approveDiscount" data-id="${b.id}">اعتماد الخصم</button>` : '<span class="chip hold">الخصم بانتظار اعتماد مالك النظام</span>') : ''}
         ${b.status === 'PENDING_PRICING' ? `<button class="btn gold" data-act="priceUnbundled" data-id="${b.id}">تسعير إداري</button>` : ''}
         ${E.LIVE_STATES.includes(b.status) && b.net && (b.paid || 0) < b.net && !['PENDING_APPROVAL', 'PENDING_PRICING'].includes(b.status) ? `<button class="btn primary" data-act="payBooking" data-id="${b.id}">💰 سند قبض</button>` : ''}
         <button class="btn" data-act="printInvoice" data-id="${b.id}">🖨️ فاتورة</button>
+        ${b.agentId && h.agent(b.agentId) && h.agent(b.agentId).tier === 'BROKER' && App.role() === 'OWNER' && E.LIVE_STATES.includes(b.status) ? `<button class="btn" data-act="commAdjForm" data-id="${b.id}">🏷️ تعديل عمولة المندوب</button>` : ''}
         ${E.HOLD_STATES.includes(b.status) ? `<button class="btn ghost" data-act="expireSoon" data-id="${b.id}" title="تجربة">⏩</button>` : ''}
         ${E.LIVE_STATES.includes(b.status) ? `<button class="btn danger" data-act="cancelBooking" data-id="${b.id}">إلغاء الحجز</button>` : ''}
         <button class="btn ghost" data-act="go" data-page="booking">↩ الحجوزات</button></div></div>
@@ -507,7 +511,7 @@
       <button class="btn primary" data-act="agentForm">+ وكيل/مندوب جديد</button></div>
     <div class="card"><div class="tbl-wrap"><table class="t"><thead><tr><th>الكود</th><th>الاسم</th><th>النوع</th><th>الهاتف</th><th>المحفظة</th><th>السقف</th><th>الرصيد المحاسبي</th><th>الحالة</th><th></th></tr></thead><tbody>
       ${s.agents.map((a) => { const lock = a.blocked || a.overdueDays > 0; const bal = Acc.partyBalance(s, 'agent', a.id); return `<tr><td class="num">${esc(a.code)}</td><td><b>${esc(a.name)}</b></td>
-        <td>${a.tier === 'B2B' ? '<span class="chip ok">وكيل B2B</span>' : '<span class="chip gold">وسيط/مندوب</span>'}</td><td class="num">${esc(a.phone || '')}</td>
+        <td>${a.tier === 'B2B' ? `<span class="chip ok">وكيل B2B</span><div class="small muted">جملة −${a.netDiscountPct}%</div>` : `<span class="chip gold">وسيط/مندوب</span><div class="small muted">${(() => { const r = E.commissionRule(a); return r.type === 'PCT' ? `${r.pct}%${r.min ? ` (حد أدنى ${h.n0(r.min)})` : ''}` : `حد أدنى ${h.n0(r.min)} / ${r.basis === 'BOOKING' ? 'حجز' : 'فرد'}`; })()}</div>`}</td><td class="num">${esc(a.phone || '')}</td>
         <td class="${a.balance < 0 ? 'danger' : ''}">${h.cur(a.balance, a.currency)}</td><td>${a.tier === 'B2B' ? h.cur(a.creditLimit, a.currency) : '—'}</td>
         <td class="${bal > 0 ? 'danger' : 'ok'}">${h.egp(Math.abs(bal))} ${bal > 0 ? 'مدين' : bal < 0 ? 'دائن' : ''}</td>
         <td>${lock ? `<span class="chip danger">🔒 ${a.blocked ? 'موقوف' : `متأخرات ${a.overdueDays} يوم`}</span>` : '<span class="chip ok">نشط</span>'}</td>
@@ -524,8 +528,28 @@
           <td>${b.incentiveMode === 'CLIENT_DISCOUNT' ? '<span class="chip ok">مطبق</span>' : b.incentiveReleased ? '<span class="chip ok">صُرف للمحفظة</span>'
             : b.status === 'CONFIRMED' ? `<button class="btn sm gold" data-act="releaseIncentive" data-id="${b.id}">صرف للمحفظة</button>` : '<span class="chip hold">حتى السداد الكامل</span>'}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">لا توجد عمولات.</td></tr>'}
       </tbody></table></div></div>
-      <div class="card"><h3>🧭 مصفوفة صلاحيات الخصم</h3><table class="t">${Object.entries(E.ROLES).map(([k, r]) => `<tr><td>${r.ar}</td><td><b class="num">${r.maxDiscount}%</b></td><td class="small muted">${k === 'SALES' ? 'أي خصم → اعتماد' : 'ما فوقه → اعتماد أعلى'}</td></tr>`).join('')}</table></div>
+      <div class="card"><h3>🧭 مصفوفة صلاحيات الخصم</h3><table class="t">${Object.entries(E.ROLES).map(([k, r]) => `<tr><td>${r.ar}</td><td><b class="num">${r.maxDiscount}%</b></td><td class="small muted">${k === 'OWNER' ? 'يعتمد أي خصم' : 'أي خصم → اعتماد المالك'}</td></tr>`).join('')}</table></div>
     </div>`;
+  };
+  App.actions.commAdjForm = (d) => {
+    const f = Model.findBooking(S(), d.id), b = f.b;
+    App.modal(`<h3>🏷️ عمولة المندوب — ${esc(b.code)}</h3><table class="t small"><tr><td>العمولة الأساسية (سعر الرحلة/الحد الأدنى)</td><td>${h.egp(b.commissionBase ?? b.agentCommission)}</td></tr>
+      <tr><td>التعديلات الحالية</td><td>${h.egp(b.commissionAdj || 0)}</td></tr><tr><td><b>العمولة المستحقة</b></td><td><b>${h.egp(b.agentCommission)}</b></td></tr></table>
+      ${(b.commissionLog || []).map((x) => `<div class="small muted">${x.adj > 0 ? '+' : ''}${h.n0(x.adj)} · ${esc(x.note)} · ${esc(x.by)}</div>`).join('')}
+      <div class="grid g2" style="margin-top:10px"><div class="field"><label>زيادة (+) أو خصم (−)</label><input class="input" id="ca-amt" type="number" step="50"></div><div class="field"><label>السبب</label><input class="input" id="ca-note"></div></div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" data-act="commAdjSave" data-id="${b.id}">حفظ وترحيل الفرق</button><button class="btn" data-act="closeModal">إلغاء</button></div>`);
+  };
+  App.actions.commAdjSave = (d) => {
+    if (App.role() !== 'OWNER') return App.toast('تعديل العمولة من صلاحية مالك النظام', 'err');
+    const f = Model.findBooking(S(), d.id), b = f.b, amt = Number(App.val('ca-amt')) || 0, note = String(App.val('ca-note') || '').trim();
+    if (!amt) return App.toast('اكتب المبلغ', 'err');
+    if (!note) return App.toast('اكتب السبب', 'err');
+    const base = b.commissionBase ?? b.agentCommission;
+    b.commissionAdj = E.round2((b.commissionAdj || 0) + amt);
+    b.agentCommission = Math.max(0, E.round2(base + b.commissionAdj));
+    (b.commissionLog = b.commissionLog || []).push({ adj: amt, note, by: App.actor().name, at: Date.now() });
+    Acc.syncBooking(S(), f.doc.trip, b, App.actor().name);
+    App.audit(`تعديل عمولة ${b.code}: ${amt > 0 ? '+' : ''}${amt} (${note})`); App.closeModal(); App.save(); App.render(); App.toast('تم التعديل وترحيل الفرق للحسابات');
   };
   App.actions.agentForm = (d) => {
     const a = d.id ? h.agent(d.id) : { tier: 'B2B', currency: 'EGP', creditLimit: 0, netDiscountPct: 5, commissionPct: 4, balance: 0 };
@@ -536,15 +560,25 @@
       <div class="field"><label>عملة المحفظة</label><select class="input" id="ag-cur">${opt('EGP', a.currency, 'جنيه')}${opt('SAR', a.currency, 'ريال')}</select></div>
       <div class="field"><label>السقف الائتماني</label><input class="input" id="ag-limit" type="number" value="${a.creditLimit || 0}"></div>
       <div class="field"><label>خصم الجملة % (B2B)</label><input class="input" id="ag-net" type="number" step="0.5" value="${a.netDiscountPct || 0}"></div>
-      <div class="field"><label>العمولة % (وسيط)</label><input class="input" id="ag-com" type="number" step="0.5" value="${a.commissionPct || 0}"></div>
-    </div><div class="row" style="margin-top:12px"><button class="btn primary" data-act="saveAgent" data-id="${d.id || ''}">حفظ</button><button class="btn" data-act="closeModal">إلغاء</button></div>`);
+    </div>
+    ${(() => { const r = E.commissionRule(a), own = App.role() === 'OWNER', dis = own ? '' : 'disabled'; return `<h4 style="margin:14px 0 6px">🏷️ عمولة المندوب ${own ? '' : '<span class="chip hold">يحددها مالك النظام</span>'}</h4><div class="grid g4">
+      <div class="field"><label>نوع العمولة</label><select class="input" id="ag-ctype" ${dis}>${opt('FIXED', r.type, 'مبلغ ثابت (مقطوع)')}${opt('PCT', r.type, 'نسبة من السعر')}</select></div>
+      <div class="field"><label>تُحسب على</label><select class="input" id="ag-cbasis" ${dis}>${opt('PAX', r.basis, 'كل فرد (بالغ/طفل)')}${opt('BOOKING', r.basis, 'كل حجز')}</select></div>
+      <div class="field"><label>الحد الأدنى للعمولة (ج.م)</label><input class="input" id="ag-cmin" type="number" step="50" value="${r.min || 0}" ${dis}></div>
+      <div class="field"><label>النسبة % (لو نسبة)</label><input class="input" id="ag-com" type="number" step="0.5" value="${r.pct || 0}" ${dis}></div></div>
+      <div class="small muted">العمولة الفعلية = سعر عمولة الرحلة لهذا المندوب (من إعدادات الرحلة) ولا تقل أبداً عن الحد الأدنى هنا، ثم يضيف/يخصم المالك على كل حجز حسب الحالة. تُرحّل آلياً: مدين 5205 عمولات الوكلاء ← دائن حساب المندوب 1104.</div>`; })()}<div class="row" style="margin-top:12px"><button class="btn primary" data-act="saveAgent" data-id="${d.id || ''}">حفظ</button><button class="btn" data-act="closeModal">إلغاء</button></div>`);
   };
   App.actions.saveAgent = (d) => {
     const s = S(), name = String(App.val('ag-name')).trim();
     if (name.length < 2) return App.toast('اكتب الاسم', 'err');
     const a = d.id ? h.agent(d.id) : { id: 'A' + Date.now().toString(36), code: Model.nextCode(s, 'AGT', 'AGT'), balance: 0, overdueDays: 0, blocked: false, pin: '' };
     Object.assign(a, { name, tier: App.val('ag-tier'), phone: App.val('ag-phone'), currency: App.val('ag-cur'), creditLimit: Number(App.val('ag-limit')) || 0,
-      netDiscountPct: App.val('ag-tier') === 'B2B' ? Number(App.val('ag-net')) || 0 : 0, commissionPct: App.val('ag-tier') === 'BROKER' ? Number(App.val('ag-com')) || 0 : 0 });
+      netDiscountPct: App.val('ag-tier') === 'B2B' ? Number(App.val('ag-net')) || 0 : 0 });
+    if (App.role() === 'OWNER') {
+      const broker = App.val('ag-tier') === 'BROKER';
+      a.commission = broker ? { type: App.val('ag-ctype'), basis: App.val('ag-cbasis'), min: Number(App.val('ag-cmin')) || 0, pct: Number(App.val('ag-com')) || 0 } : null;
+      a.commissionPct = broker && a.commission.type === 'PCT' ? a.commission.pct : 0;
+    } else if (!d.id) a.commission = { type: 'FIXED', basis: 'PAX', min: 0, pct: 0 };
     if (!d.id) s.agents.push(a);
     App.audit(`${d.id ? 'تعديل' : 'إضافة'} وكيل ${a.code} ${a.name}`); App.closeModal(); App.save(); App.render();
   };
@@ -557,5 +591,63 @@
     const f = Model.findBooking(S(), d.id), b = f.b, a = h.agent(b.agentId), amt = E.round2(a.currency === 'SAR' ? b.incentive / S().fx.current : b.incentive);
     a.balance = E.round2(a.balance + amt); b.incentiveReleased = true;
     App.audit(`صرف عمولة تشجيعية ${b.code} لمحفظة ${a.name}`); App.save(); App.render();
+  };
+  // ================================================================ SCORECARDS: agents & sales team
+  const RCLS = (t) => (t == null ? '' : t >= 85 ? 'ok' : t >= 70 ? 'deposit' : t >= 55 ? 'hold' : 'danger');
+  const pbar = (v) => `<div class="progress"><span style="width:${Math.max(0, Math.min(100, v || 0))}%"></span></div>`;
+  const pc = (v) => (v == null ? '—' : `<span class="num">${Math.round(v)}%</span>`);
+  function scorePeriod() {
+    const p = App.ui.scP || 'MONTH', t = E.iso(new Date());
+    if (p === 'MONTH') return { from: t.slice(0, 7) + '-01', to: t };
+    if (p === 'Q') return { from: E.iso(E.addDays(t, -90)), to: t };
+    if (p === 'YEAR') return { from: t.slice(0, 4) + '-01-01', to: t };
+    return {};
+  }
+  App.pages.scores = () => {
+    const s = S(), tab = App.ui.scTab || 'agents', f = scorePeriod(), canReview = ['OWNER', 'MANAGER', 'HEAD'].includes(App.role());
+    const per = `<select class="input" data-ui="scP">${[['MONTH', 'الشهر الحالي'], ['Q', 'آخر 90 يوم'], ['YEAR', 'السنة الحالية'], ['ALL', 'كل الفترات']].map(([k, l]) => opt(k, App.ui.scP || 'MONTH', l)).join('')}</select>`;
+    let body;
+    if (tab === 'agents') {
+      const rows = Model.agentRanking(s, f);
+      body = `<div class="card"><div class="tbl-wrap"><table class="t" id="scAgents"><thead><tr><th>#</th><th>الوكيل/المندوب</th><th>الدرجة</th><th>التقدير</th><th>الحجوزات</th><th>المعتمرين</th><th>المبيعات</th><th>التحصيل</th><th>إلغاء/انتهاء</th><th>المستندات</th><th>العمولات</th><th>الرصيد</th><th>تقييم الإدارة</th><th></th></tr></thead><tbody>
+        ${rows.map((r, i) => `<tr><td class="num">${i + 1}</td><td><b>${esc(r.a.name)}</b><div class="small muted">${esc(r.a.code)} · ${r.a.tier === 'B2B' ? 'وكيل B2B' : 'مندوب'}${r.k.lastBooking ? ' · آخر حجز ' + E.iso(new Date(r.k.lastBooking)) : ''}</div></td>
+          <td style="min-width:100px">${r.total == null ? '—' : pbar(r.total) + `<b class="num">${Math.round(r.total)}</b>`}</td><td><span class="chip ${RCLS(r.total)}">${r.rating.k} · ${r.rating.ar}</span></td>
+          <td class="num">${r.k.live}/${r.k.bookings}</td><td class="num">${r.k.pax}</td><td>${h.egp(r.k.net)}</td><td>${pc(r.k.collectionPct)}${r.k.overdueInst ? `<div class="small danger">${r.k.overdueInst} قسط متأخر</div>` : ''}</td>
+          <td>${pc(r.k.cancelPct)}</td><td>${pc(r.k.docsPct)}</td><td>${r.k.commission ? h.egp(r.k.commission) + `<div class="small muted">${h.n0(r.k.avgCommission)}/فرد</div>` : '—'}</td>
+          <td class="${r.k.balance > 0 ? 'danger' : 'ok'}">${h.egp(Math.abs(r.k.balance))} ${r.k.balance > 0 ? 'عليه' : r.k.balance < 0 ? 'له' : ''}</td>
+          <td>${r.k.review == null ? '—' : '★'.repeat(Math.round(r.k.review / 20))}</td>
+          <td class="row" style="gap:4px">${canReview ? `<button class="btn sm" data-act="agentReview" data-id="${r.a.id}">⭐ تقييم</button>` : ''}<button class="btn sm ghost" data-act="go" data-page="partyView" data-ptype="agent" data-id="${r.a.id}">📄</button></td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="small muted" style="margin-top:8px">الدرجة = حجم المبيعات مقارنة بالأفضل 30% · الأداء المالي (نسبة التحصيل، الأقساط المتأخرة، استهلاك السقف) 30% · جودة الشغل (الإلغاءات وانتهاء المهلة) 15% · اكتمال المستندات 10% · الانضباط 5% · تقييم الإدارة 10%.</div></div>
+      <div class="card" style="margin-top:14px"><h3>🏷️ كشف عمولات المناديب</h3><div class="tbl-wrap"><table class="t"><thead><tr><th>المندوب</th><th>عمولات مستحقة (الفترة)</th><th>منها تعديلات المالك</th><th>مصروف له (سندات صرف)</th><th>الرصيد المحاسبي</th><th></th></tr></thead><tbody>
+        ${rows.filter((r) => r.a.tier === 'BROKER').map((r) => { const adj = s.trips.reduce((x, d) => x + d.bookings.filter((b) => b.agentId === r.a.id && E.LIVE_STATES.includes(b.status)).reduce((y, b) => y + (b.commissionAdj || 0), 0), 0);
+          const paid = s.vouchers.filter((v) => v.type === 'PV' && v.status === 'POSTED' && v.party && v.party.type === 'agent' && v.party.id === r.a.id).reduce((x, v) => x + v.amount * (v.currency === 'EGP' ? 1 : v.fx), 0);
+          return `<tr><td>${esc(r.a.name)}</td><td>${h.egp(r.k.commission)}</td><td class="${adj < 0 ? 'danger' : 'ok'}">${adj ? (adj > 0 ? '+' : '−') + h.n0(Math.abs(adj)) : '—'}</td><td>${h.egp(paid)}</td>
+            <td>${h.egp(Math.abs(r.k.balance))} ${r.k.balance < 0 ? 'مستحق له' : r.k.balance > 0 ? 'عليه' : ''}</td><td><button class="btn sm" data-act="topup" data-id="${r.a.id}">💸 صرف عمولة</button></td></tr>`; }).join('') || '<tr><td colspan="6" class="muted">لا مناديب.</td></tr>'}
+      </tbody></table></div><div class="small muted">العمولات مُرحّلة آلياً على مصروف "عمولات الوكلاء والوسطاء" 5205 وتظهر في قائمة الدخل وربح كل رحلة.</div></div>`;
+    } else {
+      const Hr = window.Hr, p = (f.from || E.iso(new Date())).slice(0, 7), td = E.iso(new Date());
+      const team = s.employees.filter((e) => (e.status || 'ACTIVE') !== 'TERMINATED').map((e) => ({ e, sc: Hr.score(s, e, p, td) })).filter((x) => x.sc.kpis.bookings || x.e.dept === 'D2').sort((a, b) => b.sc.total - a.sc.total);
+      body = `<div class="card"><div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th>الموظف</th><th>الدرجة</th><th>التقدير</th><th>الحجوزات</th><th>التحويل</th><th>المبيعات</th><th>الهدف</th><th>التحصيل</th><th>خصومات مطلوبة</th><th>إلغاء</th><th>الحضور</th></tr></thead><tbody>
+        ${team.map((x, i) => { const k = x.sc.kpis; return `<tr class="clickable" ${Hr.HR_ADMINS.includes(App.role()) ? `data-act="go" data-page="hrEmployee" data-id="${x.e.id}"` : ''}><td class="num">${i + 1}</td><td><b>${esc(x.e.name)}</b><div class="small muted">${esc(x.e.job || '')}</div></td>
+          <td style="min-width:100px">${pbar(x.sc.total)}<b class="num">${Math.round(x.sc.total)}</b></td><td><span class="chip ${RCLS(x.sc.total)}">${x.sc.rating.k} · ${x.sc.rating.ar}</span></td>
+          <td class="num">${k.liveBookings}/${k.bookings}</td><td>${pc(k.conversion)}</td><td>${h.egp(k.sales)}</td><td>${pc(k.achievement)}</td><td>${h.egp(k.collections)}</td><td class="num">${k.discountCount}</td><td class="num">${k.cancelled}</td><td>${pc(x.sc.attendance.attendancePct)}</td></tr>`; }).join('') || '<tr><td colspan="12" class="muted">لا يوجد موظفو مبيعات مربوطون — اربط حسابات السيلز بملفاتهم من الموارد البشرية.</td></tr>'}
+      </tbody></table></div><div class="small muted" style="margin-top:8px">تقييم ${esc(p)} من الموارد البشرية: تحقيق الهدف + الحضور + تقييم المدير + المهام، ومحسوب من الحجوزات والسندات الفعلية لكل موظف.</div></div>`;
+    }
+    return `<div class="page-head"><div><h2>⭐ تقييم المناديب وفريق المبيعات</h2><p>تقييم الشغل والأداء المالي لكل مندوب ووكيل، وأداء كل موظف مبيعات</p></div><div class="row">${per}</div></div>
+      <div class="tabs"><button class="${tab === 'agents' ? 'active' : ''}" data-act="scTab" data-t="agents">🤝 الوكلاء والمناديب</button><button class="${tab === 'team' ? 'active' : ''}" data-act="scTab" data-t="team">🧑‍💼 فريق المبيعات</button></div>${body}`;
+  };
+  App.actions.scTab = (d) => { App.ui.scTab = d.t; App.render(); };
+  App.actions.agentReview = (d) => {
+    const a = h.agent(d.id);
+    App.modal(`<h3>⭐ تقييم ${esc(a.name)}</h3><div class="grid g2"><div class="field"><label>التقييم</label><select class="input" id="ar-stars">${[5, 4, 3, 2, 1].map((n) => opt(n, 4, `${'★'.repeat(n)} ${['', 'ضعيف', 'مقبول', 'جيد', 'جيد جداً', 'ممتاز'][n]}`)).join('')}</select></div>
+      <div class="field"><label>التاريخ</label><input class="input" type="date" id="ar-date" value="${E.iso(new Date())}"></div></div>
+      <div class="field"><label>ملاحظات (التزام، تعامل، جودة المستندات، السداد…)</label><input class="input" id="ar-note"></div>
+      ${(a.reviews || []).slice(-5).reverse().map((r) => `<div class="small muted">${'★'.repeat(r.stars)} · ${esc(r.date)} · ${esc(r.note)} — ${esc(r.by)}</div>`).join('')}
+      <div class="row" style="margin-top:12px"><button class="btn primary" data-act="agentReviewSave" data-id="${a.id}">حفظ</button><button class="btn" data-act="closeModal">إلغاء</button></div>`);
+  };
+  App.actions.agentReviewSave = (d) => {
+    const a = h.agent(d.id); (a.reviews = a.reviews || []).push({ stars: Number(App.val('ar-stars')), date: App.val('ar-date'), note: App.val('ar-note'), by: App.actor().name, at: Date.now() });
+    App.audit(`تقييم ${a.name}: ${App.val('ar-stars')}/5`); App.closeModal(); App.save(); App.render();
   };
 })();

@@ -93,9 +93,9 @@
   App.val = (id) => { const el = document.getElementById(id); return el ? readValue(el) : undefined; };
 
   // --------------------------------------------------------- roles
-  const ROLE_MAP = { OWNER: 'MANAGER', MANAGER: 'MANAGER', HEAD: 'HEAD', SALES: 'SALES', OPERATIONS: 'SALES', ACCOUNTANT: 'SALES', HR: 'SALES' };
+  const ROLE_MAP = { OWNER: 'OWNER', MANAGER: 'SALES', HEAD: 'HEAD', SALES: 'SALES', OPERATIONS: 'SALES', ACCOUNTANT: 'SALES', HR: 'SALES' };
   App.ROLE_LABEL = { OWNER: 'المالك', MANAGER: 'مدير', ACCOUNTANT: 'محاسب', HR: 'موارد بشرية', HEAD: 'رئيس قسم مبيعات', SALES: 'موظف مبيعات', OPERATIONS: 'عمليات وتسكين', AGENT: 'مندوب/وكيل', SUPERVISOR: 'مشرف رحلة', HOUSING: 'مندوب تسكين' };
-  App.role = () => (App.online ? App.me.role : { MANAGER: 'OWNER', HEAD: 'HEAD', SALES: 'SALES' }[App.h.user().role] || 'SALES');
+  App.role = () => (App.online ? App.me.role : { OWNER: 'OWNER', MANAGER: 'OWNER', HEAD: 'HEAD', SALES: 'SALES' }[App.h.user().role] || 'SALES');
   App.actor = () => ({ name: App.online ? App.me.display_name : App.h.user().name, role: App.role(), staffId: App.ui.actingUser, userId: App.me && App.me.id });
   App.can = (...roles) => roles.includes(App.role());
   App.isApprover = () => Acc.canApprove(App.role());
@@ -256,9 +256,9 @@
   const EVERY = [...ALL, 'HR'];
   App.NAV = [
     ['home', '🏠', 'الرئيسية', [['home', 'لوحة التحكم والتنبيهات', EVERY], ['me', 'حسابي كموظف', EVERY]]],
-    ['trips', '✈️', 'الرحلات والتشغيل', [['trips', 'الرحلات', ALL], ['builder', 'التكلفة والتسعير', [...FIN, 'HEAD']], ['heatmap', 'رادار الإتاحات', ALL],
+    ['trips', '🕋', 'العمرة — الرحلات والتشغيل', [['trips', 'الرحلات', ALL], ['builder', 'التكلفة والتسعير', [...FIN, 'HEAD']], ['heatmap', 'رادار الإتاحات', ALL],
       ['rooms', 'التسكين المزدوج', OPS], ['bus', 'مقاعد الباص', OPS], ['ops', 'العمليات والكشوف', OPS], ['tripfiles', 'ملفات الرحلة', ALL]]],
-    ['sales', '🧾', 'المبيعات والعملاء', [['booking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL]]],
+    ['sales', '🧾', 'المبيعات والعملاء', [['booking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL], ['scores', 'تقييم المناديب والمبيعات', ['OWNER', 'MANAGER', 'HEAD', 'ACCOUNTANT']]]],
     ['purch', '🏨', 'الموردون والفنادق', [['suppliers', 'الموردون', [...FIN, 'OPERATIONS']], ['hotels', 'الفنادق والمخصصات', [...FIN, 'OPERATIONS', 'HEAD']]]],
     ['fin', '💰', 'المالية والحسابات', [['treasury', 'الخزائن والبنوك', FIN], ['vouchers', 'السندات والاعتمادات', ALL], ['expenses', 'المصروفات', FIN],
       ['employees', 'الموظفون', FIN], ['fx', 'أسعار الصرف', EVERY], ['coa', 'شجرة الحسابات', FIN], ['journal', 'القيود اليومية', FIN], ['reports', 'التقارير المالية', FIN], ['pnl', 'أرباح الرحلة', FIN]]],
@@ -269,7 +269,11 @@
     ['admin', '⚙️', 'الإدارة', [['settings', 'الشركة والفروع والضرائب', ADM], ['users', 'المستخدمون والصلاحيات', ADM], ['backup', 'النسخ الاحتياطي والإصدارات', ADM]]],
   ];
   const TRIP_PAGES = ['builder', 'heatmap', 'rooms', 'bus', 'ops', 'pnl', 'tripfiles'];
-  const pageAllowed = (p) => { for (const g of App.NAV) for (const [k, , roles] of g[3]) if (k === p) return roles.includes(App.role()); return true; };
+  /** Sidebar groups that belong to one line of business — hidden when the company (or the user's branch) doesn't work in it. */
+  App.GROUP_DOMAIN = { trips: 'UMRAH', dom: 'DOMESTIC' };
+  App.myBranch = () => (App.online && App.me && App.me.role !== 'OWNER' ? App.me.branch_id || null : null);
+  const groupOn = (gid) => !App.GROUP_DOMAIN[gid] || !App.S || Model.hasDomain(App.S, App.GROUP_DOMAIN[gid], App.myBranch());
+  const pageAllowed = (p) => { for (const g of App.NAV) for (const [k, , roles] of g[3]) if (k === p) return roles.includes(App.role()) && groupOn(g[0]); return true; };
   const pageTitle = (p) => { for (const g of App.NAV) for (const [k, l] of g[3]) if (k === p) return l; return { bookingView: 'تفاصيل الحجز', customerView: 'حساب العميل', partyView: 'كشف حساب', hrEmployee: 'ملف الموظف' }[p] || ''; };
 
   function renderShell() {
@@ -277,7 +281,7 @@
     const alerts = Model.alerts(S, role);
     document.getElementById('brandCompany').textContent = S.company.name;
     document.getElementById('nav').innerHTML = App.NAV.map(([gid, ico, label, items]) => {
-      const vis = items.filter(([, , roles]) => roles.includes(role));
+      const vis = groupOn(gid) ? items.filter(([, , roles]) => roles.includes(role)) : [];
       if (!vis.length) return '';
       if (gid === 'home') return vis.map((it, i) => navItem(it, i ? '🪪' : ico)).join('');
       const open = App.ui.navOpen[gid] ?? vis.some(([k]) => k === App.ui.page);

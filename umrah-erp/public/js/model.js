@@ -12,10 +12,51 @@
 })(typeof self !== 'undefined' ? self : this, function (E, Acc, Hr) {
   'use strict';
   const TRIP_KEYS = ['trip', 'bookings', 'pax', 'rooms', 'beds', 'bus', 'roomingLocked', 'settlements', 'fieldExpenses', 'docs'];
+  /**
+   * Country presets (applied when the country is chosen — every value stays editable, the accountant has the last word):
+   * currency · dial code · VAT · withholding on supplier payments · stamp duty · income tax / zakat (estimate) · tourism regulator.
+   */
   const COUNTRIES = {
-    EG: { ar: 'مصر', vat: 14, currency: 'EGP' }, SA: { ar: 'السعودية', vat: 15, currency: 'SAR' }, AE: { ar: 'الإمارات', vat: 5, currency: 'AED' },
-    KW: { ar: 'الكويت', vat: 0, currency: 'KWD' }, JO: { ar: 'الأردن', vat: 16, currency: 'JOD' }, OTHER: { ar: 'أخرى', vat: 0, currency: 'EGP' },
+    EG: { ar: 'مصر', currency: 'EGP', sym: 'ج.م', dial: '20', vat: 14, wht: 1, whtThreshold: 300, stamp: 0, income: 22.5, incomeLabel: 'ضريبة الدخل', regulator: 'وزارة السياحة والآثار — ترخيص شركة سياحة (فئة أ/ب/ج)', umrahAuth: 'قرعة/تنظيم العمرة — غرفة شركات السياحة' },
+    SA: { ar: 'السعودية', currency: 'SAR', sym: 'ر.س', dial: '966', vat: 15, wht: 0, stamp: 0, income: 2.5, incomeLabel: 'الزكاة', regulator: 'وزارة السياحة — ترخيص وكالة سفر وسياحة', umrahAuth: 'وزارة الحج والعمرة — منصة نسك' },
+    AE: { ar: 'الإمارات', currency: 'AED', sym: 'د.إ', dial: '971', vat: 5, wht: 0, stamp: 0, income: 9, incomeLabel: 'ضريبة الشركات', regulator: 'دائرة السياحة بالإمارة' },
+    KW: { ar: 'الكويت', currency: 'KWD', sym: 'د.ك', dial: '965', vat: 0, wht: 0, stamp: 0, income: 0, incomeLabel: 'الزكاة', regulator: 'وزارة التجارة — ترخيص مكتب سياحة وسفر' },
+    QA: { ar: 'قطر', currency: 'QAR', sym: 'ر.ق', dial: '974', vat: 0, wht: 0, stamp: 0, income: 10, incomeLabel: 'ضريبة الدخل', regulator: 'قطر للسياحة' },
+    BH: { ar: 'البحرين', currency: 'BHD', sym: 'د.ب', dial: '973', vat: 10, wht: 0, stamp: 0, income: 0, incomeLabel: 'ضريبة الدخل', regulator: 'هيئة البحرين للسياحة والمعارض' },
+    OM: { ar: 'عُمان', currency: 'OMR', sym: 'ر.ع', dial: '968', vat: 5, wht: 0, stamp: 0, income: 15, incomeLabel: 'ضريبة الدخل', regulator: 'وزارة التراث والسياحة' },
+    JO: { ar: 'الأردن', currency: 'JOD', sym: 'د.أ', dial: '962', vat: 16, wht: 0, stamp: 0, income: 20, incomeLabel: 'ضريبة الدخل', regulator: 'وزارة السياحة والآثار' },
+    IQ: { ar: 'العراق', currency: 'IQD', sym: 'د.ع', dial: '964', vat: 0, wht: 0, stamp: 0, income: 15, incomeLabel: 'ضريبة الدخل', regulator: 'هيئة السياحة' },
+    LB: { ar: 'لبنان', currency: 'LBP', sym: 'ل.ل', dial: '961', vat: 11, wht: 0, stamp: 0, income: 17, incomeLabel: 'ضريبة الدخل', regulator: 'وزارة السياحة' },
+    PS: { ar: 'فلسطين', currency: 'ILS', sym: '₪', dial: '970', vat: 16, wht: 0, stamp: 0, income: 15, incomeLabel: 'ضريبة الدخل', regulator: 'وزارة السياحة والآثار' },
+    SD: { ar: 'السودان', currency: 'SDG', sym: 'ج.س', dial: '249', vat: 17, wht: 0, stamp: 0, income: 30, incomeLabel: 'ضريبة أرباح الأعمال', regulator: 'وزارة السياحة' },
+    LY: { ar: 'ليبيا', currency: 'LYD', sym: 'د.ل', dial: '218', vat: 0, wht: 0, stamp: 0, income: 20, incomeLabel: 'ضريبة الدخل', regulator: 'وزارة السياحة' },
+    TN: { ar: 'تونس', currency: 'TND', sym: 'د.ت', dial: '216', vat: 19, wht: 1.5, whtThreshold: 1000, stamp: 0, income: 15, incomeLabel: 'الضريبة على الشركات', regulator: 'الديوان الوطني التونسي للسياحة' },
+    DZ: { ar: 'الجزائر', currency: 'DZD', sym: 'د.ج', dial: '213', vat: 19, wht: 0, stamp: 0, income: 26, incomeLabel: 'الضريبة على أرباح الشركات', regulator: 'وزارة السياحة' },
+    MA: { ar: 'المغرب', currency: 'MAD', sym: 'د.م', dial: '212', vat: 20, wht: 0, stamp: 0, income: 20, incomeLabel: 'الضريبة على الشركات', regulator: 'وزارة السياحة' },
+    TR: { ar: 'تركيا', currency: 'TRY', sym: '₺', dial: '90', vat: 20, wht: 0, stamp: 0.948, income: 25, incomeLabel: 'ضريبة الشركات', regulator: 'وزارة الثقافة والسياحة (TÜRSAB)' },
+    PK: { ar: 'باكستان', currency: 'PKR', sym: 'Rs', dial: '92', vat: 16, wht: 0, stamp: 0, income: 29, incomeLabel: 'ضريبة الدخل', regulator: 'وزارة الشؤون الدينية (العمرة)' },
+    ID: { ar: 'إندونيسيا', currency: 'IDR', sym: 'Rp', dial: '62', vat: 11, wht: 0, stamp: 0, income: 22, incomeLabel: 'ضريبة الدخل', regulator: 'وزارة الشؤون الدينية (PPIU)' },
+    MY: { ar: 'ماليزيا', currency: 'MYR', sym: 'RM', dial: '60', vat: 8, wht: 0, stamp: 0, income: 24, incomeLabel: 'ضريبة الدخل', regulator: 'وزارة السياحة (MOTAC)' },
+    OTHER: { ar: 'أخرى', currency: 'EGP', sym: '', dial: '', vat: 0, wht: 0, stamp: 0, income: 0, incomeLabel: 'ضريبة الدخل', regulator: '' },
   };
+  const DOMAINS = { UMRAH: { ar: 'العمرة والحج', icon: '🕋' }, DOMESTIC: { ar: 'السياحة الداخلية', icon: '🏖️' } };
+  /** Apply a country's presets to the company (does not touch the company name or legal data). */
+  function applyCountry(c, country) {
+    const p = COUNTRIES[country] || COUNTRIES.OTHER;
+    Object.assign(c, { country, currency: p.currency, dial: p.dial, vatEnabled: p.vat > 0, vatRate: p.vat, whtEnabled: p.wht > 0, whtRate: p.wht, whtThreshold: p.whtThreshold || 0,
+      stampEnabled: p.stamp > 0, stampRate: p.stamp, incomeTaxEnabled: p.income > 0, incomeTaxRate: p.income, incomeTaxLabel: p.incomeLabel });
+    return c;
+  }
+  /** Fill company/branch fields introduced after the document was created. */
+  function normalizeCompany(S) {
+    const c = S.company, p = COUNTRIES[c.country] || COUNTRIES.OTHER;
+    const def = { legalName: '', licenseCategory: '', currency: p.currency, dial: p.dial, domains: ['UMRAH'], whtEnabled: false, whtRate: p.wht, whtThreshold: p.whtThreshold || 0,
+      stampEnabled: false, stampRate: p.stamp, incomeTaxEnabled: false, incomeTaxRate: p.income, incomeTaxLabel: p.incomeLabel, website: '', terms: '' };
+    for (const [k, v] of Object.entries(def)) if (c[k] === undefined) c[k] = v;
+    if (!Array.isArray(c.domains) || !c.domains.length) c.domains = ['UMRAH'];
+    for (const b of S.branches) { if (!Array.isArray(b.domains)) b.domains = c.domains.slice(); if (b.phone === undefined) Object.assign(b, { phone: '', address: '', managerEmpId: null, active: true }); }
+  }
+  const hasDomain = (S, d, branchId) => (S.company.domains || ['UMRAH']).includes(d) && (!branchId || ((S.branches.find((b) => b.id === branchId) || {}).domains || [d]).includes(d));
   const TRIP_DOC_KINDS = { TICKETS: 'تذاكر الطيران', VISAS: 'التأشيرات', BARCODE: 'الباركود', ROOMING: 'كشوف الفنادق', OTHER: 'مستندات أخرى' };
 
   const emptyTripDoc = (trip) => ({ id: trip.id, trip, bookings: [], pax: [], rooms: [], beds: [], bus: { seats: {}, plate: '', driver: '' },
@@ -52,7 +93,8 @@
     const c = COUNTRIES[country] || COUNTRIES.EG;
     return {
       version: 4,
-      company: { name: name || 'شركتي للسياحة', country, currency: 'EGP', vatEnabled: false, vatRate: c.vat, taxNo: '', commercialNo: '', address: '', phone: '', email: '', licenseNo: '' },
+      // presets come from the country, but every tax starts OFF until the owner/accountant confirms it in settings
+      company: { ...applyCountry({ name: name || 'شركتي للسياحة', taxNo: '', commercialNo: '', address: '', phone: '', email: '', licenseNo: '' }, country), vatEnabled: false, whtEnabled: false, stampEnabled: false, domains: ['UMRAH'] },
       settings: { reminderDays: 3, holdAlertHours: 3, docsAlertDays: 14 },
       branches: [{ id: 'BR1', code: 'BR-01', name: 'الفرع الرئيسي', city: '' }],
       fx: { current: 13.0, global: null, history: [], alertSpreadPct: 3 },
@@ -170,6 +212,7 @@
     const input = {
       ...d, userId: d.channel === 'DIRECT' ? actor.staffId : null, agentId: d.channel === 'DIRECT' ? null : d.agentId,
       discountPct: d.channel === 'B2B' ? 0 : Number(d.discountPct || 0), incentive: d.channel === 'DIRECT' ? 0 : Number(d.incentive || 0),
+      commissionAdj: actor.role === 'OWNER' && d.channel === 'BROKER' ? Number(d.commissionAdj || 0) : 0, // +/− on the agent commission: owner only
     };
     const v = E.priceBooking(S, input);
     if (v.status === 'BLOCKED') throw new Error(v.reasons.join(' · '));
@@ -186,7 +229,9 @@
       id: 'B' + now.toString(36) + Math.random().toString(36).slice(2, 5), code: Acc.nextNo(S, 'BK', 'BK', 5), channel: d.channel, userId: input.userId, agentId: input.agentId,
       customerId: customer ? customer.id : null, branchId: d.branchId || (S.trip && S.trip.branchId) || 'BR1', mode: d.mode, roomType: d.roomType, services,
       status: v.status, net: v.net, paid: 0, discountPct: input.discountPct || 0, incentive: v.incentive || 0, incentiveMode: d.channel === 'DIRECT' ? null : d.incentiveMode,
-      agentCommission: v.agentCommission || 0, holdUntil: null, createdAt: now, createdBy: actor.name, installments: [], notes: d.notes || '',
+      agentCommission: v.agentCommission || 0, commissionBase: v.commission ? v.commission.base : 0, commissionAdj: input.commissionAdj || 0,
+      commissionLog: input.commissionAdj ? [{ adj: input.commissionAdj, note: d.commissionNote || '', by: actor.name, at: now }] : [],
+      holdUntil: null, createdAt: now, createdBy: actor.name, installments: [], notes: d.notes || '',
     };
     const agent = input.agentId ? S.agents.find((a) => a.id === input.agentId) : null;
     if (agent && agent.tier === 'B2B') {
@@ -379,10 +424,61 @@
     S.settings = S.settings || { reminderDays: 3, holdAlertHours: 3, docsAlertDays: 14 };
     S.fx.history = S.fx.history || []; if (S.fx.alertSpreadPct == null) S.fx.alertSpreadPct = 3;
     S.hr = Hr.normalize(S.hr);
+    normalizeCompany(S);
+    Acc.ensureAccounts(S);
     mountTrip(S, S.activeTripId);
     return S;
   }
   const serialize = (S) => JSON.stringify(S);
+
+  // ------------------------------------------------------------ agent scorecard
+  /**
+   * Agent (وكيل/مندوب) performance for a period (from/to ISO, optional):
+   * volume · collection (financial) · quality (cancellations/expiries) · documents · discipline (overdue/credit) · management review.
+   */
+  function agentScore(S, agent, f = {}) {
+    const inP = (ms) => { const d = E.iso(new Date(ms)); return (!f.from || d >= f.from) && (!f.to || d <= f.to); };
+    const all = [];
+    for (const d of S.trips) for (const b of d.bookings) if (b.agentId === agent.id && inP(b.createdAt)) all.push({ b, pax: d.pax.filter((p) => p.bookingId === b.id), trip: d.trip });
+    const live = all.filter(({ b }) => E.LIVE_STATES.includes(b.status));
+    const net = Acc.r2(live.reduce((x, { b }) => x + (b.net || 0), 0)), paid = Acc.r2(live.reduce((x, { b }) => x + Math.min(b.paid || 0, b.net || 0), 0));
+    const pax = live.reduce((x, { pax: p }) => x + p.length, 0), docsOk = live.reduce((x, { pax: p }) => x + p.filter((q) => q.photoFileId && q.passportFileId).length, 0);
+    const cancelled = all.filter(({ b }) => b.status === 'CANCELLED').length, expired = all.filter(({ b }) => b.status === 'EXPIRED').length;
+    const today = E.iso(new Date());
+    const overdueInst = live.reduce((x, { b }) => x + (b.installments || []).filter((i) => !i.paid && i.due < today).length, 0);
+    const commission = Acc.r2(live.reduce((x, { b }) => x + (b.agentCommission || 0), 0));
+    const bal = Acc.partyBalance(S, 'agent', agent.id);
+    const reviews = (agent.reviews || []).filter((r) => (!f.from || r.date >= f.from) && (!f.to || r.date <= f.to));
+    const review = reviews.length ? Acc.r2((reviews.reduce((x, r) => x + r.stars, 0) / reviews.length) * 20) : null;
+    return { bookings: all.length, live: live.length, pax, net, paid, collectionPct: net ? Acc.r2((paid / net) * 100) : null, cancelled, expired,
+      cancelPct: all.length ? Acc.r2(((cancelled + expired) / all.length) * 100) : 0, docsPct: pax ? Acc.r2((docsOk / pax) * 100) : null, overdueInst,
+      commission, avgCommission: pax ? Acc.r2(commission / pax) : 0, balance: bal, review, reviews,
+      lastBooking: all.length ? Math.max(...all.map(({ b }) => b.createdAt)) : null };
+  }
+  /** Scores every agent together (volume is relative to the best agent of the period). */
+  function agentRanking(S, f = {}) {
+    const rows = S.agents.map((a) => ({ a, k: agentScore(S, a, f) }));
+    const top = Math.max(1, ...rows.map((r) => r.k.net));
+    for (const r of rows) {
+      const k = r.k, a = r.a;
+      const credit = a.tier === 'B2B' && a.creditLimit > 0 && a.balance < 0 ? Math.min(100, (-a.balance / a.creditLimit) * 100) : 0;
+      const parts = {
+        volume: k.bookings ? Acc.r2((k.net / top) * 100) : 0,
+        finance: k.collectionPct == null ? null : Math.max(0, Acc.r2((a.tier === 'B2B' ? 100 - credit * 0.5 : k.collectionPct) - k.overdueInst * 10)),
+        quality: k.bookings ? Math.max(0, Acc.r2(100 - k.cancelPct * 1.5)) : null,
+        docs: k.docsPct,
+        discipline: Math.max(0, 100 - (a.overdueDays || 0) * 3 - (a.blocked ? 50 : 0)),
+        review: k.review,
+      };
+      const W = { volume: 30, finance: 30, quality: 15, docs: 10, discipline: 5, review: 10 };
+      const used = Object.entries(parts).filter(([, v]) => v != null);
+      const wsum = used.reduce((x, [key]) => x + W[key], 0) || 1;
+      const total = k.bookings || k.review != null ? Acc.r2(used.reduce((x, [key, v]) => x + v * W[key], 0) / wsum) : null; // no activity → not rated
+      r.parts = parts; r.total = total;
+      r.rating = total == null ? { k: '—', ar: 'لا نشاط' } : total >= 85 ? { k: 'A', ar: 'ممتاز' } : total >= 70 ? { k: 'B', ar: 'جيد جداً' } : total >= 55 ? { k: 'C', ar: 'جيد' } : { k: 'D', ar: 'يحتاج متابعة' };
+    }
+    return rows.sort((x, y) => (y.total ?? -1) - (x.total ?? -1));
+  }
 
   // ------------------------------------------------------------ FX
   /** Executive rate (manual, what the company actually pays for SAR) vs global market rate (auto, benchmark only). */
@@ -402,6 +498,6 @@
     S.fx.current = rate;
   }
 
-  return { TRIP_KEYS, COUNTRIES, TRIP_DOC_KINDS, mountTrip, tripDocOf, findBooking, withTrip, nextCode, baseCompany, emptyCompany, addCashbox, newTrip, addTripRooms,
+  return { agentScore, agentRanking, DOMAINS, applyCountry, normalizeCompany, hasDomain, TRIP_KEYS, COUNTRIES, TRIP_DOC_KINDS, mountTrip, tripDocOf, findBooking, withTrip, nextCode, baseCompany, emptyCompany, addCashbox, newTrip, addTripRooms,
     findOrCreateCustomer, createVoucher, approve, reject, onVoucherPosted, createBooking, alerts, migrateV3, load, serialize, fxInfo, setExecRate };
 });

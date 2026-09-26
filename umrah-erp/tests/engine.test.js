@@ -38,14 +38,14 @@ test('locked price list wins over live recalculation', () => {
   assert.equal(E.priceList(s).QUAD, before);
 });
 
-test('discount beyond authority → PENDING_APPROVAL; within authority → SOFT_HOLD', () => {
+test('discounts: only the system owner — anyone else → PENDING_APPROVAL', () => {
   const s = seed();
   const pax = [{ type: 'ADULT', gender: 'M', passportExp: '2030-01-01' }];
   const base = { mode: 'FULL_PACKAGE', roomType: 'QUAD', pax, discountPct: 3 };
   assert.equal(E.priceBooking(s, { ...base, userId: 'U1' }).status, 'PENDING_APPROVAL'); // sales 0%
-  assert.equal(E.priceBooking(s, { ...base, userId: 'U2' }).status, 'SOFT_HOLD');        // head 3%
-  assert.equal(E.priceBooking(s, { ...base, userId: 'U2', discountPct: 5 }).status, 'PENDING_APPROVAL');
-  assert.equal(E.priceBooking(s, { ...base, userId: 'U3', discountPct: 7 }).status, 'SOFT_HOLD');
+  assert.equal(E.priceBooking(s, { ...base, userId: 'U2', discountPct: 3 }).status, 'PENDING_APPROVAL'); // only the owner discounts
+  assert.equal(E.priceBooking(s, { ...base, userId: 'U3', discountPct: 7 }).status, 'SOFT_HOLD');       // owner
+  assert.equal(E.priceBooking(s, { ...base, userId: 'U2', discountPct: 0 }).status, 'SOFT_HOLD');       // no discount
 });
 
 test('unbundled services lock price and await management pricing', () => {
@@ -71,7 +71,27 @@ test('incentive kickback: client discount reduces net, agent credit does not', (
   const a = E.priceBooking(s, { mode: 'FULL_PACKAGE', roomType: 'QUAD', pax, agentId: 'A4', incentive: 300, incentiveMode: 'CLIENT_DISCOUNT' });
   const b = E.priceBooking(s, { mode: 'FULL_PACKAGE', roomType: 'QUAD', pax, agentId: 'A4', incentive: 300, incentiveMode: 'AGENT_CREDIT' });
   assert.equal(b.net - a.net, 600);
-  assert.equal(a.agentCommission, E.round2(a.gross * 0.04));
+  assert.equal(a.agentCommission, 1200); // trip rate 600 × 2 persons
+});
+
+test('agent commission: fixed per person, trip rate vs agent minimum, owner adjustment, per-booking basis, legacy %', () => {
+  const s = seed();
+  const pax = [{ type: 'ADULT', passportExp: '2030-01-01' }, { type: 'ADULT', passportExp: '2030-01-01' }, { type: 'INF', passportExp: '2030-01-01' }];
+  const base = { mode: 'FULL_PACKAGE', roomType: 'QUAD', pax, agentId: 'A4' };
+  assert.equal(E.priceBooking(s, base).agentCommission, 1200);               // 600 × 2 (infants excluded)
+  s.trip.commissions = { default: 300 };
+  assert.equal(E.priceBooking(s, base).agentCommission, 1000);               // below the agent minimum 500 → 500 × 2
+  assert.equal(E.priceBooking(s, base).commission.source, 'الحد الأدنى للمندوب');
+  s.trip.commissions = { default: 300, A4: 700 };
+  assert.equal(E.priceBooking(s, base).agentCommission, 1400);               // per-agent trip rate
+  assert.equal(E.priceBooking(s, { ...base, commissionAdj: -250 }).agentCommission, 1150);
+  assert.equal(E.priceBooking(s, { ...base, commissionAdj: -5000 }).agentCommission, 0); // never negative
+  const ag = s.agents.find((a) => a.id === 'A4');
+  ag.commission = { type: 'FIXED', basis: 'BOOKING', min: 900 };
+  assert.equal(E.priceBooking(s, base).agentCommission, 900);                // max(700, 900) × 1 booking
+  delete ag.commission; ag.commissionPct = 4; s.trip.commissions = {};
+  const r = E.priceBooking(s, base);
+  assert.equal(r.agentCommission, E.round2(r.gross * 0.04));                 // legacy percentage
 });
 
 test('payment lifecycle: SOFT_HOLD → DEPOSIT → CONFIRMED; approval gate not bypassed by money', () => {

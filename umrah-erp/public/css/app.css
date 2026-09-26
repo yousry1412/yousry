@@ -515,3 +515,6 @@ tr.total td { border-top: 2px solid var(--line-2); }
   .score-part { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px; }
 }
 .badge-inline { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 99px; background: var(--danger); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
+.tax-row { display: grid; grid-template-columns: minmax(0, 2.2fr) repeat(3, minmax(0, 1fr)); gap: 8px; align-items: end; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.tax-row .chk { align-self: center; }
+@media (max-width: 600px) { .tax-row { grid-template-columns: 1fr 1fr; } .tax-row .chk { grid-column: 1 / -1; } }

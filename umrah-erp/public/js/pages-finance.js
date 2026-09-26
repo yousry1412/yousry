@@ -44,6 +44,8 @@
         ${t === 'PV' && f.partyType === 'supplier' && f.currency === 'SAR' ? `<div class="field"><label>سعر التحميل (المرجعي للرحلة)</label><input class="input" type="number" step="0.0001" data-vf="refFx" value="${esc(f.refFx || (s.trip ? s.trip.fxRef : ''))}"></div>` : ''}
         <div class="field"><label>الرحلة (مركز التكلفة)</label><select class="input" data-vf="tripId"><option value="">— عام —</option>${s.trips.map((d) => opt(d.id, f.tripId, `${d.trip.code} · ${d.trip.name}`)).join('')}</select></div>
         <div class="field"><label>الفرع</label><select class="input" data-vf="branchId">${s.branches.map((b) => opt(b.id, f.branchId || 'BR1', b.name)).join('')}</select></div>
+        ${t === 'PV' && f.partyType === 'supplier' && s.company.whtEnabled ? `<div class="field"><label>ضريبة خصم وإضافة ${s.company.whtRate}% (تُحجز وتُورّد للمصلحة)</label><input class="input" readonly value="${Acc.whtFor(s, Number(f.amount) || 0)} — الصافي للمورد ${Acc.r2((Number(f.amount) || 0) - Acc.whtFor(s, Number(f.amount) || 0))}"></div>` : ''}
+        ${t === 'RV' && ['customer', 'agent'].includes(f.partyType) ? `<div class="field"><label>ضريبة خصم خصمها العميل (إن وجدت)</label><input class="input" type="number" step="0.01" min="0" data-vf="whtIn" value="${esc(f.whtIn || '')}"></div>` : ''}
         ${['RV', 'PV'].includes(t) ? `<div class="field"><label>طريقة الدفع</label><select class="input" data-vf="method">${['نقدي', 'إيداع بنكي', 'تحويل بنكي', 'إنستاباي', 'شيك', 'فودافون كاش'].map((m) => opt(m, f.method, m)).join('')}</select></div>` : ''}
       </div>
       <div class="field" style="margin-top:8px"><label>البيان</label><input class="input" data-vf="memo" value="${esc(f.memo)}"></div>
@@ -60,12 +62,12 @@
     const el = ev.target;
     if (!el.hasAttribute || !el.hasAttribute('data-vf')) return;
     const k = el.dataset.vf, f = App.ui.vf;
-    f[k] = ['amount', 'fx', 'refFx'].includes(k) ? parseFloat(el.value) || '' : el.value;
+    f[k] = ['amount', 'fx', 'refFx', 'whtIn'].includes(k) ? parseFloat(el.value) || '' : el.value;
     if (k === 'currency') f.fx = f.currency === 'SAR' ? S().fx.current : f.currency === 'USD' ? Acc.r2(S().fx.current * 3.75) : 1;
     if (k === 'partyType') { f.partyId = ''; f.accountCode = ''; }
-    if (['type', 'partyType', 'currency'].includes(k)) renderVoucherModal();
+    if (['type', 'partyType', 'currency'].includes(k) || (k === 'amount' && f.type === 'PV' && f.partyType === 'supplier' && S().company.whtEnabled)) renderVoucherModal();
   });
-  document.addEventListener('input', (ev) => { const el = ev.target; if (el.hasAttribute && el.hasAttribute('data-vf') && ['memo', 'amount', 'fx', 'refFx'].includes(el.dataset.vf)) App.ui.vf[el.dataset.vf] = el.dataset.vf === 'memo' ? el.value : parseFloat(el.value) || ''; });
+  document.addEventListener('input', (ev) => { const el = ev.target; if (el.hasAttribute && el.hasAttribute('data-vf') && ['memo', 'amount', 'fx', 'refFx', 'whtIn'].includes(el.dataset.vf)) App.ui.vf[el.dataset.vf] = el.dataset.vf === 'memo' ? el.value : parseFloat(el.value) || ''; });
   App.actions.vfAttach = async () => { const fs = await App.uploadPicked({ accept: 'image/*,application/pdf', multiple: true }); App.ui.vf.fileIds.push(...fs.map((x) => x.id)); renderVoucherModal(); };
   App.actions.vfCamera = async () => { const fs = await App.uploadPicked({ accept: 'image/*', capture: true }); App.ui.vf.fileIds.push(...fs.map((x) => x.id)); renderVoucherModal(); };
   App.actions.vfSave = (d) => {
@@ -342,7 +344,9 @@
       const sec = (t, arr, tot) => `<tr><th colspan="2">${t}</th></tr>${arr.map((x) => `<tr><td>${esc(x.code)} · ${esc(x.name)}</td><td>${h.money(x.amount)}</td></tr>`).join('')}<tr><td><b>إجمالي ${t}</b></td><td><b>${h.money(tot)}</b></td></tr>`;
       body = `<table class="t" id="rpt" style="max-width:720px">${sec('الإيرادات', r.revenue, r.totalRevenue)}${sec('تكاليف الرحلات', r.tripCosts, r.totalTripCosts)}
         <tr><td><b>مجمل الربح</b></td><td><b class="gold">${h.money(r.grossProfit)}</b></td></tr>${sec('المصروفات العمومية والإدارية', r.opex, r.totalOpex)}
-        <tr><td><b>صافي الربح / (الخسارة)</b></td><td><b class="${r.netProfit < 0 ? 'danger' : 'ok'}">${h.money(r.netProfit)}</b></td></tr></table>`;
+        <tr><td><b>صافي الربح / (الخسارة)</b></td><td><b class="${r.netProfit < 0 ? 'danger' : 'ok'}">${h.money(r.netProfit)}</b></td></tr>
+        ${r.taxRate ? `<tr><td>${esc(r.taxLabel)} التقديرية ${r.taxRate}% <span class="faint small">(للإدارة — تُرحّل الفعلية على 2107)</span></td><td>(${h.money(r.estTax)})</td></tr>
+        <tr><td><b>صافي الربح بعد ${esc(r.taxLabel)} (تقديري)</b></td><td><b>${h.money(r.netAfterTax)}</b></td></tr>` : ''}</table>`;
     } else if (tab === 'bs') {
       const r = Acc.balanceSheet(s, f);
       const sec = (t, arr) => `<tr><th colspan="2">${t}</th></tr>${arr.map((x) => `<tr><td>${esc(x.code)} · ${esc(x.name)}</td><td>${h.money(x.amount)}</td></tr>`).join('')}`;

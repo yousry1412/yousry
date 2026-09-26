@@ -66,6 +66,7 @@ function validate(oldS, newS, user) {
     errors.push('تعديل سعر الصرف التنفيذي من صلاحية المحاسب أو المدير');
   if (oldS.fx && newS.fx && Number(oldS.fx.current) !== Number(newS.fx.current) && !(newS.fx.history && newS.fx.history[0] && Number(newS.fx.history[0].rate) === Number(newS.fx.current)))
     errors.push('تغيير سعر الصرف التنفيذي لازم يتسجل في سجل الأسعار');
+  const oldBkIds = new Set(allBookings(oldS).keys());
   // master-data governance
   if (!admin) {
     if (stable(oldS.accounts) !== stable(newS.accounts) && !approver) errors.push('تعديل شجرة الحسابات من صلاحية المحاسب أو المدير');
@@ -77,13 +78,20 @@ function validate(oldS, newS, user) {
       if (o && stable(o.trip.lockedPrices) !== stable(d.trip.lockedPrices)) errors.push('قفل/فك السعر الرسمي من صلاحية المدير');
     }
   }
+  // new bookings: any discount must stay pending until the owner approves it
+  if (user.role !== 'OWNER') for (const [id, { b }] of allBookings(newS)) if (!oldBkIds.has(id) && (b.discountPct || 0) > 0 && b.status !== 'PENDING_APPROVAL') errors.push(`الحجز ${b.code}: الخصم يحتاج اعتماد مالك النظام`);
+  if (user.role !== 'OWNER') for (const [id, { b }] of allBookings(newS)) if (!oldBkIds.has(id) && (b.commissionAdj || 0) !== 0) errors.push(`الحجز ${b.code}: زيادة/خصم العمولة من صلاحية مالك النظام`);
+  if (user.role !== 'OWNER') for (const d of newS.trips) { const o = oldS.trips.find((x) => x.id === d.id); if (stable((o && o.trip.commissions) || {}) !== stable(d.trip.commissions || {}) && (o || Object.keys(d.trip.commissions || {}).length)) errors.push(`عمولات المناديب لرحلة ${d.trip.code} من صلاحية مالك النظام`); }
   // money & pricing integrity (the UI already enforces these; the server makes them unbypassable)
-  const MAX_DISC = { OWNER: 7, MANAGER: 7, HEAD: 3, SALES: 0, ACCOUNTANT: 0, OPERATIONS: 0, HR: 0 };
+  const MAX_DISC = { OWNER: 100 }; // discounts on any price: the system owner only
   const oldA = new Map(oldS.agents.map((a) => [a.id, a]));
   for (const a of newS.agents) {
     const o = oldA.get(a.id);
     if (!approver && o && a.balance > o.balance + 0.01) errors.push(`زيادة رصيد محفظة ${a.name} تتم بسند قبض معتمد فقط`);
-    if (!admin && o && (a.creditLimit !== o.creditLimit || a.netDiscountPct !== o.netDiscountPct || a.commissionPct !== o.commissionPct)) errors.push(`تعديل سقف/نسب ${a.name} من صلاحية المدير`);
+    if (!admin && o && a.creditLimit !== o.creditLimit) errors.push(`تعديل سقف ${a.name} من صلاحية المدير`);
+    if (user.role !== 'OWNER' && o && (a.netDiscountPct !== o.netDiscountPct || a.commissionPct !== o.commissionPct || stable(a.commission || null) !== stable(o.commission || null))) errors.push(`تعديل خصم/عمولة ${a.name} من صلاحية مالك النظام`);
+    if (user.role !== 'OWNER' && !o && (a.netDiscountPct > 0)) errors.push('خصم الجملة للوكيل من صلاحية مالك النظام');
+    if (user.role !== 'OWNER' && !o && a.commission && (Number(a.commission.min) > 0 || Number(a.commission.pct) > 0)) errors.push('تحديد عمولة المندوب من صلاحية مالك النظام');
     if (!admin && !o && a.creditLimit > 0) errors.push('منح سقف ائتماني لوكيل جديد من صلاحية المدير');
   }
   const oldBk = allBookings(oldS);
@@ -92,16 +100,17 @@ function validate(oldS, newS, user) {
     if (!o) { if (!approver && b.channel !== 'B2B' && b.paid > 0) errors.push(`الحجز ${b.code}: السداد يُسجل بسند قبض معتمد`); continue; }
     const ob = o.b;
     if (!approver && Math.abs((b.paid || 0) - (ob.paid || 0)) > 0.01) errors.push(`الحجز ${b.code}: تعديل المسدد يتم بسند قبض معتمد فقط`);
-    if (!admin && ob.net !== b.net && !(ob.net == null && b.net == null)) errors.push(`الحجز ${b.code}: تعديل السعر من صلاحية المدير`);
+    if (user.role !== 'OWNER' && ob.net !== b.net && !(ob.net == null && b.net == null) && !(ob.status === 'PENDING_PRICING' && admin && !(b.discountPct > 0))) errors.push(`الحجز ${b.code}: تعديل السعر من صلاحية مالك النظام`);
     if (ob.status === 'PENDING_APPROVAL' && !['PENDING_APPROVAL', 'CANCELLED', 'EXPIRED'].includes(b.status) && (MAX_DISC[user.role] ?? 0) < (b.discountPct || 0))
       errors.push(`الحجز ${b.code}: اعتماد خصم ${b.discountPct}% يتجاوز صلاحيتك`);
-    if (!admin && (b.discountPct || 0) !== (ob.discountPct || 0)) errors.push(`الحجز ${b.code}: لا يمكن تعديل الخصم بعد الحفظ`);
+    if (user.role !== 'OWNER' && (b.discountPct || 0) !== (ob.discountPct || 0)) errors.push(`الحجز ${b.code}: الخصم من صلاحية مالك النظام فقط`);
+    if (user.role !== 'OWNER' && (Math.abs((b.agentCommission || 0) - (ob.agentCommission || 0)) > 0.01 || (b.commissionAdj || 0) !== (ob.commissionAdj || 0))) errors.push(`الحجز ${b.code}: تعديل عمولة المندوب من صلاحية مالك النظام`);
   }
   // booking events for the notification centre
   const oldB = allBookings(oldS);
   for (const [id, { b, trip }] of allBookings(newS)) {
     const o = oldB.get(id);
-    if (!o && b.status === 'PENDING_APPROVAL') events.push({ roles: ['OWNER', 'MANAGER', 'HEAD'], text: `💸 ${trip.code} · ${b.code}: خصم ${b.discountPct}% بانتظار اعتمادك`, link: 'booking' });
+    if (!o && b.status === 'PENDING_APPROVAL') events.push({ roles: ['OWNER'], text: `💸 ${trip.code} · ${b.code}: خصم ${b.discountPct}% بانتظار اعتمادك`, link: 'booking' });
     if (!o && b.status === 'PENDING_PRICING') events.push({ roles: ['OWNER', 'MANAGER'], text: `🔒 ${trip.code} · ${b.code}: خدمات مجزأة بانتظار التسعير`, link: 'booking' });
     if (o && o.b.status !== 'CANCELLED' && b.status === 'CANCELLED') events.push({ roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'], text: `⚠️ ${trip.code} · ${b.code}: تم إلغاء الحجز`, link: 'booking' });
   }

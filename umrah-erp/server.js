@@ -142,7 +142,9 @@ api.post('/companies', express.json(), allow('OWNER'), (req, res) => {
     const name = String((req.body && req.body.name) || '').trim();
     if (name.length < 2) throw new Error('اكتب اسم الشركة');
     const S = req.body.demo ? Model.load(buildSeed(Date.now()), name) : Model.emptyCompany(name, req.body.country || 'EG');
-    S.company.name = name; S.company.country = req.body.country || 'EG';
+    S.company.name = name;
+    const doms = (Array.isArray(req.body.domains) ? req.body.domains : []).filter((d) => Model.DOMAINS[d]);
+    if (doms.length) { S.company.domains = doms; S.branches.forEach((b) => { b.domains = doms.slice(); }); }
     const c = store.createCompany(name, Model.serialize(S), req.user.display_name);
     store.audit(req.user.id, c.id, `إنشاء شركة ${name}`);
     res.json(c);
@@ -185,8 +187,10 @@ api.put('/state', express.json({ limit: '40mb' }), staffOnly, (req, res) => {
   const { baseVersion, state } = req.body || {};
   const cur = store.getState(req.companyId);
   if (Number(baseVersion) !== cur.version) return res.status(409).json({ error: 'تم تحديث البيانات من مستخدم آخر' });
-  const oldDoc = JSON.parse(cur.json);
-  const { errors, events } = gov.validate(oldDoc.version === 4 ? oldDoc : null, state, req.user);
+  // compare against the stored document normalised exactly like clients load it (new defaults never count as edits)
+  const raw = JSON.parse(cur.json);
+  const oldDoc = raw.version === 4 ? JSON.parse(Model.serialize(Model.load(raw, store.getCompany(req.companyId).name))) : null;
+  const { errors, events } = gov.validate(oldDoc, state, req.user);
   if (errors.length) return res.status(403).json({ error: errors.join(' · ') });
   const r = store.saveState(req.companyId, Number(baseVersion), JSON.stringify(state), req.user.display_name);
   if (!r.ok) return res.status(409).json({ error: 'تم تحديث البيانات من مستخدم آخر' });
@@ -375,16 +379,21 @@ function portalView(S, u) {
       const pl = Engine.priceList(S);
       prices[d.id] = pl;
       const free = ['MAK', 'MAD'].map((c) => Engine.breakage(S, c).reduce((x, y) => x + y.free, 0));
-      return { id: d.id, code: d.trip.code, name: d.trip.name, departDate: d.trip.departDate, returnDate: d.trip.returnDate, prices: pl, freeBeds: free };
+      const cm = a.tier === 'BROKER' ? Engine.commissionFor(S, a, { adults: 1, chd: 0, gross: pl.QUAD }) : null;
+      return { id: d.id, code: d.trip.code, name: d.trip.name, departDate: d.trip.departDate, returnDate: d.trip.returnDate, prices: pl, freeBeds: free,
+        commissionText: cm ? (cm.rate != null ? `${Math.round(cm.rate)} ج.م لكل ${cm.basis === 'BOOKING' ? 'حجز' : 'فرد'}` : cm.source) : null };
     }));
     const bookings = [];
     for (const d of S.trips) for (const b of d.bookings.filter((x) => x.agentId === a.id)) {
       bookings.push({ id: b.id, code: b.code, trip: d.trip.code, tripId: d.id, status: b.status, statusAr: Engine.BOOKING_STATUS[b.status].ar, net: b.net, paid: b.paid, mode: b.mode, roomType: b.roomType,
-        createdAt: b.createdAt, holdUntil: b.holdUntil, installments: b.installments || [],
+        createdAt: b.createdAt, holdUntil: b.holdUntil, installments: b.installments || [], agentCommission: b.agentCommission || 0, commissionAdj: b.commissionAdj || 0,
+        commissionLog: (b.commissionLog || []).map((x) => ({ adj: x.adj, note: x.note })),
         pax: d.pax.filter((p) => p.bookingId === b.id).map((p) => ({ id: p.id, nameAr: p.nameAr, nameEn: p.nameEn, type: p.type, gender: p.gender, passport: p.passport, passportExp: p.passportExp, photoFileId: p.photoFileId, passportFileId: p.passportFileId })) });
     }
-    return { ...base, agent: { id: a.id, code: a.code, name: a.name, tier: a.tier, currency: a.currency, balance: a.balance, creditLimit: a.creditLimit, netDiscountPct: a.netDiscountPct, commissionPct: a.commissionPct, blocked: a.blocked, overdueDays: a.overdueDays },
-      statement: Acc.partyStatement(S, 'agent', a.id), trips, bookings: bookings.sort((x, y) => y.createdAt - x.createdAt),
+    return { ...base, agent: { id: a.id, code: a.code, name: a.name, tier: a.tier, currency: a.currency, balance: a.balance, creditLimit: a.creditLimit, netDiscountPct: a.netDiscountPct, commissionPct: a.commissionPct, commission: Engine.commissionRule(a), blocked: a.blocked, overdueDays: a.overdueDays },
+      statement: Acc.partyStatement(S, 'agent', a.id), trips,
+      score: (() => { const r = Model.agentRanking(S, { from: Engine.iso(new Date()).slice(0, 4) + '-01-01' }).find((x) => x.a.id === a.id);
+        return { total: r.total, rating: r.rating, parts: r.parts, k: { bookings: r.k.bookings, pax: r.k.pax, net: r.k.net, collectionPct: r.k.collectionPct, cancelPct: r.k.cancelPct, docsPct: r.k.docsPct, commission: r.k.commission } }; })(), bookings: bookings.sort((x, y) => y.createdAt - x.createdAt),
       vouchers: S.vouchers.filter((v) => v.party && v.party.type === 'agent' && v.party.id === a.id).map((v) => ({ no: v.no, type: v.type, date: v.date, amount: v.amount, currency: v.currency, status: v.status, memo: v.memo, rejectReason: v.rejectReason })),
       cashboxes: S.cashboxes.map((c) => ({ id: c.id, name: c.name, type: c.type, bankName: c.bankName, iban: c.iban })) };
   }
