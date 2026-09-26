@@ -243,7 +243,7 @@
   function releaseExpiredHolds(state, now) {
     const released = [];
     for (const b of state.bookings) {
-      if (HOLD_STATES.includes(b.status) && b.holdUntil && b.holdUntil <= now) {
+      if (HOLD_STATES.includes(b.status) && b.holdUntil && b.holdUntil <= now && !b.pendingPay) { // a receipt awaiting approval pauses the TTL
         b.status = 'EXPIRED';
         freeBookingInventory(state, b.id);
         released.push(b.code);

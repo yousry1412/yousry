@@ -1,7 +1,7 @@
 /* Umrah ERP — Operations pages: Dual Bed Maps, 49-seat Bus, Ops Center (vault/itinerary/WhatsApp/reports), Trip P&L */
 (function () {
   'use strict';
-  const App = window.App, E = App.E, h = App.h, esc = h.esc;
+  const App = window.App, E = App.E, Acc = App.Acc, Model = App.Model, h = App.h, esc = h.esc;
   const S = () => App.S;
   const isManager = () => h.user().role === 'MANAGER';
   const opt = (v, cur, label) => `<option value="${esc(v)}" ${String(v) === String(cur) ? 'selected' : ''}>${esc(label ?? v)}</option>`;
@@ -249,7 +249,7 @@
   App.actions.busClear = () => { if (confirm('تفريغ كل المقاعد؟')) { S().bus.seats = {}; App.save(); App.render(); } };
 
   // ================================================================ 7) OPS CENTER
-  const OPS_TABS = [['vault', '🛂 خزنة الجوازات'], ['itinerary', '🗺️ البرنامج اليومي'], ['whatsapp', '🟢 أتمتة الواتساب'], ['rooming', '📄 كشف التسكين السعودي'], ['manifest', '🚌 مانيفست الباص'], ['voucher', '🎫 فوتشر المعتمر'], ['stmt', '💼 كشوف الوكلاء']];
+  const OPS_TABS = [['vault', '🛂 خزنة الجوازات'], ['itinerary', '🗺️ البرنامج اليومي'], ['whatsapp', '🟢 أتمتة الواتساب'], ['rooming', '📄 كشف التسكين السعودي'], ['manifest', '🚌 مانيفست الباص'], ['voucher', '🎫 فوتشر المعتمر'], ['supervisor', '🧑‍✈️ كشف المشرف'], ['housing', '🛏️ كشف مندوب التسكين']];
   App.pages.ops = () => `
     <div class="page-head"><div><h2>🛂 مركز العمليات والتقارير الرسمية</h2><p>تتبع الجواز الفعلي · البرنامج الميداني · رسائل واتساب بنقرة · تصدير Excel/PDF متوافق مع وزارة الحج والعمرة</p></div></div>
     <div class="tabs">${OPS_TABS.map(([k, l]) => `<button class="${App.ui.opsTab === k ? 'active' : ''}" data-act="opsTab" data-t="${k}">${l}</button>`).join('')}</div>
@@ -401,21 +401,43 @@
   App.actions.printVoucher = (d) => App.printDoc('Pilgrim Voucher', voucherHtml(h.pax(d.id)));
   App.actions.printProgram = () => App.printDoc('Daily Program', `<h2>البرنامج اليومي – ${esc(S().trip.name)}</h2><table><tr><th>اليوم</th><th>التاريخ</th><th>المدينة</th><th>الموعد</th><th>النشاط</th><th>ملاحظات</th></tr>${S().trip.itinerary.map((r) => `<tr><td>${r.day}</td><td>${r.date}</td><td>${E.CITIES[r.city].ar}</td><td>${esc(r.time)}</td><td>${esc(r.title)}</td><td>${esc(r.notes)}</td></tr>`).join('')}</table>`);
 
-  // ---------- Agent statements
-  function stmtHtml(a) {
-    let bal = 0;
-    const rows = S().agentLedger.filter((x) => x.agentId === a.id).sort((x, y) => x.at - y.at).map((x) => { bal = E.round2(bal + x.credit - x.debit); return { ...x, bal }; });
-    return `<div class="head"><div><h2>كشف حساب جاري</h2><div>${esc(a.name)} (${a.code})</div></div><div>العملة: ${a.currency}<br>${a.tier === 'B2B' ? `السقف الائتماني: ${h.n0(a.creditLimit)}` : `عمولة ${a.commissionPct}%`}</div></div>
-      <table><tr><th>التاريخ</th><th>البيان</th><th>مدين</th><th>دائن</th><th>الرصيد</th></tr>
-      ${rows.map((x) => `<tr><td>${new Date(x.at).toLocaleDateString('en-GB')}</td><td>${esc(x.desc)}</td><td>${x.debit ? h.n2(x.debit) : ''}</td><td>${x.credit ? h.n2(x.credit) : ''}</td><td><b>${h.n2(x.bal)}</b></td></tr>`).join('')}
-      <tr><th colspan="4">الرصيد الختامي</th><th>${h.n2(bal)} ${a.currency}</th></tr></table>`;
+  // ---------- Supervisor & housing-rep sheets (same data shape as the server portal)
+  function tripSheetData() {
+    const s = S(), t = s.trip;
+    const bedOf = (p, c) => { const b = E.bedOfPax(s, p.id, c); if (!b) return ''; const r = h.room(b.roomId); return (r.physicalNo || r.vcode) + '/' + b.no; };
+    return {
+      code: t.code, name: t.name, departDate: t.departDate, returnDate: t.returnDate, flight: t.flight, itinerary: t.itinerary, supervisor: t.supervisor,
+      hotels: ['MAK', 'MAD'].map((c) => ({ city: c, name: allotOf(c) ? allotOf(c).hotel : '', checkIn: t.stays[c].checkIn, nights: t.stays[c].nights })),
+      pax: livePax().map((p) => ({ nameAr: p.nameAr, nameEn: p.nameEn, phone: p.phone, gender: p.gender, type: p.type, booking: h.booking(p.bookingId).code,
+        mak: p.type === 'ADULT' ? bedOf(p, 'MAK') : 'مع ذويه', mad: p.type === 'ADULT' ? bedOf(p, 'MAD') : 'مع ذويه', seat: seatOfPax(p.id) || '', passportStage: E.PASSPORT_STAGES[p.vault.stage].ar })),
+      rooming: { MAK: E.roomingList(s, 'MAK'), MAD: E.roomingList(s, 'MAD') },
+      unassigned: { MAK: E.unassignedPax(s, 'MAK').length, MAD: E.unassignedPax(s, 'MAD').length },
+      expenses: s.vouchers.filter((v) => v.tripId === s.activeTripId && v.type === 'EXP' && v.status === 'POSTED').map((v) => ({ no: v.no, date: v.date, amount: v.amount, currency: v.currency, memo: v.memo })),
+    };
   }
-  OPS.stmt = () => {
-    const a = h.agent(App.ui.stmtAgent) || S().agents[0];
-    return `<div class="card"><div class="row" style="margin-bottom:10px"><select class="input" style="width:auto" data-ui="stmtAgent">${S().agents.map((x) => opt(x.id, a.id, x.name)).join('')}</select><span class="spacer"></span>
-      <button class="btn gold" data-act="printStmt" data-id="${a.id}">🖨️ PDF</button></div><div class="doc">${stmtHtml(a)}</div></div>`;
+  window.Sheets = {
+    supervisor(t) {
+      return `<div class="head"><div><h2>كشف مشرف الرحلة</h2><div>${esc(t.code)} · ${esc(t.name)}</div></div><div>السفر ${esc(t.departDate)} · العودة ${esc(t.returnDate)}<br>${esc(t.flight || '')}<br>المشرف: ${esc((t.supervisor && t.supervisor.name) || '')}</div></div>
+        <div class="grid">${t.hotels.map((x) => `<div class="box">${x.city === 'MAK' ? '🕋' : '🕌'} ${esc(x.name)}<br>دخول ${esc(x.checkIn)} · ${x.nights} ليالٍ</div>`).join('')}</div>
+        <table><tr><th>#</th><th>الاسم</th><th>الهاتف</th><th>الحجز</th><th>غرفة مكة</th><th>غرفة المدينة</th><th>الباص</th><th>الجواز</th></tr>
+        ${t.pax.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.nameAr)}${p.type !== 'ADULT' ? ' (' + (p.type === 'CHD' ? 'طفل' : 'رضيع') + ')' : ''}</td><td class="ltr">${esc(p.phone)}</td><td>${esc(p.booking)}</td><td>${esc(p.mak)}</td><td>${esc(p.mad)}</td><td>${esc(p.seat)}</td><td>${esc(p.passportStage)}</td></tr>`).join('')}</table>
+        <h2 style="margin-top:10px">البرنامج اليومي</h2><table><tr><th>اليوم</th><th>التاريخ</th><th>الموعد</th><th>النشاط</th><th>ملاحظات</th></tr>
+        ${(t.itinerary || []).map((r) => `<tr><td>${r.day}</td><td>${esc(r.date)}</td><td>${esc(r.time)}</td><td>${esc(r.title)}</td><td>${esc(r.notes)}</td></tr>`).join('')}</table>
+        ${t.expenses && t.expenses.length ? `<h2 style="margin-top:10px">مصروفات الرحلة المعتمدة</h2><table><tr><th>السند</th><th>التاريخ</th><th>البيان</th><th>المبلغ</th></tr>${t.expenses.map((e) => `<tr><td>${esc(e.no)}</td><td>${esc(e.date)}</td><td>${esc(e.memo)}</td><td>${e.amount} ${esc(e.currency)}</td></tr>`).join('')}</table>` : ''}
+        <div class="sign"><div>توقيع المشرف ................</div><div>مدير العمليات ................</div></div>`;
+    },
+    housing(t) {
+      const city = (c) => `<h2 style="margin-top:10px">${c === 'MAK' ? '🕋 مكة المكرمة' : '🕌 المدينة المنورة'} — ${esc((t.hotels.find((x) => x.city === c) || {}).name || '')}</h2>
+        ${t.unassigned[c] ? `<p style="color:#b00">⚠️ ${t.unassigned[c]} معتمر بدون سرير</p>` : ''}
+        <table><tr><th>الغرفة</th><th>النوع</th><th>الاسم كالجواز</th><th>الجواز</th><th>الجنس</th><th>رقم الحدود</th></tr>
+        ${t.rooming[c].map((r) => `<tr><td><b>${esc(r.roomNo)}</b></td><td>${esc(r.roomType)}</td><td class="ltr">${esc(r.nameEn)}</td><td class="ltr">${esc(r.passport)}</td><td>${esc(r.gender)}</td><td class="ltr">${esc(r.borderNo)}</td></tr>`).join('')}</table>`;
+      return `<div class="head"><div><h2>كشف مندوب التسكين</h2><div>${esc(t.code)} · ${esc(t.name)}</div></div><div>السفر ${esc(t.departDate)}</div></div>${city('MAK')}${city('MAD')}
+        <div class="sign"><div>توقيع مندوب التسكين ................</div><div>استلام الفندق ................</div></div>`;
+    },
   };
-  App.actions.printStmt = (d) => App.printDoc('Agent Statement', stmtHtml(h.agent(d.id)));
+  OPS.supervisor = () => `<div class="card"><div class="row" style="margin-bottom:10px"><span class="muted">يظهر نفس الكشف للمشرف في حسابه (${esc((S().trip.supervisor && S().trip.supervisor.name) || 'لم يُحدد')})</span><span class="spacer"></span><button class="btn gold" data-act="printSheet" data-k="supervisor">🖨️ طباعة</button></div><div class="doc">${window.Sheets.supervisor(tripSheetData())}</div></div>`;
+  OPS.housing = () => `<div class="card"><div class="row" style="margin-bottom:10px"><span class="muted">يظهر نفس الكشف لمندوب التسكين في حسابه</span><span class="spacer"></span><button class="btn gold" data-act="printSheet" data-k="housing">🖨️ طباعة</button></div><div class="doc">${window.Sheets.housing(tripSheetData())}</div></div>`;
+  App.actions.printSheet = (d) => App.printDoc(d.k === 'supervisor' ? 'Supervisor Sheet' : 'Housing Sheet', window.Sheets[d.k](tripSheetData()));
 
   // ================================================================ 8) P&L
   App.pages.pnl = () => {
@@ -460,16 +482,12 @@
         </div>
         <div class="card"><h3>🧾 نثريات المشرفين</h3>
           <table class="t">${s.fieldExpenses.map((e) => `<tr><td>${esc(e.label)}</td><td>${h.cur(e.amount, e.currency)}</td></tr>`).join('')}</table>
-          <div class="row" style="margin-top:8px"><input class="input" id="fe-l" placeholder="البيان" style="flex:1"><input class="input" id="fe-a" type="number" placeholder="المبلغ" style="width:100px">
-          <select class="input" id="fe-c" style="width:80px"><option>SAR</option><option>EGP</option></select><button class="btn sm" data-act="addFE">+</button></div>
+          <button class="btn sm" style="margin-top:8px" data-act="addFE">+ سند مصروف على الرحلة</button>
         </div>
       </div>
     </div>`;
   };
   App.actions.addFE = () => {
-    const a = App.val('fe-a');
-    if (!(a > 0)) return App.toast('أدخل المبلغ', 'err');
-    S().fieldExpenses.push({ id: 'FE' + Date.now(), label: App.val('fe-l') || 'نثريات', amount: a, currency: App.val('fe-c') });
-    App.save(); App.render();
+    App.openVoucher({ type: 'EXP', categoryId: 'EC8', tripId: S().activeTripId, currency: 'SAR', fx: S().fx.current, memo: 'نثريات مشرف' });
   };
 })();
