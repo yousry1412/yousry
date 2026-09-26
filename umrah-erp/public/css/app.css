@@ -550,3 +550,14 @@ tr.total td { border-top: 2px solid var(--line-2); }
 @keyframes afwaj-bob { from { transform: translateY(0) rotate(-10deg); } to { transform: translateY(-4px) rotate(-14deg); } }
 @keyframes afwaj-leg { from { transform: rotate(-32deg); } to { transform: rotate(32deg); } }
 @media (prefers-reduced-motion: reduce) { .afwaj-loader .runner, .afwaj-loader .runner svg, .afwaj-loader .runner line { animation-duration: 6s; } }
+/* line-of-business switch & company activity */
+.domain-switch { display: inline-flex; border: 1px solid var(--line-2); border-radius: 999px; overflow: hidden; background: var(--bg-2); }
+.domain-switch button { background: transparent; border: 0; color: var(--muted); padding: 7px 14px; cursor: pointer; font: inherit; font-weight: 600; white-space: nowrap; }
+.domain-switch button.on { background: linear-gradient(135deg, var(--gold), #b98b2c); color: #1a1205; }
+.domain-one { color: var(--gold-2); font-weight: 600; white-space: nowrap; }
+.act-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.act-card { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; text-align: start; background: var(--bg-2); border: 1px solid var(--line-2); border-radius: 12px; padding: 12px; color: var(--text); cursor: pointer; font: inherit; }
+.act-card .ic { font-size: 24px; } .act-card small { color: var(--muted); line-height: 1.5; }
+.act-card.on { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(216, 178, 90, .25) inset; background: #1a2a17; }
+.co-current { border-color: var(--gold) !important; }
+@media (max-width: 600px) { .act-grid { grid-template-columns: 1fr; } .domain-switch button span { display: none; } .domain-switch button { padding: 7px 12px; font-size: 18px; } }

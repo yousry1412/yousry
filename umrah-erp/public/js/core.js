@@ -256,11 +256,11 @@
   const EVERY = [...ALL, 'HR'];
   App.NAV = [
     ['home', '🏠', 'الرئيسية', [['home', 'لوحة التحكم والتنبيهات', EVERY], ['me', 'حسابي كموظف', EVERY]]],
-    ['trips', '🕋', 'العمرة — الرحلات والتشغيل', [['trips', 'الرحلات', ALL], ['builder', 'التكلفة والتسعير', [...FIN, 'HEAD']], ['heatmap', 'رادار الإتاحات', ALL],
+    ['trips', '🕋', 'العمرة', [['booking', 'حجوزات العمرة', [...SAL, 'OPERATIONS']], ['trips', 'الرحلات', ALL], ['builder', 'التكلفة والتسعير', [...FIN, 'HEAD']], ['heatmap', 'رادار الإتاحات', ALL],
       ['rooms', 'التسكين المزدوج', OPS], ['bus', 'مقاعد الباص', OPS], ['ops', 'العمليات والكشوف', OPS], ['tripfiles', 'ملفات الرحلة', ALL]]],
-    ['dom', '🏖️', 'السياحة الداخلية', [['domPrograms', 'البرامج والرحلات', ALL], ['domBooking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['domOps', 'التشغيل والكشوف', OPS],
+    ['dom', '🏖️', 'السياحة الداخلية', [['domBooking', 'حجوزات السياحة الداخلية', [...SAL, 'OPERATIONS']], ['domPrograms', 'البرامج والرحلات', ALL], ['domOps', 'التشغيل والكشوف', OPS],
       ['domHotels', 'الفنادق وأسعار التعاقد', [...FIN, 'OPERATIONS', 'HEAD']], ['domPnl', 'ربحية البرامج', FIN]]],
-    ['sales', '🧾', 'المبيعات والعملاء', [['booking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL], ['scores', 'تقييم المناديب والمبيعات', ['OWNER', 'MANAGER', 'HEAD', 'ACCOUNTANT']]]],
+    ['sales', '🧾', 'العملاء والمناديب', [['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL], ['scores', 'تقييم المناديب والمبيعات', ['OWNER', 'MANAGER', 'HEAD', 'ACCOUNTANT']]]],
     ['purch', '🏨', 'الموردون والفنادق', [['suppliers', 'الموردون', [...FIN, 'OPERATIONS']], ['hotels', 'الفنادق والمخصصات', [...FIN, 'OPERATIONS', 'HEAD']]]],
     ['fin', '💰', 'المالية والحسابات', [['treasury', 'الخزائن والبنوك', FIN], ['vouchers', 'السندات والاعتمادات', ALL], ['expenses', 'المصروفات', FIN],
       ['employees', 'الموظفون', FIN], ['fx', 'أسعار الصرف', EVERY], ['coa', 'شجرة الحسابات', FIN], ['journal', 'القيود اليومية', FIN], ['reports', 'التقارير المالية', FIN], ['pnl', 'أرباح الرحلة', FIN]]],
@@ -268,14 +268,25 @@
       ['hrTasks', 'المهام والتكليفات', HRV], ['hrReviews', 'الأهداف والتقييم', HRV], ['hrAdjust', 'المكافآت والجزاءات', HRV], ['hrPayroll', 'مسير الرواتب', [...HRV, 'ACCOUNTANT']],
       ['hrMonitor', 'سجل النشاط والمراقبة', HRV], ['hrSettings', 'إعدادات الدوام والتقييم', HRV]]],
     ['comm', '💬', 'التواصل', [['chat', 'الشات الداخلي', EVERY], ['waCenter', 'رسائل واتساب الجماعية', [...SAL, 'OPERATIONS']]]],
-    ['admin', '⚙️', 'الإدارة', [['settings', 'الشركة والفروع والضرائب', ADM], ['users', 'المستخدمون والصلاحيات', ADM], ['backup', 'النسخ الاحتياطي والإصدارات', ADM]]],
+    ['admin', '⚙️', 'الإدارة', [['companies', 'الشركات وأنشطتها', ['OWNER']], ['settings', 'الشركة والفروع والضرائب', ADM], ['users', 'المستخدمون والصلاحيات', ADM], ['backup', 'النسخ الاحتياطي والإصدارات', ADM]]],
   ];
   const TRIP_PAGES = ['builder', 'heatmap', 'rooms', 'bus', 'ops', 'pnl', 'tripfiles'];
   /** Sidebar groups that belong to one line of business — hidden when the company (or the user's branch) doesn't work in it. */
   App.GROUP_DOMAIN = { trips: 'UMRAH', dom: 'DOMESTIC' };
   App.myBranch = () => (App.online && App.me && App.me.role !== 'OWNER' ? App.me.branch_id || null : null);
-  const groupOn = (gid) => !App.GROUP_DOMAIN[gid] || !App.S || Model.hasDomain(App.S, App.GROUP_DOMAIN[gid], App.myBranch());
-  const pageAllowed = (p) => { for (const g of App.NAV) for (const [k, , roles] of g[3]) if (k === p) return roles.includes(App.role()) && groupOn(g[0]); return true; };
+  /** Lines of business available to this user (company ∩ branch) and the one currently shown. */
+  App.domains = () => (App.S ? Object.keys(Model.DOMAINS).filter((d) => Model.hasDomain(App.S, d, App.myBranch())) : ['UMRAH']);
+  App.domain = () => { const ds = App.domains(); return ds.includes(App.ui.domain) ? App.ui.domain : ds[0]; };
+  const groupOn = (gid) => !App.GROUP_DOMAIN[gid] || !App.S || App.GROUP_DOMAIN[gid] === App.domain();
+  App.ITEM_DOMAIN = { hotels: 'UMRAH', pnl: 'UMRAH' }; // Makkah/Madinah allotments & Umrah trip P&L live in shared groups
+  const itemOn = (k) => !App.ITEM_DOMAIN[k] || !App.S || App.ITEM_DOMAIN[k] === App.domain();
+  App.actions.setDomain = (d) => {
+    App.ui.domain = d.d; try { localStorage.setItem('afwaj-domain', d.d); } catch (e) { /* ignore */ }
+    if (!pageAllowed(App.ui.page)) App.ui.page = 'home';
+    App.render();
+  };
+  try { App.ui.domain = localStorage.getItem('afwaj-domain') || null; } catch (e) { /* ignore */ }
+  const pageAllowed = (p) => { for (const g of App.NAV) for (const [k, , roles] of g[3]) if (k === p) return roles.includes(App.role()) && groupOn(g[0]) && itemOn(k); return true; };
   const pageTitle = (p) => { for (const g of App.NAV) for (const [k, l] of g[3]) if (k === p) return l; return { bookingView: 'تفاصيل الحجز', customerView: 'حساب العميل', partyView: 'كشف حساب', hrEmployee: 'ملف الموظف', domBookingView: 'حجز سياحة داخلية' }[p] || ''; };
 
   function renderShell() {
@@ -283,7 +294,7 @@
     const alerts = Model.alerts(S, role);
     document.getElementById('brandCompany').textContent = S.company.name;
     document.getElementById('nav').innerHTML = App.NAV.map(([gid, ico, label, items]) => {
-      const vis = groupOn(gid) ? items.filter(([, , roles]) => roles.includes(role)) : [];
+      const vis = groupOn(gid) ? items.filter(([k, , roles]) => roles.includes(role) && itemOn(k)) : [];
       if (!vis.length) return '';
       if (gid === 'home') return vis.map((it, i) => navItem(it, i ? '🪪' : ico)).join('');
       const open = App.ui.navOpen[gid] ?? vis.some(([k]) => k === App.ui.page);
@@ -294,9 +305,10 @@
     document.getElementById('top').innerHTML = `
       <button class="menu-toggle" data-act="toggleMenu" aria-label="القائمة">☰</button>
       <div class="topbar-title">${esc(pageTitle(App.ui.page))}</div>
+      ${App.domains().length > 1 ? `<div class="domain-switch" role="tablist">${App.domains().map((d) => `<button role="tab" class="${App.domain() === d ? 'on' : ''}" data-act="setDomain" data-d="${d}">${Model.DOMAINS[d].icon} <span>${Model.DOMAINS[d].ar}</span></button>`).join('')}</div>` : `<span class="domain-one hide-sm">${Model.DOMAINS[App.domain()].icon} ${Model.DOMAINS[App.domain()].ar}</span>`}
       <div class="context-switcher">
-        ${App.online && App.companies.length > 1 ? `<select data-act-change="switchCompany" title="الشركة">${App.companies.map((c) => App.h.opt(c.id, App.companyId, c.name)).join('')}</select>` : ''}
-        ${S.trips.length ? `<select data-act-change="switchTrip" title="الرحلة">${S.trips.map((d) => App.h.opt(d.id, S.activeTripId, `${d.trip.code} · ${d.trip.name}`)).join('')}</select>` : ''}
+        ${App.online && App.companies.length > 1 ? `<select data-act-change="switchCompany" title="الشركة">${App.companies.map((c) => App.h.opt(c.id, App.companyId, `${(c.domains || []).map((d) => Model.DOMAINS[d] ? Model.DOMAINS[d].icon : '').join('')} ${c.name}`)).join('')}</select>` : ''}
+        ${S.trips.length && App.domain() === 'UMRAH' ? `<select data-act-change="switchTrip" title="الرحلة">${S.trips.map((d) => App.h.opt(d.id, S.activeTripId, `${d.trip.code} · ${d.trip.name}`)).join('')}</select>` : ''}
       </div>
       <div class="top-spacer"></div>
       ${(() => { const fx = Model.fxInfo(S); return `<button class="fx-pill hide-sm ${fx.alert ? 'alert' : ''}" data-act="go" data-page="fx" title="سعر الريال: التنفيذي مقابل العالمي">

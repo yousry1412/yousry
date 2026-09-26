@@ -6,27 +6,35 @@
 
   App.pages.home = () => {
     const s = S(), role = App.role();
-    const alerts = Model.alerts(s, role);
+    const dom = App.domain(), UMRAH_GROUPS = ['تحصيل', 'حجوزات', 'مستندات', 'ملفات الرحلة'];
+    // each line of business sees its own alerts; finance & HR alerts show in both
+    const alerts = Model.alerts(s, role).filter((a) => (dom === 'UMRAH' ? a.group !== 'السياحة الداخلية' : !UMRAH_GROUPS.includes(a.group)));
     const b = Acc.balances(s);
     const bal = (c) => (b.get(c) ? b.get(c).bal : 0);
     const cash = s.cashboxes.reduce((x, c) => x + Acc.cashboxBalance(s, c), 0);
-    const live = s.trips.flatMap((d) => d.bookings.filter((x) => E.LIVE_STATES.includes(x.status)));
-    const paxN = s.trips.reduce((x, d) => x + d.pax.filter((p) => live.some((bk) => bk.id === p.bookingId)).length, 0);
+    const Dom = window.Dom, today = E.iso(new Date());
+    const live = dom === 'DOMESTIC' ? s.dom.bookings.filter((x) => E.LIVE_STATES.includes(x.status)) : s.trips.flatMap((d) => d.bookings.filter((x) => E.LIVE_STATES.includes(x.status)));
+    const paxN = dom === 'DOMESTIC' ? live.reduce((x, bk) => x + (bk.units ? bk.units.adults + bk.units.chd + bk.units.inf : 0), 0) : s.trips.reduce((x, d) => x + d.pax.filter((p) => live.some((bk) => bk.id === p.bookingId)).length, 0);
+    const upcoming = dom === 'DOMESTIC' ? s.dom.programs.filter((p) => p.status === 'OPEN' && p.startDate >= today).sort((a, c) => (a.startDate < c.startDate ? -1 : 1)).slice(0, 5)
+      : s.trips.filter((d) => d.trip.status !== 'CLOSED' && d.trip.departDate >= today).sort((a, c) => (a.trip.departDate < c.trip.departDate ? -1 : 1)).slice(0, 5);
     const due = live.reduce((x, bk) => x + Math.max(0, (bk.net || 0) - (bk.paid || 0)), 0);
     const groups = {};
     for (const a of alerts) (groups[a.group] = groups[a.group] || []).push(a);
     const fin = App.isApprover();
     const g = App.fxGlobal;
     return `
-    <div class="page-head"><div><h2>🏠 ${esc(s.company.name)}</h2><p>${esc(App.online ? App.me.display_name : h.user().name)} · ${esc(App.ROLE_LABEL[role])} · ${new Date().toLocaleDateString('ar-EG', { dateStyle: 'full' })}</p></div>
-      <div class="row"><button class="btn primary" data-act="go" data-page="booking">+ حجز</button>${fin ? '<button class="btn" data-act="newVoucher" data-type="RV">+ سند قبض</button><button class="btn" data-act="newVoucher" data-type="EXP">+ مصروف</button>' : '<button class="btn" data-act="newVoucher" data-type="RV">📤 رفع دفعة</button>'}</div></div>
+    <div class="page-head"><div><h2>${Model.DOMAINS[dom].icon} ${esc(s.company.name)} <span class="chip gold">${Model.DOMAINS[dom].ar}</span></h2><p>${esc(App.online ? App.me.display_name : h.user().name)} · ${esc(App.ROLE_LABEL[role])} · ${new Date().toLocaleDateString('ar-EG', { dateStyle: 'full' })}</p></div>
+      <div class="row"><button class="btn primary" data-act="go" data-page="${dom === 'DOMESTIC' ? 'domBooking' : 'booking'}">+ حجز ${dom === 'DOMESTIC' ? 'سياحة داخلية' : 'عمرة'}</button>${fin ? '<button class="btn" data-act="newVoucher" data-type="RV">+ سند قبض</button><button class="btn" data-act="newVoucher" data-type="EXP">+ مصروف</button>' : '<button class="btn" data-act="newVoucher" data-type="RV">📤 رفع دفعة</button>'}</div></div>
     <div class="grid g4">
-      <div class="card kpi"><div class="lbl">الرحلات المفتوحة</div><div class="val">${s.trips.filter((d) => d.trip.status !== 'CLOSED').length}</div><div class="hint">${paxN} معتمر في حجوزات نشطة</div></div>
+      <div class="card kpi"><div class="lbl">${dom === 'DOMESTIC' ? 'البرامج المفتوحة' : 'رحلات العمرة المفتوحة'}</div><div class="val">${dom === 'DOMESTIC' ? s.dom.programs.filter((p) => p.status === 'OPEN').length : s.trips.filter((d) => d.trip.status !== 'CLOSED').length}</div><div class="hint">${paxN} ${dom === 'DOMESTIC' ? 'فرد' : 'معتمر'} في حجوزات نشطة</div></div>
       <div class="card kpi"><div class="lbl">مستحقات التحصيل من العملاء</div><div class="val ${due ? 'danger' : ''}">${h.egp(due)}</div><div class="hint">${live.filter((x) => (x.net || 0) > (x.paid || 0)).length} حجز عليه متبقي</div></div>
       ${fin ? `<div class="card kpi"><div class="lbl">النقدية بالخزائن والبنوك</div><div class="val gold">${h.egp(cash)}</div><div class="hint">مستحق للموردين ${h.egp(bal('2101'))}</div></div>
       <div class="card kpi"><div class="lbl">سندات بانتظار الاعتماد</div><div class="val">${s.vouchers.filter((v) => v.status === 'PENDING').length}</div><div class="hint"><a href="#" data-act="go" data-page="vouchers">مراجعة واعتماد ←</a></div></div>`
         : `<div class="card kpi"><div class="lbl">حجوزاتي النشطة</div><div class="val">${live.filter((x) => x.createdBy === App.actor().name).length}</div></div><div class="card kpi"><div class="lbl">تنبيهات</div><div class="val">${alerts.length}</div></div>`}
     </div>
+    ${upcoming.length ? `<div class="card" style="margin-top:14px"><h3>🗓️ ${dom === 'DOMESTIC' ? 'البرامج القادمة' : 'رحلات العمرة القادمة'}</h3><div class="tbl-wrap"><table class="t small"><tbody>
+      ${dom === 'DOMESTIC' ? upcoming.map((p) => { const pl = Dom.programPnl(s, p), left = Dom.capacityLeft(s, p); return `<tr class="clickable" data-act="domOpsOpen" data-p="${p.id}"><td>${Dom.KINDS[p.kind].icon} <b>${esc(p.name)}</b></td><td class="num">${esc(p.startDate)}</td><td>${pl.pax} فرد${left != null ? ` · متبقي ${left}` : ''}</td><td class="${pl.due > 0 ? 'danger' : 'ok'}">متبقي تحصيل ${h.n0(pl.due)}</td></tr>`; }).join('')
+        : upcoming.map((d) => `<tr class="clickable" data-act="go" data-page="trips" data-trip="${d.id}"><td>🕋 <b>${esc(d.trip.name)}</b></td><td class="num">${esc(d.trip.departDate)}</td><td>${d.pax.filter((p) => d.bookings.some((x) => x.id === p.bookingId && E.LIVE_STATES.includes(x.status))).length} معتمر</td><td>${esc(d.trip.code)}</td></tr>`).join('')}</tbody></table></div></div>` : ''}
     <div class="grid g-side" style="margin-top:14px">
       <div class="card"><h3>🔔 مركز التنبيهات <span class="sub">${alerts.length} تنبيه — اضغط للفتح</span></h3>
         ${Object.keys(groups).length ? Object.entries(groups).map(([gname, list]) => `<details ${list.some((a) => a.level === 'err') || gname === 'مالية' ? 'open' : ''} style="margin-bottom:8px"><summary><b>${esc(gname)}</b> <span class="chip ${list.some((a) => a.level === 'err') ? 'danger' : 'hold'}">${list.length}</span></summary>

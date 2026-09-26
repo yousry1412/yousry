@@ -76,6 +76,32 @@
     App.audit(`إضافة فرع ${name}`); App.save(); App.render();
   };
 
+  // ============================================================ companies & their line of business
+  const ACT = { UMRAH: ['UMRAH'], DOMESTIC: ['DOMESTIC'], BOTH: ['UMRAH', 'DOMESTIC'] };
+  const actKey = (ds) => (ds.includes('UMRAH') && ds.includes('DOMESTIC') ? 'BOTH' : ds.includes('DOMESTIC') ? 'DOMESTIC' : 'UMRAH');
+  const actChips = (ds) => (ds || ['UMRAH']).map((d) => `<span class="chip ${d === 'UMRAH' ? 'gold' : 'ok'}">${Model.DOMAINS[d].icon} ${Model.DOMAINS[d].ar}</span>`).join(' ');
+  App.pages.companies = () => {
+    if (!App.online) return needOnline('🏢 الشركات وأنشطتها');
+    const nc = App.ui.nc || (App.ui.nc = { act: 'UMRAH', country: 'EG' });
+    const choice = (k, icon, title, desc) => `<button class="act-card ${nc.act === k ? 'on' : ''}" data-act="ncAct" data-k="${k}"><span class="ic">${icon}</span><b>${title}</b><small>${desc}</small></button>`;
+    return `<div class="page-head"><div><h2>🏢 الشركات وأنشطتها</h2><p>كل شركة لها نشاطها: <b>عمرة</b> أو <b>سياحة داخلية</b> أو <b>الاتنين</b> — والنشاط يحدد التبويبات والشاشات اللي تظهر، وكل فرع داخل الشركة يختار نشاطه من "الشركة والفروع والضرائب"</p></div></div>
+    <div class="emp-grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">${App.companies.map((c) => `<div class="card ${c.id === App.companyId ? 'co-current' : ''}">
+      <div class="row" style="justify-content:space-between"><h3 style="margin:0">${esc(c.name)}</h3>${c.id === App.companyId ? '<span class="chip ok">المفتوحة الآن</span>' : ''}</div>
+      <div style="margin:8px 0">${actChips(c.domains)}</div>
+      <div class="small muted">${esc((Model.COUNTRIES[c.country] || {}).ar || '')} · ${c.branches || 0} فرع · ${c.domains && c.domains.includes('UMRAH') ? `${c.trips || 0} رحلة عمرة · ` : ''}${c.domains && c.domains.includes('DOMESTIC') ? `${c.programs || 0} برنامج داخلي · ` : ''}${c.users || 0} مستخدم</div>
+      <div class="row" style="gap:6px;margin-top:10px">${c.id === App.companyId ? '<button class="btn sm" data-act="go" data-page="settings">⚙️ تعديل النشاط والبيانات</button>' : `<button class="btn sm primary" data-act="openCompany" data-id="${c.id}">فتح الشركة</button>`}</div></div>`).join('')}</div>
+    <div class="card" style="margin-top:14px"><h3>➕ شركة جديدة</h3>
+      <div class="grid g2"><div class="field"><label>اسم الشركة</label><input class="input" id="nc-name" placeholder="مثال: النور للسياحة"></div>
+        <div class="field"><label>دولة التشغيل (تحدد العملة والضرائب)</label><select class="input" id="nc-country">${Object.entries(Model.COUNTRIES).map(([k, v]) => opt(k, nc.country, v.ar)).join('')}</select></div></div>
+      <div class="field" style="margin-top:10px"><label>نشاط الشركة</label><div class="act-grid">
+        ${choice('UMRAH', '🕋', 'عمرة', 'رحلات العمرة: التكلفة بالريال، الفنادق في مكة والمدينة، التسكين، التأشيرات، الباص')}
+        ${choice('DOMESTIC', '🏖️', 'سياحة داخلية', 'مصايف ومشاتي، رحلات اليوم الواحد، حجز فنادق وقرى، فنادق عائمة')}
+        ${choice('BOTH', '🕋🏖️', 'الاتنين', 'تبويبين منفصلين في أعلى الشاشة تتنقل بينهم')}</div></div>
+      <div class="row" style="margin-top:12px"><label class="chk"><input type="checkbox" id="nc-demo"> ببيانات تجريبية للتجربة</label><span class="spacer"></span><button class="btn primary" data-act="newCompany">إنشاء الشركة</button></div></div>`;
+  };
+  App.actions.ncAct = (d) => { App.ui.nc.act = d.k; App.ui.nc.country = App.val('nc-country') || App.ui.nc.country; const n = App.val('nc-name'); App.render(); const el = document.getElementById('nc-name'); if (el) el.value = n || ''; };
+  App.actions.openCompany = (d) => App.actions.switchCompany({ value: d.id });
+
   // ============================================================ users
   const ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HR', 'HEAD', 'SALES', 'OPERATIONS', 'AGENT', 'SUPERVISOR', 'HOUSING'];
   const HINT = { OWNER: 'كل الشركات والصلاحيات + النسخ الاحتياطي + وحده يعتمد أي خصم على أي سعر', MANAGER: 'كل شيء في شركته + اعتماد السندات + المستخدمين (الخصومات للمالك فقط)', ACCOUNTANT: 'الحسابات والسندات والاعتماد والتقارير',
@@ -141,9 +167,7 @@
         ${owner ? `<div class="field"><label>للتأكيد اكتب اسم الشركة: <b>${esc(S().company.name)}</b></label><input class="input" id="wipe-confirm"></div>
         <div class="row" style="margin-top:8px"><button class="btn danger" data-act="wipeData">🧹 مسح البيانات والبدء من جديد</button><button class="btn ghost" data-act="loadDemo">تحميل بيانات تجريبية</button></div>` : '<span class="muted">من صلاحية المالك.</span>'}
         ${owner ? `<h3 style="margin-top:16px">🏢 الشركات</h3><table class="t">${App.companies.map((c) => `<tr><td>${esc(c.name)}</td><td>${c.id === App.companyId ? '<span class="chip ok">الحالية</span>' : ''}</td></tr>`).join('')}</table>
-          <div class="row" style="margin-top:8px"><input class="input" id="nc-name" placeholder="اسم الشركة الجديدة" style="flex:1"><select class="input" id="nc-country" style="width:auto">${Object.entries(Model.COUNTRIES).map(([k, v]) => opt(k, 'EG', v.ar)).join('')}</select>
-          <label class="small"><input type="checkbox" id="nc-dom-UMRAH" checked> 🕋 عمرة</label><label class="small"><input type="checkbox" id="nc-dom-DOMESTIC"> 🏖️ سياحة داخلية</label>
-          <label class="small"><input type="checkbox" id="nc-demo"> ببيانات تجريبية</label><button class="btn primary" data-act="newCompany">+ شركة</button></div>` : ''}</div>
+          <div class="row" style="margin-top:8px"><button class="btn primary" data-act="go" data-page="companies">🏢 إدارة الشركات وإنشاء شركة جديدة</button></div>` : ''}</div>
     </div>
     <div class="card" style="margin-top:14px"><h3>🕓 سجل الإصدارات (آخر 100)</h3><div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th>الإصدار</th><th>التاريخ</th><th>بواسطة</th><th>النوع</th><th>الحجم</th><th></th></tr></thead><tbody>
       ${versions.map((v) => `<tr><td class="num">${v.id}</td><td class="num">v${v.version}</td><td class="num">${esc(v.saved_at)}</td><td>${esc(v.saved_by || '')}</td><td>${v.label ? `<span class="chip gold">📌 ${esc(v.label)}</span>` : 'حفظ تلقائي'}</td><td class="num">${Math.round(v.size / 1024)} KB</td>
@@ -164,9 +188,14 @@
     try { await App.api('POST', 'api/state/demo', {}); versions = null; await App.reloadState(); } catch (e) { App.toast(e.message, 'err'); }
   };
   App.actions.newCompany = async () => {
+    const name = String(App.val('nc-name') || '').trim();
+    if (name.length < 2) return App.toast('اكتب اسم الشركة', 'err');
+    const domains = App.ui.nc ? ACT[App.ui.nc.act] : Object.keys(Model.DOMAINS).filter((k) => App.val('nc-dom-' + k));
     try {
-      const c = await App.api('POST', 'api/companies', { name: App.val('nc-name'), country: App.val('nc-country'), demo: App.val('nc-demo'), domains: Object.keys(Model.DOMAINS).filter((k) => App.val('nc-dom-' + k)) });
-      App.companies = await App.api('GET', 'api/companies'); App.toast(`✅ تم إنشاء ${c.name} — اخترها من أعلى الشاشة`); App.render();
+      const c = await App.api('POST', 'api/companies', { name, country: App.val('nc-country'), demo: App.val('nc-demo'), domains: domains.length ? domains : ['UMRAH'] });
+      App.companies = await App.api('GET', 'api/companies'); App.toast(`✅ تم إنشاء ${c.name}`);
+      if (confirm(`فتح ${c.name} الآن؟`)) return App.actions.switchCompany({ value: c.id });
+      App.render();
     } catch (e) { App.toast(e.message, 'err'); }
   };
   App.actions.restoreBackup = async () => {
