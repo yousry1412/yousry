@@ -608,6 +608,9 @@ function createProduct({ company_id, branch_id, category_id, name, sku, unit, ki
     if (!['trade', 'raw_material', 'manufactured'].includes(kind)) throw new Error('لازم تحدد نوع المنتج');
     if (category_id) assertBelongs('product_categories', category_id, company_id, 'التصنيف');
     if (default_branch_id) assertBelongs('branches', default_branch_id, company_id, 'المخزن الرئيسي');
+    // كود الصنف (SKU) بيتولّد آليًا زي باقي أرقام المستندات في النظام - مفيش داعي المستخدم
+    // يخترعه بنفسه، وده بيضمن كمان إنه مايتكررش بين صنفين بالغلط
+    const generatedSku = nextNumber('products', 'SKU');
     const info = db
       .prepare(
         `INSERT INTO products (company_id, category_id, name, sku, unit, kind, sale_price, reorder_level, track_expiry, photo, storage_method, default_branch_id)
@@ -617,7 +620,7 @@ function createProduct({ company_id, branch_id, category_id, name, sku, unit, ki
         company_id,
         category_id || null,
         name,
-        sku || null,
+        generatedSku,
         unit || 'وحدة',
         kind,
         Number(sale_price) || 0,

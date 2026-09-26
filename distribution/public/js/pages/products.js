@@ -28,7 +28,6 @@ function productFormHtml(categories, branches) {
     <form id="productForm">
       <div class="form-grid">
         <div class="field span-2"><label>اسم المنتج *</label><input name="name" required /></div>
-        <div class="field"><label>الكود (SKU)</label><input name="sku" /></div>
         <div class="field">
           <label>التصنيف</label>
           <select name="category_id">${categoryOptionsHtml(categories)}</select>
