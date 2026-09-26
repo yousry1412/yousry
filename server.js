@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-// Smart Umrah ERP (standalone static module)
+// أفواج — Umrah & tourism ERP (standalone static module)
 app.use('/umrah', express.static(path.join(__dirname, 'umrah-erp', 'public')));
 
 const COLLECTIONS = ['sales', 'expenses', 'offers', 'decisions'];

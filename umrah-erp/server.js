@@ -1,5 +1,5 @@
 /* =====================================================================
- * Smart Umrah ERP — online server
+ * أفواج — online server
  *   /api/auth/*        setup (first owner) · login · logout · status
  *   /api/companies     multi-company (owner) · rename via state
  *   /api/state         one versioned document per company + governance checks

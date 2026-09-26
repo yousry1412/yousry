@@ -393,7 +393,7 @@
     box.style.display = 'grid';
     box.innerHTML = `
       <div class="card auth-card">
-        <div class="auth-brand"><img src="img/logo.svg" alt="" width="84" height="84"><div><b>أفواج</b><span>منظومة شركات العمرة والسياحة الدينية</span></div></div>
+        <div class="auth-brand"><img src="img/logo.svg" alt="" width="84" height="84"><div><b>أفواج</b><span>منظومة شركات العمرة والسياحة</span></div></div>
         <h3>${needsSetup ? '🔐 إعداد حساب المالك لأول مرة' : '🔐 تسجيل الدخول'}</h3>
         ${needsSetup ? '<p class="muted small">أول حساب هو المالك بكل الصلاحيات، وبعدها يضيف حسابات الفريق والمناديب من "المستخدمون والصلاحيات".</p>' : ''}
         <div class="field"><label>اسم المستخدم</label><input class="input" id="au-user" autocomplete="username" autocapitalize="none" style="direction:ltr"></div>
