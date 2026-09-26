@@ -42,7 +42,7 @@
       <div class="field"><label>مخصص مكة</label><select class="input" id="tn-mak">${mak.map((a) => opt(a.id, '', `${a.code} · ${a.hotel}`)).join('')}</select></div>
       <div class="field"><label>ليالي المدينة</label><input class="input" id="tn-dn" type="number" value="4"></div>
       <div class="field"><label>مخصص المدينة</label><select class="input" id="tn-mad">${mad.map((a) => opt(a.id, '', `${a.code} · ${a.hotel}`)).join('')}</select></div>
-      <div class="field"><label>سعر الصرف التشغيلي المرجعي</label><input class="input" id="tn-fx" type="number" step="0.01" value="${s.fx.current}"></div>
+      <div class="field"><label>سعر تسعير الرحلة (يبدأ بالتنفيذي)</label><input class="input" id="tn-fx" type="number" step="0.01" value="${s.fx.current}"></div>
       <div class="field"><label>هامش الربح %</label><input class="input" id="tn-margin" type="number" value="12"></div>
       <div class="field"><label>الطاقة المخططة</label><input class="input" id="tn-pax" type="number" value="44"></div>
       <div class="field"><label>الفرع</label><select class="input" id="tn-br">${s.branches.map((b) => opt(b.id, '', b.name)).join('')}</select></div>
@@ -112,6 +112,11 @@
       <div class="field"><label>حساب مندوب التسكين</label>${App.online ? sel('ts-hou', t.housingUserId, 'HOUSING') : '<input class="input" readonly value="متاح أونلاين">'}</div>
       <div class="field"><label>الحساب البنكي في رسائل السداد</label><input class="input" id="ts-bank" value="${esc(t.bank || '')}"></div></div>
       <div class="small muted" style="margin-top:6px">لإنشاء حسابات المشرف/مندوب التسكين: الإدارة ← المستخدمون والصلاحيات.</div>
+      ${(() => { const own = App.role() === 'OWNER', c = t.commissions || {}, dis = own ? '' : 'disabled', brokers = s.agents.filter((x) => x.tier === 'BROKER');
+        return `<h4 style="margin:14px 0 6px">🏷️ عمولات المناديب لهذه الرحلة ${own ? '' : '<span class="chip hold">يحددها مالك النظام</span>'}</h4>
+        <div class="grid g3"><div class="field"><label>العمولة الافتراضية لكل فرد/حجز</label><input class="input" type="number" step="50" id="ts-cdef" value="${c.default ?? ''}" ${dis}></div>
+        ${brokers.map((x) => { const r = E.commissionRule(x); return `<div class="field"><label>${esc(x.code)} · ${esc(x.name)} <span class="faint small">(حد أدنى ${h.n0(r.min || 0)})</span></label><input class="input" type="number" step="50" data-tsc="${x.id}" value="${c[x.id] ?? ''}" placeholder="الافتراضي" ${dis}></div>`; }).join('')}</div>
+        <div class="small muted">لا تقل عمولة أي مندوب عن حده الأدنى المسجل في تكويده. اترك الخانة فارغة لاستخدام الافتراضي.</div>`; })()}
       <div class="row" style="margin-top:12px"><button class="btn primary" data-act="tripSettingsSave" data-id="${d.id}">حفظ</button><button class="btn" data-act="closeModal">إلغاء</button></div>`, true);
   };
   App.actions.tripSettingsSave = (d) => {
@@ -124,6 +129,12 @@
       const su = Number(App.val('ts-supu')) || null, hu = Number(App.val('ts-hou')) || null;
       t.supervisor.userId = su; t.housingUserId = hu;
       t.housingName = hu ? ((directory || []).find((u) => u.id === hu) || {}).display_name : '';
+    }
+    if (App.role() === 'OWNER') {
+      const c = {}, def = document.getElementById('ts-cdef').value;
+      if (def !== '' && def != null && !Number.isNaN(Number(def))) c.default = Number(def);
+      document.querySelectorAll('[data-tsc]').forEach((el) => { if (el.value !== '') c[el.dataset.tsc] = Number(el.value); });
+      t.commissions = c;
     }
     App.audit(`تعديل إعدادات ${t.code}`); App.closeModal(); App.save(); App.render();
   };

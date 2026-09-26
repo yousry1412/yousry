@@ -4,21 +4,28 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#06140f">
-  <title>Smart Umrah ERP</title>
-  <meta name="description" content="منظومة رحلات العمرة: الرحلات والتكاليف وبنك الغرف والمبيعات والتسكين والحسابات">
+  <title>أفواج — منظومة شركات العمرة والسياحة</title>
+  <link rel="icon" type="image/svg+xml" href="img/favicon.svg">
+  <meta name="description" content="أفواج: منظومة شركات العمرة — الرحلات والتكاليف وبنك الغرف والمبيعات والتسكين والحسابات">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/app.css">
 </head>
 <body>
+  <div id="afwajLoader" class="afwaj-loader" role="status" aria-live="polite">
+    <div class="brand-l"><img src="img/logo.svg" alt="">أفواج</div>
+    <div class="track"><div class="runner"><svg viewBox="0 0 22 44"><g fill="#f3dc9c" stroke="#f3dc9c" stroke-linecap="round"><circle cx="11" cy="6" r="5"/><line x1="11" y1="12.5" x2="11" y2="27" stroke-width="2"/><line class="l1" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/><line class="l2" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/></g></svg></div><div class="runner"><svg viewBox="0 0 22 44"><g fill="#f3dc9c" stroke="#f3dc9c" stroke-linecap="round"><circle cx="11" cy="6" r="5"/><line x1="11" y1="12.5" x2="11" y2="27" stroke-width="2"/><line class="l1" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/><line class="l2" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/></g></svg></div><div class="runner"><svg viewBox="0 0 22 44"><g fill="#f3dc9c" stroke="#f3dc9c" stroke-linecap="round"><circle cx="11" cy="6" r="5"/><line x1="11" y1="12.5" x2="11" y2="27" stroke-width="2"/><line class="l1" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/><line class="l2" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/></g></svg></div><div class="runner"><svg viewBox="0 0 22 44"><g fill="#f3dc9c" stroke="#f3dc9c" stroke-linecap="round"><circle cx="11" cy="6" r="5"/><line x1="11" y1="12.5" x2="11" y2="27" stroke-width="2"/><line class="l1" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/><line class="l2" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/></g></svg></div><div class="runner"><svg viewBox="0 0 22 44"><g fill="#f3dc9c" stroke="#f3dc9c" stroke-linecap="round"><circle cx="11" cy="6" r="5"/><line x1="11" y1="12.5" x2="11" y2="27" stroke-width="2"/><line class="l1" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/><line class="l2" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/></g></svg></div><div class="runner"><svg viewBox="0 0 22 44"><g fill="#f3dc9c" stroke="#f3dc9c" stroke-linecap="round"><circle cx="11" cy="6" r="5"/><line x1="11" y1="12.5" x2="11" y2="27" stroke-width="2"/><line class="l1" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/><line class="l2" x1="11" y1="27" x2="11" y2="41" stroke-width="1.8"/></g></svg></div></div>
+    <div class="msg-l" id="afwajLoaderMsg">جارِ التحميل…</div>
+  </div>
   <div id="authScreen" class="auth-screen" style="display:none"></div>
 
   <div id="app" class="shell" style="display:none">
     <aside class="side" id="sidebar">
       <div class="brand">
-        <div class="brand-company" id="brandCompany"></div>
-        <div class="brand-app"><span class="brand-mark">🕋</span><span>Smart Umrah ERP</span><span class="chip" id="buildTag" title="رقم الإصدار المنشور"></span></div>
+        <div class="brand-row"><img class="brand-logo" src="img/logo.svg" alt="أفواج" width="46" height="46">
+          <div><div class="brand-name">أفواج</div><div class="brand-company" id="brandCompany"></div></div></div>
+        <div class="brand-app"><span>منظومة شركات العمرة والسياحة</span><span class="chip" id="buildTag" title="رقم الإصدار المنشور"></span></div>
       </div>
       <nav class="nav" id="nav"></nav>
     </aside>
@@ -33,6 +40,8 @@
 
   <script src="js/engine.js"></script>
   <script src="js/accounting.js"></script>
+  <script src="js/hr.js"></script>
+  <script src="js/dom.js"></script>
   <script src="js/model.js"></script>
   <script src="js/data.js"></script>
   <script src="js/core.js"></script>
@@ -44,6 +53,10 @@
   <script src="js/pages-finance.js"></script>
   <script src="js/pages-chat.js"></script>
   <script src="js/pages-admin.js"></script>
+  <script src="js/pages-hr.js"></script>
+  <script src="js/pages-dom.js"></script>
+  <script src="js/pages-wa.js"></script>
+  <script src="js/print.js"></script>
   <script src="js/portal.js"></script>
 </body>
 </html>

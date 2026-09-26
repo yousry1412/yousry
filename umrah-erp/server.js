@@ -1,11 +1,12 @@
 /* =====================================================================
- * Smart Umrah ERP — online server
+ * أفواج — online server
  *   /api/auth/*        setup (first owner) · login · logout · status
  *   /api/companies     multi-company (owner) · rename via state
  *   /api/state         one versioned document per company + governance checks
  *   /api/versions      history, labelled snapshots, restore
  *   /api/files         uploads (photos, passports, receipts, trip files)
- *   /api/chat          internal chat with attachments
+ *   /api/chat          internal chat with attachments + direct/private messages
+ *   /api/hr/*          employee self-service: server-time attendance, leave requests, tasks
  *   /api/notifications notification centre
  *   /api/portal/*      restricted views for agents, supervisors, housing reps
  *   /api/backup        full backup download (flash drive) · /api/restore
@@ -15,10 +16,13 @@ const express = require('express');
 const path = require('path');
 const store = require('./lib/store');
 const gov = require('./lib/governance');
+const wa = require('./lib/whatsapp');
 const { parseCookies, setCookie, clearCookie } = require('./lib/cookies');
 const Engine = require('./public/js/engine.js');
 const Acc = require('./public/js/accounting.js');
 const Model = require('./public/js/model.js');
+const Hr = require('./public/js/hr.js');
+const Dom = require('./public/js/dom.js');
 const { buildSeed } = require('./public/js/data.js');
 
 const app = express();
@@ -32,7 +36,7 @@ app.use((req, res, next) => {
   res.set('X-Content-Type-Options', 'nosniff');
   res.set('X-Frame-Options', 'SAMEORIGIN');
   res.set('Referrer-Policy', 'same-origin');
-  res.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+  res.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(self)');
   res.set('Content-Security-Policy', [
     "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com", "img-src 'self' data: blob:", "connect-src 'self'",
@@ -45,6 +49,8 @@ app.use('/api', (req, res, next) => {
   if (req.method !== 'GET' && req.get('X-Requested-With') !== 'umrah') return res.status(403).json({ error: 'طلب مرفوض' });
   next();
 });
+
+try { store.resetOwnerFromEnv(); } catch (e) { console.error('[afwaj] owner reset failed:', e.message); }
 
 // First boot: create a demo company so the owner can explore immediately.
 if (!store.listCompanies().length) {
@@ -109,6 +115,7 @@ function loadDoc(companyId) {
 function emitEvents(companyId, events) {
   for (const e of events) {
     if (e.roles) store.notify(companyId, { roles: e.roles, text: e.text, link: e.link });
+    else if (e.userId) store.notify(companyId, { userId: e.userId, text: e.text, link: e.link });
     else if (e.userName) {
       const u = store.listUsers(companyId).find((x) => x.display_name === e.userName);
       if (u) store.notify(companyId, { userId: u.id, text: e.text, link: e.link });
@@ -139,7 +146,9 @@ api.post('/companies', express.json(), allow('OWNER'), (req, res) => {
     const name = String((req.body && req.body.name) || '').trim();
     if (name.length < 2) throw new Error('اكتب اسم الشركة');
     const S = req.body.demo ? Model.load(buildSeed(Date.now()), name) : Model.emptyCompany(name, req.body.country || 'EG');
-    S.company.name = name; S.company.country = req.body.country || 'EG';
+    S.company.name = name;
+    const doms = (Array.isArray(req.body.domains) ? req.body.domains : []).filter((d) => Model.DOMAINS[d]);
+    if (doms.length) { S.company.domains = doms; S.branches.forEach((b) => { b.domains = doms.slice(); }); }
     const c = store.createCompany(name, Model.serialize(S), req.user.display_name);
     store.audit(req.user.id, c.id, `إنشاء شركة ${name}`);
     res.json(c);
@@ -182,8 +191,10 @@ api.put('/state', express.json({ limit: '40mb' }), staffOnly, (req, res) => {
   const { baseVersion, state } = req.body || {};
   const cur = store.getState(req.companyId);
   if (Number(baseVersion) !== cur.version) return res.status(409).json({ error: 'تم تحديث البيانات من مستخدم آخر' });
-  const oldDoc = JSON.parse(cur.json);
-  const { errors, events } = gov.validate(oldDoc.version === 4 ? oldDoc : null, state, req.user);
+  // compare against the stored document normalised exactly like clients load it (new defaults never count as edits)
+  const raw = JSON.parse(cur.json);
+  const oldDoc = raw.version === 4 ? JSON.parse(Model.serialize(Model.load(raw, store.getCompany(req.companyId).name))) : null;
+  const { errors, events } = gov.validate(oldDoc, state, req.user);
   if (errors.length) return res.status(403).json({ error: errors.join(' · ') });
   const r = store.saveState(req.companyId, Number(baseVersion), JSON.stringify(state), req.user.display_name);
   if (!r.ok) return res.status(409).json({ error: 'تم تحديث البيانات من مستخدم آخر' });
@@ -244,26 +255,104 @@ api.get('/files/:id', (req, res) => {
 });
 
 // ---------------------------------------------------------------- chat
-const CHANNELS = { general: store.STAFF_ROLES, field: [...store.STAFF_ROLES, 'SUPERVISOR', 'HOUSING'], agents: [...store.STAFF_ROLES, 'AGENT'] };
+const CHANNELS = { general: store.STAFF_ROLES, field: [...store.STAFF_ROLES, 'SUPERVISOR', 'HOUSING'], agents: [...store.STAFF_ROLES, 'AGENT'], dm: store.ROLES };
 const chanOk = (req) => CHANNELS[req.params.ch] && CHANNELS[req.params.ch].includes(req.user.role);
+/** People a user may address: staff see everyone in the company; field/agent accounts see staff (+ field colleagues). */
+function chatPeople(req) {
+  const staff = store.STAFF_ROLES.includes(req.user.role);
+  return store.listUsers(req.companyId).filter((u) => u.is_active && u.id !== req.user.id && (u.company_id === req.companyId || u.role === 'OWNER'))
+    .filter((u) => staff || store.STAFF_ROLES.includes(u.role) || (req.user.role !== 'AGENT' && ['SUPERVISOR', 'HOUSING'].includes(u.role)))
+    .map(({ id, display_name, role }) => ({ id, display_name, role }));
+}
+api.get('/chat/people', (req, res) => res.json(chatPeople(req)));
 api.get('/chat/unread', (req, res) => res.json(store.chatUnread(req.user.id, req.companyId).filter((x) => CHANNELS[x.channel] && CHANNELS[x.channel].includes(req.user.role))));
 api.get('/chat/:ch', (req, res) => {
   if (!chanOk(req)) return res.status(403).json({ error: 'لا تملك صلاحية هذه المحادثة' });
-  const rows = store.listChat(req.companyId, req.params.ch, req.query.since);
+  const rows = store.listChat(req.companyId, req.params.ch, req.query.since, req.user.id, req.query.with);
   if (rows.length) store.markChatRead(req.user.id, req.companyId, req.params.ch, rows[rows.length - 1].id);
   res.json(rows);
 });
 api.post('/chat/:ch', express.json({ limit: '50kb' }), (req, res) => {
   if (!chanOk(req)) return res.status(403).json({ error: 'لا تملك صلاحية هذه المحادثة' });
   try {
-    if (req.body.fileId && !store.getFile(req.companyId, req.body.fileId)) throw new Error('المرفق غير موجود');
-    res.json({ id: store.postChat(req.companyId, req.params.ch, req.user, req.body.text, req.body.fileId) });
+    const b = req.body || {}, ch = req.params.ch;
+    if (b.fileId && !store.getFile(req.companyId, b.fileId)) throw new Error('المرفق غير موجود');
+    let to = null;
+    if (b.to) {
+      to = chatPeople(req).find((u) => u.id === Number(b.to));
+      if (!to) throw new Error('المستلم غير متاح');
+      if (!CHANNELS[ch].includes(to.role)) throw new Error(`${to.display_name} لا يرى هذه المحادثة — أرسلها كرسالة خاصة`);
+    } else if (ch === 'dm') throw new Error('اختر المستلم');
+    const priv = ch === 'dm' ? 1 : b.private ? 1 : 0;
+    const id = store.postChat(req.companyId, ch, req.user, b.text, b.fileId, to, priv);
+    if (to) store.notify(req.companyId, { userId: to.id, text: `💬 ${req.user.display_name} ${priv ? '(رسالة خاصة)' : 'وجّه لك رسالة'}: ${String(b.text || '📎 مرفق').slice(0, 90)}`, link: 'chat' });
+    res.json({ id });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ------------------------------------------------------ HR self-service
+// Punches use the SERVER clock (company timezone) — the device clock can't be used to fake attendance.
+const myEmp = (S, u) => Hr.empOfUser(S, u.id);
+api.get('/hr/me', (req, res) => {
+  const { S } = loadDoc(req.companyId), e = myEmp(S, req.user);
+  if (!e) return res.json({ linked: false });
+  res.json({ linked: true, ...Hr.selfView(S, e, req.query.period) });
+});
+api.post('/hr/punch', express.json(), (req, res) => {
+  try {
+    const g = req.body && req.body.geo, geo = g && Number.isFinite(+g.lat) && Number.isFinite(+g.lng) ? { lat: +(+g.lat).toFixed(5), lng: +(+g.lng).toFixed(5), acc: Math.round(+g.acc || 0) } : null;
+    const r = mutate(req.companyId, req.user.display_name, (S) => {
+      const e = myEmp(S, req.user); if (!e) throw new Error('حسابك غير مربوط بملف موظف — راجع الموارد البشرية');
+      const p = Hr.punch(S, e.id, Date.now(), geo);
+      S.audit.unshift({ at: Date.now(), by: req.user.display_name, msg: `${p.kind === 'IN' ? 'تسجيل حضور' : 'تسجيل انصراف'} ${p.kind === 'IN' ? p.rec.in : p.rec.out}${geo ? ' 📍' : ''}` });
+      S.audit.length = Math.min(S.audit.length, 3000);
+      return p;
+    });
+    res.json(r);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+api.post('/hr/leave', express.json(), (req, res) => {
+  try {
+    const l = mutate(req.companyId, req.user.display_name, (S) => {
+      const e = myEmp(S, req.user); if (!e) throw new Error('حسابك غير مربوط بملف موظف');
+      if (req.body.fileId && !store.getFile(req.companyId, req.body.fileId)) throw new Error('المرفق غير موجود');
+      return { ...Hr.requestLeave(S, e.id, req.body || {}, req.user.display_name), empName: e.name };
+    });
+    store.notify(req.companyId, { roles: Hr.HR_ADMINS, text: `🌴 طلب إجازة ${Hr.LEAVE_TYPES[l.type]} من ${l.empName}: ${l.from} ← ${l.to} (${l.days} يوم)`, link: 'hrLeaves' });
+    res.json(l);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+api.post('/hr/task/:id', express.json(), (req, res) => {
+  try {
+    const st = ['OPEN', 'DOING', 'DONE'].includes(req.body.status) ? req.body.status : null;
+    if (!st) throw new Error('حالة غير صحيحة');
+    const t = mutate(req.companyId, req.user.display_name, (S) => {
+      const e = myEmp(S, req.user); if (!e) throw new Error('حسابك غير مربوط بملف موظف');
+      return { ...Hr.setTaskStatus(S, req.params.id, e.id, st), empName: e.name };
+    });
+    if (st === 'DONE') store.notify(req.companyId, { roles: Hr.HR_ADMINS, text: `✅ ${t.empName} أنهى المهمة: ${t.title}`, link: 'hrTasks' });
+    res.json(t);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // ------------------------------------------------------- notifications
 api.get('/notifications', (req, res) => res.json(store.listNotifications(req.user, req.companyId)));
 api.post('/notifications/read', express.json(), (req, res) => { store.markNotificationsRead(req.user.id, req.body && req.body.lastId); res.json({ ok: true }); });
+
+// ------------------------------------------------------------ whatsapp
+api.get('/wa/status', (req, res) => { const c = wa.publicConfig(req.companyId); res.json({ enabled: c.enabled, autoReceipt: c.autoReceipt }); });
+api.get('/wa/config', allow('OWNER', 'MANAGER'), (req, res) => res.json(wa.publicConfig(req.companyId)));
+api.put('/wa/config', express.json(), allow('OWNER', 'MANAGER'), (req, res) => { store.audit(req.user.id, req.companyId, 'تعديل إعدادات واتساب'); res.json(wa.saveConfig(req.companyId, req.body || {})); });
+api.get('/wa/log', allow('OWNER', 'MANAGER', 'ACCOUNTANT'), (req, res) => res.json(wa.listLog(req.companyId)));
+api.post('/wa/send', express.json({ limit: '50kb' }), staffOnly, async (req, res) => {
+  try { res.json(await wa.send(req.companyId, req.body || {}, req.user.display_name)); } catch (e) { res.status(400).json({ error: e.message }); }
+});
+api.post('/wa/bulk', express.json({ limit: '1mb' }), staffOnly, async (req, res) => {
+  const items = Array.isArray(req.body && req.body.items) ? req.body.items : [];
+  if (!wa.publicConfig(req.companyId).enabled) return res.status(400).json({ error: 'واتساب بيزنس غير مفعّل' });
+  store.audit(req.user.id, req.companyId, `إرسال واتساب جماعي (${items.length})`);
+  res.json(await wa.bulk(req.companyId, items, req.user.display_name));
+});
 
 // ------------------------------------------------------------------ fx
 async function refreshFx(force) {
@@ -283,7 +372,7 @@ async function refreshFx(force) {
 api.get('/fx', async (req, res) => res.json((await refreshFx(req.query.refresh === '1')) || { rate: null }));
 
 // --------------------------------------------------------------- audit
-api.get('/audit', allow('OWNER', 'MANAGER', 'ACCOUNTANT'), (req, res) => res.json(store.listAudit(req.companyId)));
+api.get('/audit', allow('OWNER', 'MANAGER', 'ACCOUNTANT', 'HR'), (req, res) => res.json(store.listAudit(req.companyId, req.query.limit)));
 
 // -------------------------------------------------------------- backup
 api.get('/backup', allow('OWNER'), (req, res) => {
@@ -309,16 +398,21 @@ function portalView(S, u) {
       const pl = Engine.priceList(S);
       prices[d.id] = pl;
       const free = ['MAK', 'MAD'].map((c) => Engine.breakage(S, c).reduce((x, y) => x + y.free, 0));
-      return { id: d.id, code: d.trip.code, name: d.trip.name, departDate: d.trip.departDate, returnDate: d.trip.returnDate, prices: pl, freeBeds: free };
+      const cm = a.tier === 'BROKER' ? Engine.commissionFor(S, a, { adults: 1, chd: 0, gross: pl.QUAD }) : null;
+      return { id: d.id, code: d.trip.code, name: d.trip.name, departDate: d.trip.departDate, returnDate: d.trip.returnDate, prices: pl, freeBeds: free,
+        commissionText: cm ? (cm.rate != null ? `${Math.round(cm.rate)} ج.م لكل ${cm.basis === 'BOOKING' ? 'حجز' : 'فرد'}` : cm.source) : null };
     }));
     const bookings = [];
     for (const d of S.trips) for (const b of d.bookings.filter((x) => x.agentId === a.id)) {
       bookings.push({ id: b.id, code: b.code, trip: d.trip.code, tripId: d.id, status: b.status, statusAr: Engine.BOOKING_STATUS[b.status].ar, net: b.net, paid: b.paid, mode: b.mode, roomType: b.roomType,
-        createdAt: b.createdAt, holdUntil: b.holdUntil, installments: b.installments || [],
+        createdAt: b.createdAt, holdUntil: b.holdUntil, installments: b.installments || [], agentCommission: b.agentCommission || 0, commissionAdj: b.commissionAdj || 0,
+        commissionLog: (b.commissionLog || []).map((x) => ({ adj: x.adj, note: x.note })),
         pax: d.pax.filter((p) => p.bookingId === b.id).map((p) => ({ id: p.id, nameAr: p.nameAr, nameEn: p.nameEn, type: p.type, gender: p.gender, passport: p.passport, passportExp: p.passportExp, photoFileId: p.photoFileId, passportFileId: p.passportFileId })) });
     }
-    return { ...base, agent: { id: a.id, code: a.code, name: a.name, tier: a.tier, currency: a.currency, balance: a.balance, creditLimit: a.creditLimit, netDiscountPct: a.netDiscountPct, commissionPct: a.commissionPct, blocked: a.blocked, overdueDays: a.overdueDays },
-      statement: Acc.partyStatement(S, 'agent', a.id), trips, bookings: bookings.sort((x, y) => y.createdAt - x.createdAt),
+    return { ...base, agent: { id: a.id, code: a.code, name: a.name, tier: a.tier, currency: a.currency, balance: a.balance, creditLimit: a.creditLimit, netDiscountPct: a.netDiscountPct, commissionPct: a.commissionPct, commission: Engine.commissionRule(a), blocked: a.blocked, overdueDays: a.overdueDays },
+      statement: Acc.partyStatement(S, 'agent', a.id), trips,
+      score: (() => { const r = Model.agentRanking(S, { from: Engine.iso(new Date()).slice(0, 4) + '-01-01' }).find((x) => x.a.id === a.id);
+        return { total: r.total, rating: r.rating, parts: r.parts, k: { bookings: r.k.bookings, pax: r.k.pax, net: r.k.net, collectionPct: r.k.collectionPct, cancelPct: r.k.cancelPct, docsPct: r.k.docsPct, commission: r.k.commission } }; })(), bookings: bookings.sort((x, y) => y.createdAt - x.createdAt),
       vouchers: S.vouchers.filter((v) => v.party && v.party.type === 'agent' && v.party.id === a.id).map((v) => ({ no: v.no, type: v.type, date: v.date, amount: v.amount, currency: v.currency, status: v.status, memo: v.memo, rejectReason: v.rejectReason })),
       cashboxes: S.cashboxes.map((c) => ({ id: c.id, name: c.name, type: c.type, bankName: c.bankName, iban: c.iban })) };
   }
@@ -416,6 +510,7 @@ function sweep() {
       const { version, S } = loadDoc(c.id);
       const released = [];
       for (const d of S.trips) Model.withTrip(S, d.id, () => { for (const code of Engine.releaseExpiredHolds(S, Date.now())) released.push(`${d.trip.code} · ${code}`); });
+      for (const code of Dom.releaseExpired(S, Date.now())) released.push(`سياحة داخلية · ${code}`);
       if (!released.length) continue;
       for (const r of released) S.audit.unshift({ at: Date.now(), by: 'النظام', msg: `تحرير آلي للحجز ${r} لانتهاء مهلة التعليق` });
       const s = store.saveState(c.id, version, Model.serialize(S), 'النظام');
@@ -427,6 +522,6 @@ if (require.main === module) {
   setInterval(sweep, 30000).unref();
   setInterval(() => { try { store.autoBackup(); } catch (e) { console.error('backup failed', e.message); } }, 3600000).unref();
   setTimeout(() => { store.autoBackup(); refreshFx(); }, 5000).unref();
-  app.listen(PORT, () => console.log(`Smart Umrah ERP شغال على http://localhost:${PORT}`));
+  app.listen(PORT, () => console.log(`أفواج (Afwaj) شغال على http://localhost:${PORT}`));
 }
 module.exports = { app, sweep };

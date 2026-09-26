@@ -144,3 +144,24 @@ test('server governance rejects tampering by non-approvers', () => {
   assert.ok(mut((n) => { n.company.vatRate = 0; }).length);
   assert.equal(mut((n) => { n.trips[0].bookings[0].notes = 'ok'; }).length, 0, 'normal operational edits pass');
 });
+
+test('FX: executive vs global spread alert; executive changes are logged and approver-only', () => {
+  const S = fresh();
+  S.fx.global = { rate: 13.0, at: NOW };
+  S.fx.current = 13.36; S.fx.alertSpreadPct = 2;
+  const i = Model.fxInfo(S);
+  assert.equal(i.spreadPct, 2.77);
+  assert.equal(i.alert, true);
+  assert.ok(Model.alerts(S, 'ACCOUNTANT').some((a) => a.page === 'fx'));
+  const old = JSON.parse(Model.serialize(S));
+  const n = JSON.parse(Model.serialize(S));
+  n.fx.current = 14; // silent change without history
+  assert.ok(gov.validate(old, n, { role: 'OWNER' }).errors.some((e) => /سجل/.test(e)));
+  const S2 = Model.load(JSON.parse(Model.serialize(S)));
+  Model.setExecRate(S2, 13.5, 'acc', 'صرافة');
+  const n2 = JSON.parse(Model.serialize(S2));
+  assert.equal(gov.validate(old, n2, { role: 'ACCOUNTANT' }).errors.length, 0);
+  assert.ok(gov.validate(old, n2, { role: 'SALES' }).errors.some((e) => /التنفيذي/.test(e)));
+  const n3 = JSON.parse(Model.serialize(S)); n3.fx.global = { rate: 13.1, at: NOW + 1 };
+  assert.equal(gov.validate(old, n3, { role: 'SALES' }).errors.length, 0, 'global benchmark updates are free');
+});

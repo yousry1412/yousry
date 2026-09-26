@@ -36,20 +36,20 @@
       <div class="stack">
         ${App.online ? `<div class="card"><h3>📨 الإشعارات <span class="sub">${App.notifications.unread} جديد</span>${App.notifications.unread ? '<span class="spacer"></span><button class="btn sm ghost" data-act="notifRead">تعليم كمقروء</button>' : ''}</h3>
           <div class="small" style="max-height:300px;overflow:auto">${App.notifications.items.slice(0, 30).map((n) => `<div style="padding:6px 0;border-bottom:1px solid var(--line)" ${n.link ? `data-act="go" data-page="${esc(n.link)}"` : ''}>${esc(n.text)}<div class="faint">${esc(n.created_at)}</div></div>`).join('') || '<span class="muted">لا إشعارات.</span>'}</div></div>` : ''}
-        <div class="card"><h3>💱 سعر الصرف</h3>
-          <table class="t"><tr><td>سعر السوق المستخدم (SAR→EGP)</td><td><b class="num">${s.fx.current}</b></td></tr>
-          ${s.trip ? `<tr><td>سعر التشغيل المرجعي للرحلة ${esc(s.trip.code)} (تكتبه أنت)</td><td><b class="num">${s.trip.fxRef}</b></td></tr>` : ''}
-          <tr><td>السعر العالمي الحي</td><td>${g && g.rate ? `<b class="num gold">${g.rate}</b><div class="faint small">${new Date(g.at).toLocaleString('ar-EG')}${g.usd ? ` · USD ${g.usd}` : ''}</div>` : '<span class="muted">غير متاح الآن</span>'}</td></tr></table>
-          <div class="row" style="margin-top:8px">${App.online ? '<button class="btn sm" data-act="fxRefresh">↻ تحديث من السوق العالمي</button>' : ''}${g && g.rate && fin ? '<button class="btn sm gold" data-act="fxApply">اعتماد السعر العالمي كسعر السوق</button>' : ''}</div>
-          <div class="small muted" style="margin-top:6px">سعر السوق يُستخدم لتقييم المستحقات المفتوحة بالريال وفروق العملة؛ سعر التشغيل المرجعي يثبت تكلفة وتسعير الرحلة ولا يتغير تلقائياً.</div></div>
+        <div class="card"><h3>💱 سعر الصرف <span class="spacer"></span><button class="btn sm ghost" data-act="go" data-page="fx">التفاصيل ←</button></h3>
+          ${(() => { const fx = Model.fxInfo(s); return `<div class="grid g2"><div class="fx-mini exec"><span>التنفيذي</span><b class="num">${fx.exec}</b></div><div class="fx-mini global"><span>العالمي</span><b class="num">${fx.global ?? '—'}</b></div></div>
+            ${fx.spreadPct != null ? `<div class="chip ${fx.alert ? 'danger' : 'ok'}" style="margin-top:8px">الفرق ${fx.spreadPct > 0 ? '+' : ''}${fx.spreadPct}%</div>` : ''}
+            ${s.trip ? `<div class="small muted" style="margin-top:6px">سعر تسعير ${esc(s.trip.code)}: <b class="num">${s.trip.fxRef}</b></div>` : ''}`; })()}</div>
       </div>
     </div>`;
   };
   App.actions.notifRead = async () => { const last = (App.notifications.items[0] || {}).id; await App.api('POST', 'api/notifications/read', { lastId: last }); App.notifications.unread = 0; App.render(); };
   App.actions.fxRefresh = async () => { const r = await App.refreshFx(true); App.render(); App.toast(r && r.rate ? `السعر العالمي الآن ${r.rate}` : 'تعذر الوصول لمصدر السعر العالمي', r && r.rate ? '' : 'err'); };
   App.actions.fxApply = () => {
-    const g = App.fxGlobal; if (!g || !g.rate) return;
-    S().fx.current = g.rate; S().fx.global = g;
-    App.audit(`تحديث سعر السوق للسعر العالمي ${g.rate}`); App.save(); App.render();
+    const g = S().fx.global; if (!g || !g.rate) return;
+    if (!App.isApprover()) return App.toast('من صلاحية المحاسب أو المدير', 'err');
+    if (!confirm(`نسخ السعر العالمي ${g.rate} ليصبح السعر التنفيذي؟`)) return;
+    Model.setExecRate(S(), g.rate, App.actor().name, 'نسخ من السعر العالمي');
+    App.audit(`السعر التنفيذي = العالمي ${g.rate}`); App.save(); App.render();
   };
 })();

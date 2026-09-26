@@ -154,6 +154,77 @@ test('chat with attachment, per-channel permissions', async () => {
   assert.ok(m.some((x) => x.text === 'سلام' && x.file_id === fileId));
 });
 
+test('chat: addressed vs private messages — private ones never reach a third person', async () => {
+  const users = (await owner.req('GET', '/api/users')).data;
+  const acc = users.find((u) => u.username === 'acc'), mona = users.find((u) => u.username === 'mona');
+  const people = (await sales.req('GET', '/api/chat/people')).data;
+  assert.ok(people.some((u) => u.id === acc.id) && !people.some((u) => u.id === mona.id));
+  assert.equal((await sales.req('POST', '/api/chat/general', { text: 'سر بيننا', to: acc.id, private: true })).status, 200);
+  assert.equal((await sales.req('POST', '/api/chat/general', { text: 'راجع الإيصال يا أستاذ', to: acc.id, private: false })).status, 200);
+  const ownerView = (await owner.req('GET', '/api/chat/general')).data;
+  assert.ok(!ownerView.some((m) => m.text === 'سر بيننا'), 'private message hidden from others');
+  assert.ok(ownerView.some((m) => m.text === 'راجع الإيصال يا أستاذ' && m.to_name === 'acc'), 'addressed public message visible to all');
+  assert.ok((await acct.req('GET', '/api/chat/general')).data.some((m) => m.text === 'سر بيننا'));
+  assert.ok((await acct.req('GET', '/api/chat/dm')).data.some((m) => m.text === 'سر بيننا'), 'DM inbox collects private messages');
+  assert.equal((await sales.req('POST', '/api/chat/general', { text: 'x', to: 99999 })).status, 400);
+  assert.equal((await sales.req('POST', '/api/chat/dm', { text: 'no target' })).status, 400);
+  // an agent cannot be addressed inside the staff-only channel
+  const noor = users.find((u) => u.username === 'noor');
+  assert.equal((await sales.req('POST', '/api/chat/general', { text: 'x', to: noor.id })).status, 400);
+  assert.ok((await acct.req('GET', '/api/notifications')).data.items.some((n) => /رسالة خاصة/.test(n.text)));
+});
+
+test('HR: link employee, server-time punches, leave request, governance on HR data', async () => {
+  const users = (await owner.req('GET', '/api/users')).data;
+  const mona = users.find((u) => u.username === 'mona');
+  assert.equal((await sales.req('GET', '/api/hr/me')).data.linked, false);
+  let st = (await owner.req('GET', '/api/state')).data;
+  st.state.employees.find((e) => e.id === 'EM1').userId = mona.id;
+  assert.equal((await owner.req('PUT', '/api/state', { baseVersion: st.version, state: st.state })).status, 200);
+  const me = (await sales.req('GET', '/api/hr/me')).data;
+  assert.equal(me.linked, true); assert.equal(me.emp.id, 'EM1'); assert.ok(me.score.total >= 0);
+  // today may already hold a seeded punch → normalize by punching until complete
+  let r = await sales.req('POST', '/api/hr/punch', { geo: { lat: 30.0444, lng: 31.2357, acc: 20 } });
+  if (r.status === 200 && r.data.kind === 'IN') r = await sales.req('POST', '/api/hr/punch', {});
+  assert.equal((await sales.req('POST', '/api/hr/punch', {})).status, 400, 'third punch of the day refused');
+  const lv = await sales.req('POST', '/api/hr/leave', { type: 'CASUAL', from: '2099-01-05', to: '2099-01-05', reason: 'ظرف' });
+  assert.equal(lv.status, 200); assert.equal(lv.data.status, 'PENDING');
+  assert.ok((await owner.req('GET', '/api/notifications')).data.items.some((n) => /طلب إجازة/.test(n.text)));
+  // a sales employee cannot edit attendance or approve leaves through the document
+  st = (await sales.req('GET', '/api/state')).data;
+  st.state.hr.leaves.find((l) => l.id === lv.data.id).status = 'APPROVED';
+  assert.equal((await sales.req('PUT', '/api/state', { baseVersion: st.version, state: st.state })).status, 403);
+  st = (await sales.req('GET', '/api/state')).data;
+  st.state.employees.find((e) => e.id === 'EM1').salary = 99999;
+  assert.equal((await sales.req('PUT', '/api/state', { baseVersion: st.version, state: st.state })).status, 403);
+  // HR admin (owner) edits a punch without a reason → refused; with the audit trail → accepted
+  st = (await owner.req('GET', '/api/state')).data;
+  const rec = st.state.hr.attendance.find((a) => a.empId === 'EM2');
+  rec.in = '08:00';
+  assert.equal((await owner.req('PUT', '/api/state', { baseVersion: st.version, state: st.state })).status, 403);
+  rec.edits = [{ from: 'x', to: '08:00', by: 'owner', at: Date.now(), reason: 'عطل جهاز البصمة' }];
+  assert.equal((await owner.req('PUT', '/api/state', { baseVersion: st.version, state: st.state })).status, 200);
+  // payroll: HR prepares, a non-approver cannot post, posted runs are frozen
+  st = (await owner.req('GET', '/api/state')).data;
+  const period = new Date().toISOString().slice(0, 7);
+  st.state.hr.payroll.push({ id: 'PRX', period, status: 'POSTED', lines: [], total: 0 });
+  assert.equal((await sales.req('PUT', '/api/state', { baseVersion: st.version, state: st.state })).status, 403);
+});
+
+test('WhatsApp Business: config is admin-only, token never leaves the server, sending without config is logged as failed', async () => {
+  assert.equal((await sales.req('GET', '/api/wa/status')).data.enabled, false);
+  assert.equal((await sales.req('PUT', '/api/wa/config', { token: 'x', phoneId: '1' })).status, 403);
+  const r = await sales.req('POST', '/api/wa/send', { to: '01000000000', text: 'hi', ref: 'T' });
+  assert.equal(r.status, 400);
+  const c = await owner.req('PUT', '/api/wa/config', { token: 'EAAG-secret-token', phoneId: '123', mode: 'TEXT', dial: '20' });
+  assert.equal(c.data.token, '••••••••'); assert.equal(c.data.enabled, true);
+  assert.ok(!JSON.stringify((await owner.req('GET', '/api/wa/config')).data).includes('secret'));
+  const st = (await owner.req('GET', '/api/state')).data.state;
+  assert.ok(!JSON.stringify(st).includes('EAAG-secret-token'), 'token is not in the company document');
+  assert.ok((await owner.req('GET', '/api/wa/log')).data.some((l) => l.status === 'failed'));
+  assert.equal((await owner.req('PUT', '/api/wa/config', { token: '', phoneId: '' })).data.enabled, false);
+});
+
 test('versions, snapshot, wipe (with backup) and full backup', async () => {
   assert.equal((await owner.req('POST', '/api/versions/snapshot', { label: 'قبل الاختبار' })).status, 200);
   const vs = (await owner.req('GET', '/api/versions')).data;

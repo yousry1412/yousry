@@ -1,7 +1,7 @@
 {
   "name": "umrah-erp",
   "version": "1.0.0",
-  "description": "Smart Umrah ERP: تكوين رحلات العمرة، التكاليف متعددة العملات، بنك الغرف، حوكمة المبيعات، والتسكين التفاعلي",
+  "description": "أفواج: منظومة شركات العمرة والسياحة الداخلية — تكوين رحلات العمرة، التكاليف متعددة العملات، بنك الغرف، حوكمة المبيعات، والتسكين التفاعلي",
   "main": "server.js",
   "engines": {
     "node": ">=22.13.0"
@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test tests/engine.test.js tests/accounting.test.js",
+    "test": "node --test tests/engine.test.js tests/accounting.test.js tests/hr.test.js tests/dom.test.js",
     "test:e2e": "node --test tests/api.e2e.js"
   },
   "license": "MIT",

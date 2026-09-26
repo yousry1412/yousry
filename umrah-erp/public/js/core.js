@@ -81,7 +81,7 @@
     fileLink: (id, name) => `<a href="${App.fileUrl(id)}" target="_blank" rel="noopener">📎 ${esc(name || 'مرفق')}</a>`,
     noTrip: () => `<div class="card empty-state"><h3>✈️ لا توجد رحلة مختارة</h3><p class="muted">أنشئ رحلة جديدة أو اختر رحلة من أعلى الشاشة.</p><button class="btn primary" data-act="go" data-page="trips">الذهاب للرحلات</button></div>`,
   };
-  App.audit = (msg) => { App.S.audit.unshift({ at: Date.now(), by: App.actor().name, msg }); App.S.audit.length = Math.min(App.S.audit.length, 300); };
+  App.audit = (msg) => { App.S.audit.unshift({ at: Date.now(), by: App.actor().name, msg }); App.S.audit.length = Math.min(App.S.audit.length, 3000); };
   const getPath = (o, p) => p.split('.').reduce((x, k) => (x == null ? x : x[k]), o);
   const setPath = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); const t = ks.reduce((x, k) => x[k], o); t[last] = v; };
   App.getPath = getPath; App.setPath = setPath;
@@ -93,9 +93,9 @@
   App.val = (id) => { const el = document.getElementById(id); return el ? readValue(el) : undefined; };
 
   // --------------------------------------------------------- roles
-  const ROLE_MAP = { OWNER: 'MANAGER', MANAGER: 'MANAGER', HEAD: 'HEAD', SALES: 'SALES', OPERATIONS: 'SALES', ACCOUNTANT: 'SALES' };
-  App.ROLE_LABEL = { OWNER: 'المالك', MANAGER: 'مدير', ACCOUNTANT: 'محاسب', HEAD: 'رئيس قسم مبيعات', SALES: 'موظف مبيعات', OPERATIONS: 'عمليات وتسكين', AGENT: 'مندوب/وكيل', SUPERVISOR: 'مشرف رحلة', HOUSING: 'مندوب تسكين' };
-  App.role = () => (App.online ? App.me.role : { MANAGER: 'OWNER', HEAD: 'HEAD', SALES: 'SALES' }[App.h.user().role] || 'SALES');
+  const ROLE_MAP = { OWNER: 'OWNER', MANAGER: 'SALES', HEAD: 'HEAD', SALES: 'SALES', OPERATIONS: 'SALES', ACCOUNTANT: 'SALES', HR: 'SALES' };
+  App.ROLE_LABEL = { OWNER: 'المالك', MANAGER: 'مدير', ACCOUNTANT: 'محاسب', HR: 'موارد بشرية', HEAD: 'رئيس قسم مبيعات', SALES: 'موظف مبيعات', OPERATIONS: 'عمليات وتسكين', AGENT: 'مندوب/وكيل', SUPERVISOR: 'مشرف رحلة', HOUSING: 'مندوب تسكين' };
+  App.role = () => (App.online ? App.me.role : { OWNER: 'OWNER', MANAGER: 'OWNER', HEAD: 'HEAD', SALES: 'SALES' }[App.h.user().role] || 'SALES');
   App.actor = () => ({ name: App.online ? App.me.display_name : App.h.user().name, role: App.role(), staffId: App.ui.actingUser, userId: App.me && App.me.id });
   App.can = (...roles) => roles.includes(App.role());
   App.isApprover = () => Acc.canApprove(App.role());
@@ -223,7 +223,7 @@
       h1,h2{color:#0d3b2c;margin:0 0 4px}.ltr{direction:ltr;text-align:left}.muted{color:#555}.box{border:1px solid #0d3b2c;border-radius:8px;padding:10px;margin:8px 0}
       .head{display:flex;justify-content:space-between;border-bottom:3px solid #b8912f;padding-bottom:8px;margin-bottom:10px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
       .co{font-size:10px;color:#444;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:8px}.sign{display:flex;justify-content:space-between;margin-top:30px}</style>
-      </head><body><div class="co"><b>${esc(c.name)}</b>${c.commercialNo ? ' · س.ت ' + esc(c.commercialNo) : ''}${c.taxNo ? ' · رقم ضريبي ' + esc(c.taxNo) : ''}${c.licenseNo ? ' · ترخيص ' + esc(c.licenseNo) : ''}${c.phone ? ' · ' + esc(c.phone) : ''}${c.address ? ' · ' + esc(c.address) : ''}</div>${bodyHtml}</body></html>`);
+      </head><body><div class="co"><img src="${location.origin + location.pathname.replace(/[^/]*$/, '')}img/logo.svg" alt="" style="width:22px;height:22px;vertical-align:middle;margin-inline-end:6px"><b>${esc(c.name)}</b>${c.commercialNo ? ' · س.ت ' + esc(c.commercialNo) : ''}${c.taxNo ? ' · رقم ضريبي ' + esc(c.taxNo) : ''}${c.licenseNo ? ' · ترخيص ' + esc(c.licenseNo) : ''}${c.phone ? ' · ' + esc(c.phone) : ''}${c.address ? ' · ' + esc(c.address) : ''}</div>${bodyHtml}</body></html>`);
     d.close();
     setTimeout(() => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 1500); }, 250);
   };
@@ -252,29 +252,40 @@
   const SAL = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HEAD', 'SALES'];
   const OPS = ['OWNER', 'MANAGER', 'HEAD', 'SALES', 'OPERATIONS'];
   const ADM = ['OWNER', 'MANAGER'];
+  const HRV = ['OWNER', 'MANAGER', 'HR'];
+  const EVERY = [...ALL, 'HR'];
   App.NAV = [
-    ['home', '🏠', 'الرئيسية', [['home', 'لوحة التحكم والتنبيهات', ALL]]],
-    ['trips', '✈️', 'الرحلات والتشغيل', [['trips', 'الرحلات', ALL], ['builder', 'التكلفة والتسعير', [...FIN, 'HEAD']], ['heatmap', 'رادار الإتاحات', ALL],
+    ['home', '🏠', 'الرئيسية', [['home', 'لوحة التحكم والتنبيهات', EVERY], ['me', 'حسابي كموظف', EVERY]]],
+    ['trips', '🕋', 'العمرة — الرحلات والتشغيل', [['trips', 'الرحلات', ALL], ['builder', 'التكلفة والتسعير', [...FIN, 'HEAD']], ['heatmap', 'رادار الإتاحات', ALL],
       ['rooms', 'التسكين المزدوج', OPS], ['bus', 'مقاعد الباص', OPS], ['ops', 'العمليات والكشوف', OPS], ['tripfiles', 'ملفات الرحلة', ALL]]],
-    ['sales', '🧾', 'المبيعات والعملاء', [['booking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL]]],
+    ['dom', '🏖️', 'السياحة الداخلية', [['domPrograms', 'البرامج والرحلات', ALL], ['domBooking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['domOps', 'التشغيل والكشوف', OPS],
+      ['domHotels', 'الفنادق وأسعار التعاقد', [...FIN, 'OPERATIONS', 'HEAD']], ['domPnl', 'ربحية البرامج', FIN]]],
+    ['sales', '🧾', 'المبيعات والعملاء', [['booking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL], ['scores', 'تقييم المناديب والمبيعات', ['OWNER', 'MANAGER', 'HEAD', 'ACCOUNTANT']]]],
     ['purch', '🏨', 'الموردون والفنادق', [['suppliers', 'الموردون', [...FIN, 'OPERATIONS']], ['hotels', 'الفنادق والمخصصات', [...FIN, 'OPERATIONS', 'HEAD']]]],
     ['fin', '💰', 'المالية والحسابات', [['treasury', 'الخزائن والبنوك', FIN], ['vouchers', 'السندات والاعتمادات', ALL], ['expenses', 'المصروفات', FIN],
-      ['employees', 'الموظفون', FIN], ['coa', 'شجرة الحسابات', FIN], ['journal', 'القيود اليومية', FIN], ['reports', 'التقارير المالية', FIN], ['pnl', 'أرباح الرحلة', FIN]]],
-    ['comm', '💬', 'التواصل', [['chat', 'الشات الداخلي', ALL]]],
+      ['employees', 'الموظفون', FIN], ['fx', 'أسعار الصرف', EVERY], ['coa', 'شجرة الحسابات', FIN], ['journal', 'القيود اليومية', FIN], ['reports', 'التقارير المالية', FIN], ['pnl', 'أرباح الرحلة', FIN]]],
+    ['hr', '👥', 'الموارد البشرية', [['hrDash', 'لوحة الأداء والمراقبة', HRV], ['hrEmployees', 'ملفات الموظفين', HRV], ['hrAttendance', 'الحضور والانصراف', HRV], ['hrLeaves', 'الإجازات', HRV],
+      ['hrTasks', 'المهام والتكليفات', HRV], ['hrReviews', 'الأهداف والتقييم', HRV], ['hrAdjust', 'المكافآت والجزاءات', HRV], ['hrPayroll', 'مسير الرواتب', [...HRV, 'ACCOUNTANT']],
+      ['hrMonitor', 'سجل النشاط والمراقبة', HRV], ['hrSettings', 'إعدادات الدوام والتقييم', HRV]]],
+    ['comm', '💬', 'التواصل', [['chat', 'الشات الداخلي', EVERY], ['waCenter', 'رسائل واتساب الجماعية', [...SAL, 'OPERATIONS']]]],
     ['admin', '⚙️', 'الإدارة', [['settings', 'الشركة والفروع والضرائب', ADM], ['users', 'المستخدمون والصلاحيات', ADM], ['backup', 'النسخ الاحتياطي والإصدارات', ADM]]],
   ];
   const TRIP_PAGES = ['builder', 'heatmap', 'rooms', 'bus', 'ops', 'pnl', 'tripfiles'];
-  const pageAllowed = (p) => { for (const g of App.NAV) for (const [k, , roles] of g[3]) if (k === p) return roles.includes(App.role()); return true; };
-  const pageTitle = (p) => { for (const g of App.NAV) for (const [k, l] of g[3]) if (k === p) return l; return { bookingView: 'تفاصيل الحجز', customerView: 'حساب العميل', partyView: 'كشف حساب' }[p] || ''; };
+  /** Sidebar groups that belong to one line of business — hidden when the company (or the user's branch) doesn't work in it. */
+  App.GROUP_DOMAIN = { trips: 'UMRAH', dom: 'DOMESTIC' };
+  App.myBranch = () => (App.online && App.me && App.me.role !== 'OWNER' ? App.me.branch_id || null : null);
+  const groupOn = (gid) => !App.GROUP_DOMAIN[gid] || !App.S || Model.hasDomain(App.S, App.GROUP_DOMAIN[gid], App.myBranch());
+  const pageAllowed = (p) => { for (const g of App.NAV) for (const [k, , roles] of g[3]) if (k === p) return roles.includes(App.role()) && groupOn(g[0]); return true; };
+  const pageTitle = (p) => { for (const g of App.NAV) for (const [k, l] of g[3]) if (k === p) return l; return { bookingView: 'تفاصيل الحجز', customerView: 'حساب العميل', partyView: 'كشف حساب', hrEmployee: 'ملف الموظف', domBookingView: 'حجز سياحة داخلية' }[p] || ''; };
 
   function renderShell() {
     const S = App.S, role = App.role();
     const alerts = Model.alerts(S, role);
     document.getElementById('brandCompany').textContent = S.company.name;
     document.getElementById('nav').innerHTML = App.NAV.map(([gid, ico, label, items]) => {
-      const vis = items.filter(([, , roles]) => roles.includes(role));
+      const vis = groupOn(gid) ? items.filter(([, , roles]) => roles.includes(role)) : [];
       if (!vis.length) return '';
-      if (vis.length === 1 && gid === 'home') return navItem(vis[0], ico);
+      if (gid === 'home') return vis.map((it, i) => navItem(it, i ? '🪪' : ico)).join('');
       const open = App.ui.navOpen[gid] ?? vis.some(([k]) => k === App.ui.page);
       return `<details class="nav-group" data-gid="${gid}" ${open ? 'open' : ''}><summary><span class="nav-icon">${ico}</span>${label}<span class="nav-caret">▾</span></summary>${vis.map((it) => navItem(it)).join('')}</details>`;
     }).join('');
@@ -288,7 +299,8 @@
         ${S.trips.length ? `<select data-act-change="switchTrip" title="الرحلة">${S.trips.map((d) => App.h.opt(d.id, S.activeTripId, `${d.trip.code} · ${d.trip.name}`)).join('')}</select>` : ''}
       </div>
       <div class="top-spacer"></div>
-      ${t ? `<span class="chip hide-sm" title="صرف السوق مقابل المرجعي">SAR ${S.fx.current} / مرجعي ${t.fxRef}</span>` : ''}
+      ${(() => { const fx = Model.fxInfo(S); return `<button class="fx-pill hide-sm ${fx.alert ? 'alert' : ''}" data-act="go" data-page="fx" title="سعر الريال: التنفيذي مقابل العالمي">
+        <span>💱 تنفيذي <b class="num">${fx.exec}</b></span><span class="sep"></span><span>عالمي <b class="num">${fx.global ?? '—'}</b></span>${fx.spreadPct != null ? `<span class="spread num">${fx.spreadPct > 0 ? '+' : ''}${fx.spreadPct}%</span>` : ''}</button>`; })()}
       <button class="icon-btn" data-act="go" data-page="home" title="التنبيهات">🔔${unread ? `<span class="badge">${unread > 99 ? '99+' : unread}</span>` : ''}</button>
       ${App.online ? `<button class="icon-btn" data-act="go" data-page="chat" title="الشات">💬${App.chatUnread ? `<span class="badge">${App.chatUnread}</span>` : ''}</button>${syncChip()}` : ''}
       ${App.online ? `<span class="topbar-user hide-sm">👤 ${esc(App.me.display_name)} · ${esc(App.ROLE_LABEL[App.me.role])}</span><button class="btn sm ghost" data-act="logout">خروج</button>`
@@ -370,7 +382,9 @@
     App.companyId = Number(d.value);
     try { localStorage.setItem('umrah-company', String(App.companyId)); } catch (e) { /* ignore */ }
     App.ui.page = 'home'; App.ui.heatAllot = null;
-    await reloadState(); pollBadges();
+    App.loader(true, 'جارِ فتح الشركة…');
+    try { await reloadState(); } finally { App.loader(false); }
+    pollBadges();
   };
 
   // ------------------------------------------------------------ auth
@@ -381,7 +395,7 @@
     box.style.display = 'grid';
     box.innerHTML = `
       <div class="card auth-card">
-        <div class="auth-brand">🕋 <b>Smart Umrah ERP</b></div>
+        <div class="auth-brand"><img src="img/logo.svg" alt="" width="84" height="84"><div><b>أفواج</b><span>منظومة شركات العمرة والسياحة</span></div></div>
         <h3>${needsSetup ? '🔐 إعداد حساب المالك لأول مرة' : '🔐 تسجيل الدخول'}</h3>
         ${needsSetup ? '<p class="muted small">أول حساب هو المالك بكل الصلاحيات، وبعدها يضيف حسابات الفريق والمناديب من "المستخدمون والصلاحيات".</p>' : ''}
         <div class="field"><label>اسم المستخدم</label><input class="input" id="au-user" autocomplete="username" autocapitalize="none" style="direction:ltr"></div>
@@ -393,8 +407,9 @@
   }
   App.renderAuth = renderAuth;
   async function authCall(url, body) {
-    try { const d = await App.api('POST', url, body); await startSession(d.user); }
+    try { const d = await App.api('POST', url, body); App.loader(true, 'أهلاً ' + (d.user.display_name || '') + ' — جارِ تجهيز بياناتك…'); await startSession(d.user); }
     catch (e) { App.toast(e.message, 'err'); }
+    finally { App.loader(false); }
   }
   App.actions.doLogin = () => authCall('api/auth/login', { username: App.val('au-user'), password: App.val('au-pass') });
   App.actions.doSetup = () => authCall('api/auth/setup', { username: App.val('au-user'), display_name: App.val('au-name'), password: App.val('au-pass') });
@@ -410,7 +425,7 @@
     document.getElementById('app').style.display = '';
     App.ui.page = 'home';
     await reloadState();
-    pollBadges(); refreshFx();
+    pollBadges(); refreshFx(); if (App.loadWa) App.loadWa();
   }
   const portalOn = () => window.Portal && window.Portal.active;
   async function pollBadges() {
@@ -418,13 +433,18 @@
     try {
       App.notifications = await App.api('GET', 'api/notifications');
       const u = await App.api('GET', 'api/chat/unread');
-      App.chatUnread = u.reduce((s, x) => s + x.c, 0);
+      App.chatUnread = u.reduce((s, x) => s + x.c, 0); App.chatUnreadBy = Object.fromEntries(u.map((x) => [x.channel, x.c]));
       const top = document.getElementById('top'); if (top && !document.querySelector('.modal-bg')) renderShell();
     } catch (e) { /* ignore */ }
   }
   async function refreshFx(force) {
     if (!App.online) return;
     try { App.fxGlobal = await App.api('GET', 'api/fx' + (force ? '?refresh=1' : '')); } catch (e) { /* ignore */ }
+    // keep the latest global benchmark inside the company document (feeds the spread alert for everyone)
+    const g = App.fxGlobal;
+    if (g && g.rate && App.S && (!App.S.fx.global || App.S.fx.global.rate !== g.rate || App.S.fx.global.at !== g.at)) {
+      App.S.fx.global = { rate: g.rate, at: g.at, source: g.source, usd: g.usd || null }; App.save(); App.render();
+    }
     return App.fxGlobal;
   }
   App.refreshFx = refreshFx;
@@ -441,6 +461,7 @@
     } catch (e) { if (!e.status) setSync('offline'); }
   }, 5000);
   setInterval(pollBadges, 12000);
+  setInterval(() => refreshFx(), 30 * 60000);
 
   // ------------------------------------------------ TTL ticker
   setInterval(() => {
@@ -474,8 +495,15 @@
   }
   setInterval(checkVersion, 60000);
 
+  // ------------------------------------------------------------ loader (figures running after each other)
+  App.loader = (on, msg) => {
+    const el = document.getElementById('afwajLoader'); if (!el) return;
+    if (msg) document.getElementById('afwajLoaderMsg').textContent = msg;
+    el.classList.toggle('hide', !on);
+  };
   // ------------------------------------------------------------ boot
   window.addEventListener('DOMContentLoaded', async () => {
+    setTimeout(() => App.loader(false), 15000); // never trap the user behind the loader
     const tag = document.getElementById('buildTag'); if (tag) tag.textContent = 'v ' + BUILD;
     App.ui.draft = App.newDraft ? App.newDraft() : null;
     let st = null;
@@ -488,10 +516,10 @@
       App.S = Model.load(doc || window.MockData.buildSeed());
       if (App.S.allotments[0]) App.ui.heatAllot = App.S.allotments[0].id;
       document.getElementById('app').style.display = '';
-      App.render(); return;
+      App.render(); App.loader(false); return;
     }
     App.online = true;
-    if (!st.user) return renderAuth(st.needsSetup);
-    await startSession(st.user);
+    if (!st.user) { App.loader(false); return renderAuth(st.needsSetup); }
+    try { await startSession(st.user); } finally { App.loader(false); }
   });
 })();

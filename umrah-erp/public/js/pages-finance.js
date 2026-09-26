@@ -31,19 +31,21 @@
         <div class="field"><label>التاريخ</label><input class="input" type="date" data-vf="date" value="${esc(f.date)}"></div>
         <div class="field"><label>المبلغ</label><input class="input" type="number" step="0.01" min="0" data-vf="amount" value="${esc(f.amount)}"></div>
         <div class="field"><label>العملة</label><select class="input" data-vf="currency">${['EGP', 'SAR', 'USD'].map((c) => opt(c, f.currency, { EGP: 'جنيه مصري', SAR: 'ريال سعودي', USD: 'دولار' }[c])).join('')}</select></div>
-        ${f.currency !== 'EGP' ? `<div class="field"><label>سعر الصرف الفعلي (جنيه لكل 1)</label><input class="input" type="number" step="0.0001" data-vf="fx" value="${esc(f.fx)}"></div>` : ''}
+        ${f.currency !== 'EGP' ? `<div class="field"><label>سعر الصرف (جنيه لكل 1) <span class="faint small">التنفيذي ${s.fx.current}${s.fx.global ? ` · العالمي ${s.fx.global.rate}` : ''}</span></label><input class="input" type="number" step="0.0001" data-vf="fx" value="${esc(f.fx)}"></div>` : ''}
         ${needCash ? `<div class="field"><label>${t === 'TR' ? 'من خزينة/بنك' : t === 'RV' ? 'استلام في' : 'الصرف من'}</label><select class="input" data-vf="cashboxId">${s.cashboxes.map((c) => opt(c.id, f.cashboxId, `${c.name} (${Acc.r2(Acc.cashboxBalance(s, c))})`)).join('')}</select></div>` : ''}
         ${t === 'TR' ? `<div class="field"><label>إلى خزينة/بنك</label><select class="input" data-vf="toCashboxId">${s.cashboxes.map((c) => opt(c.id, f.toCashboxId, c.name)).join('')}</select></div>` : ''}
         ${needParty ? `${f.lockParty ? `<div class="field"><label>الطرف</label><input class="input" readonly value="${esc(PARTY_TYPES[f.partyType])}: ${esc(h.partyName({ type: f.partyType, id: f.partyId }))}"></div>` : `
           <div class="field"><label>نوع الطرف</label><select class="input" data-vf="partyType">${(t === 'BILL' ? ['supplier'] : ['customer', 'agent', 'supplier', 'employee', 'none']).map((k) => opt(k, f.partyType, PARTY_TYPES[k] || 'حساب مباشر (بدون طرف)')).join('')}</select></div>
           ${f.partyType !== 'none' ? `<div class="field"><label>${PARTY_TYPES[f.partyType]}</label><select class="input" data-vf="partyId"><option value="">— اختر —</option>${plist.map((x) => opt(x.id, f.partyId, `${x.code || ''} · ${x.name}`)).join('')}</select></div>`
             : `<div class="field"><label>الحساب المقابل</label><select class="input" data-vf="accountCode"><option value="">— اختر —</option>${leafAccounts(t === 'RV' ? ['3', '4', '21'] : ['5', '12', '3', '21']).map((a) => opt(a.code, f.accountCode, `${a.code} · ${a.name}`)).join('')}</select></div>`}`}` : ''}
-        ${t === 'PV' && f.partyType === 'employee' ? `<div class="field"><label>الغرض</label><select class="input" data-vf="purpose">${opt('ADVANCE', f.purpose, 'سلفة/عهدة (على حساب الموظف)')}${opt('SALARY', f.purpose, 'راتب/مكافأة (مصروف رواتب)')}</select></div>` : ''}
+        ${t === 'PV' && f.partyType === 'employee' ? `<div class="field"><label>الغرض</label><select class="input" data-vf="purpose">${opt('ADVANCE', f.purpose, 'سلفة/عهدة (على حساب الموظف)')}${opt('SALARY', f.purpose, 'راتب/مكافأة (مصروف رواتب)')}${opt('DUES', f.purpose, 'صرف راتب من مسير مُرحّل (مستحقات)')}</select></div>` : ''}
         ${t === 'EXP' ? `<div class="field"><label>بند المصروف</label><select class="input" data-vf="categoryId">${s.expenseCategories.map((c) => opt(c.id, f.categoryId, `${c.name} (${c.accountCode})`)).join('')}</select></div>` : ''}
         ${t === 'BILL' ? `<div class="field"><label>حساب التكلفة</label><select class="input" data-vf="accountCode">${leafAccounts(['51', '52', '12']).map((a) => opt(a.code, f.accountCode || '5101', `${a.code} · ${a.name}`)).join('')}</select></div>` : ''}
         ${t === 'PV' && f.partyType === 'supplier' && f.currency === 'SAR' ? `<div class="field"><label>سعر التحميل (المرجعي للرحلة)</label><input class="input" type="number" step="0.0001" data-vf="refFx" value="${esc(f.refFx || (s.trip ? s.trip.fxRef : ''))}"></div>` : ''}
-        <div class="field"><label>الرحلة (مركز التكلفة)</label><select class="input" data-vf="tripId"><option value="">— عام —</option>${s.trips.map((d) => opt(d.id, f.tripId, `${d.trip.code} · ${d.trip.name}`)).join('')}</select></div>
+        <div class="field"><label>الرحلة (مركز التكلفة)</label><select class="input" data-vf="tripId"><option value="">— عام —</option>${s.trips.map((d) => opt(d.id, f.tripId, `🕋 ${d.trip.code} · ${d.trip.name}`)).join('')}${(s.dom ? s.dom.programs : []).map((p) => opt(p.id, f.tripId, `🏖️ ${p.code} · ${p.name}`)).join('')}${s.dom && s.dom.bookings.some((b) => b.kind === 'HOTEL') ? opt('DOM-HOTELS', f.tripId, '🏨 حجوزات الفنادق') : ''}</select></div>
         <div class="field"><label>الفرع</label><select class="input" data-vf="branchId">${s.branches.map((b) => opt(b.id, f.branchId || 'BR1', b.name)).join('')}</select></div>
+        ${t === 'PV' && f.partyType === 'supplier' && s.company.whtEnabled ? `<div class="field"><label>ضريبة خصم وإضافة ${s.company.whtRate}% (تُحجز وتُورّد للمصلحة)</label><input class="input" readonly value="${Acc.whtFor(s, Number(f.amount) || 0)} — الصافي للمورد ${Acc.r2((Number(f.amount) || 0) - Acc.whtFor(s, Number(f.amount) || 0))}"></div>` : ''}
+        ${t === 'RV' && ['customer', 'agent'].includes(f.partyType) ? `<div class="field"><label>ضريبة خصم خصمها العميل (إن وجدت)</label><input class="input" type="number" step="0.01" min="0" data-vf="whtIn" value="${esc(f.whtIn || '')}"></div>` : ''}
         ${['RV', 'PV'].includes(t) ? `<div class="field"><label>طريقة الدفع</label><select class="input" data-vf="method">${['نقدي', 'إيداع بنكي', 'تحويل بنكي', 'إنستاباي', 'شيك', 'فودافون كاش'].map((m) => opt(m, f.method, m)).join('')}</select></div>` : ''}
       </div>
       <div class="field" style="margin-top:8px"><label>البيان</label><input class="input" data-vf="memo" value="${esc(f.memo)}"></div>
@@ -60,12 +62,12 @@
     const el = ev.target;
     if (!el.hasAttribute || !el.hasAttribute('data-vf')) return;
     const k = el.dataset.vf, f = App.ui.vf;
-    f[k] = ['amount', 'fx', 'refFx'].includes(k) ? parseFloat(el.value) || '' : el.value;
+    f[k] = ['amount', 'fx', 'refFx', 'whtIn'].includes(k) ? parseFloat(el.value) || '' : el.value;
     if (k === 'currency') f.fx = f.currency === 'SAR' ? S().fx.current : f.currency === 'USD' ? Acc.r2(S().fx.current * 3.75) : 1;
     if (k === 'partyType') { f.partyId = ''; f.accountCode = ''; }
-    if (['type', 'partyType', 'currency'].includes(k)) renderVoucherModal();
+    if (['type', 'partyType', 'currency'].includes(k) || (k === 'amount' && f.type === 'PV' && f.partyType === 'supplier' && S().company.whtEnabled)) renderVoucherModal();
   });
-  document.addEventListener('input', (ev) => { const el = ev.target; if (el.hasAttribute && el.hasAttribute('data-vf') && ['memo', 'amount', 'fx', 'refFx'].includes(el.dataset.vf)) App.ui.vf[el.dataset.vf] = el.dataset.vf === 'memo' ? el.value : parseFloat(el.value) || ''; });
+  document.addEventListener('input', (ev) => { const el = ev.target; if (el.hasAttribute && el.hasAttribute('data-vf') && ['memo', 'amount', 'fx', 'refFx', 'whtIn'].includes(el.dataset.vf)) App.ui.vf[el.dataset.vf] = el.dataset.vf === 'memo' ? el.value : parseFloat(el.value) || ''; });
   App.actions.vfAttach = async () => { const fs = await App.uploadPicked({ accept: 'image/*,application/pdf', multiple: true }); App.ui.vf.fileIds.push(...fs.map((x) => x.id)); renderVoucherModal(); };
   App.actions.vfCamera = async () => { const fs = await App.uploadPicked({ accept: 'image/*', capture: true }); App.ui.vf.fileIds.push(...fs.map((x) => x.id)); renderVoucherModal(); };
   App.actions.vfSave = (d) => {
@@ -80,6 +82,7 @@
       if (v.status === 'PENDING' && v.type === 'PV' && v.refFx == null && party && party.type === 'supplier' && v.currency === 'SAR') v.refFx = s.trip ? s.trip.fxRef : v.fx;
       App.audit(`${Acc.VOUCHER_TYPES[v.type]} ${v.no} بمبلغ ${v.amount} ${v.currency} — ${v.status === 'POSTED' ? 'مرحّل' : 'بانتظار الاعتماد'}`);
       App.closeModal(); App.save(); App.render();
+      if (v.status === 'POSTED' && App.waAutoReceipt) App.waAutoReceipt(v);
       App.toast(v.status === 'POSTED' ? `✅ ${v.no} اعتُمد ورُحّل للحسابات` : `📤 ${v.no} أُرسل للمحاسب — سيصله إشعار للمراجعة`);
     } catch (e) { App.toast('⛔ ' + e.message, 'err'); }
   };
@@ -118,7 +121,7 @@
   App.actions.vApprove = (d) => {
     const v = S().vouchers.find((x) => x.id === d.id);
     if (!(v.fileIds || []).length && !confirm('السند بدون مرفقات — اعتماد رغم ذلك؟')) return;
-    try { Model.approve(S(), d.id, App.actor()); App.audit(`اعتماد ${v.no}`); App.save(); App.render(); App.toast(`✅ ${v.no} اعتُمد ورُحّل`); }
+    try { Model.approve(S(), d.id, App.actor()); App.audit(`اعتماد ${v.no}`); App.save(); App.render(); App.toast(`✅ ${v.no} اعتُمد ورُحّل`); if (App.waAutoReceipt) App.waAutoReceipt(v); }
     catch (e) { App.toast('⛔ ' + e.message, 'err'); }
   };
   App.actions.vReject = (d) => {
@@ -140,6 +143,45 @@
       الخزينة: ${esc((h.cashbox(v.cashboxId) || {}).name || '—')} · طريقة الدفع: ${esc(v.method || '—')}<br>البيان: ${esc(v.memo)}</div>
       ${je ? `<table><tr><th>الحساب</th><th>مدين</th><th>دائن</th></tr>${je.lines.map((l) => `<tr><td>${esc(accLabel(l.acc))}${l.party ? ' — ' + esc(h.partyName(l.party)) : ''}</td><td>${l.dr ? h.n2(l.dr) : ''}</td><td>${l.cr ? h.n2(l.cr) : ''}</td></tr>`).join('')}</table>` : ''}
       <div class="sign"><div>أنشأه: ${esc(v.createdBy)}</div><div>اعتمده: ${esc(v.approvedBy || '................')}</div><div>المستلم ................</div></div>`);
+  };
+
+  // ============================================================ exchange rates
+  App.pages.fx = () => {
+    const s = S(), fx = Model.fxInfo(s), g = App.fxGlobal, can = App.isApprover(), t = s.trip;
+    const spreadChip = fx.spreadPct == null ? '<span class="chip">لا يوجد سعر عالمي بعد</span>'
+      : `<span class="chip ${fx.alert ? 'danger' : 'ok'}">الفرق ${fx.spreadPct > 0 ? '+' : ''}${fx.spreadPct}% ${fx.alert ? '⚠️ يتجاوز الحد' : '✓ ضمن الحد'}</span>`;
+    return `<div class="page-head"><div><h2>💱 أسعار الصرف (ريال ← جنيه)</h2><p>السعر التنفيذي تكتبه أنت ويُستخدم في كل العمليات · السعر العالمي يُجلب تلقائياً للمقارنة فقط</p></div></div>
+    <div class="grid g3">
+      <div class="card fx-card exec"><div class="lbl">🏦 سعر الصرف التنفيذي</div><div class="fx-val num">${fx.exec}</div>
+        <div class="hint">السعر الفعلي الذي تشتري به الشركة الريال — يُستخدم افتراضياً في السندات بالريال وسداد الموردين وتقييم الأرصدة المفتوحة ومحافظ الوكلاء</div>
+        ${can ? `<div class="row" style="margin-top:10px"><input class="input" id="fx-new" type="number" step="0.01" placeholder="السعر الجديد" style="max-width:140px"><input class="input" id="fx-note" placeholder="ملاحظة (مثال: سعر شركة الصرافة اليوم)" style="flex:1"><button class="btn primary" data-act="fxSave">اعتماد</button></div>` : '<div class="small muted" style="margin-top:8px">🔒 تعديله من صلاحية المحاسب أو المدير</div>'}</div>
+      <div class="card fx-card global"><div class="lbl">🌍 سعر الصرف العالمي</div><div class="fx-val num">${fx.global ?? '—'}</div>
+        <div class="hint">${fx.globalAt ? 'آخر تحديث ' + h.dt(fx.globalAt) : 'لم يُجلب بعد'} · يُحدَّث تلقائياً كل 6 ساعات${g && g.usd ? ` · الدولار ${g.usd} ج.م` : ''}</div>
+        <div class="row" style="margin-top:10px">${spreadChip}${App.online ? '<button class="btn sm" data-act="fxRefresh">↻ تحديث الآن</button>' : ''}${can && fx.global ? '<button class="btn sm ghost" data-act="fxApply">نسخه للتنفيذي</button>' : ''}</div></div>
+      <div class="card fx-card trip"><div class="lbl">✈️ سعر تسعير الرحلة ${t ? esc(t.code) : ''}</div><div class="fx-val num">${t ? t.fxRef : '—'}</div>
+        <div class="hint">سعر ثابت لكل رحلة يُحسب به التكلفة والسعر الرسمي — لا يتغير مع السوق. الفرق بينه وبين سعر السداد الفعلي يُسجَّل تلقائياً كأرباح/خسائر فروق عملة.</div>
+        ${t ? `<button class="btn sm" style="margin-top:10px" data-act="go" data-page="builder">تعديله من التكلفة والتسعير</button>` : ''}</div>
+    </div>
+    <div class="grid g-side" style="margin-top:14px">
+      <div class="card"><h3>🕓 سجل تغييرات السعر التنفيذي</h3><div class="tbl-wrap"><table class="t"><thead><tr><th>التاريخ</th><th>السعر</th><th>السابق</th><th>العالمي وقتها</th><th>بواسطة</th><th>ملاحظة</th></tr></thead><tbody>
+        ${(s.fx.history || []).map((x) => `<tr><td class="small">${h.dt(x.at)}</td><td><b class="num">${x.rate}</b></td><td class="num faint">${x.prev ?? ''}</td><td class="num">${x.global ?? '—'}</td><td>${esc(x.by)}</td><td class="small">${esc(x.note)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">لا تغييرات مسجلة بعد.</td></tr>'}
+      </tbody></table></div></div>
+      <div class="card"><h3>⚙️ تنبيه الفرق</h3>
+        <div class="field"><label>نبّهني إذا اختلف التنفيذي عن العالمي بأكثر من (%)</label><input class="input" type="number" step="0.5" min="0" data-bind="fx.alertSpreadPct" value="${fx.threshold}" ${can ? '' : 'disabled'}></div>
+        <div class="small muted" style="margin-top:8px">يظهر التنبيه في مركز التنبيهات وفي الشريط العلوي للمحاسبين والمديرين.</div>
+        <h3 style="margin-top:14px">🧭 أين يُستخدم كل سعر؟</h3>
+        <table class="t small"><tr><td>السندات والمدفوعات بالريال</td><td>التنفيذي (قابل للتعديل في السند)</td></tr><tr><td>سداد الموردين بالريال</td><td>التنفيذي، والفرق عن سعر الرحلة = فروق عملة</td></tr>
+        <tr><td>تكلفة وتسعير الرحلة</td><td>سعر الرحلة الثابت</td></tr><tr><td>تقييم الالتزامات المفتوحة في أرباح الرحلة</td><td>التنفيذي</td></tr><tr><td>رحلة جديدة</td><td>تبدأ بالتنفيذي كسعر افتراضي</td></tr><tr><td>العالمي</td><td>مقارنة وتنبيه فقط</td></tr></table></div>
+    </div>`;
+  };
+  App.actions.fxSave = () => {
+    if (!App.isApprover()) return App.toast('من صلاحية المحاسب أو المدير', 'err');
+    const r = Number(App.val('fx-new'));
+    if (!(r > 0)) return App.toast('أدخل سعراً صحيحاً', 'err');
+    const g = S().fx.global && S().fx.global.rate;
+    if (g && Math.abs((r - g) / g) > 0.15 && !confirm(`السعر ${r} يختلف عن العالمي ${g} بأكثر من 15% — تأكيد؟`)) return;
+    Model.setExecRate(S(), r, App.actor().name, App.val('fx-note'));
+    App.audit(`تعديل سعر الصرف التنفيذي إلى ${r}`); App.save(); App.render(); App.toast(`✅ السعر التنفيذي الآن ${r}`);
   };
 
   // ============================================================ treasury & banks
@@ -303,7 +345,9 @@
       const sec = (t, arr, tot) => `<tr><th colspan="2">${t}</th></tr>${arr.map((x) => `<tr><td>${esc(x.code)} · ${esc(x.name)}</td><td>${h.money(x.amount)}</td></tr>`).join('')}<tr><td><b>إجمالي ${t}</b></td><td><b>${h.money(tot)}</b></td></tr>`;
       body = `<table class="t" id="rpt" style="max-width:720px">${sec('الإيرادات', r.revenue, r.totalRevenue)}${sec('تكاليف الرحلات', r.tripCosts, r.totalTripCosts)}
         <tr><td><b>مجمل الربح</b></td><td><b class="gold">${h.money(r.grossProfit)}</b></td></tr>${sec('المصروفات العمومية والإدارية', r.opex, r.totalOpex)}
-        <tr><td><b>صافي الربح / (الخسارة)</b></td><td><b class="${r.netProfit < 0 ? 'danger' : 'ok'}">${h.money(r.netProfit)}</b></td></tr></table>`;
+        <tr><td><b>صافي الربح / (الخسارة)</b></td><td><b class="${r.netProfit < 0 ? 'danger' : 'ok'}">${h.money(r.netProfit)}</b></td></tr>
+        ${r.taxRate ? `<tr><td>${esc(r.taxLabel)} التقديرية ${r.taxRate}% <span class="faint small">(للإدارة — تُرحّل الفعلية على 2107)</span></td><td>(${h.money(r.estTax)})</td></tr>
+        <tr><td><b>صافي الربح بعد ${esc(r.taxLabel)} (تقديري)</b></td><td><b>${h.money(r.netAfterTax)}</b></td></tr>` : ''}</table>`;
     } else if (tab === 'bs') {
       const r = Acc.balanceSheet(s, f);
       const sec = (t, arr) => `<tr><th colspan="2">${t}</th></tr>${arr.map((x) => `<tr><td>${esc(x.code)} · ${esc(x.name)}</td><td>${h.money(x.amount)}</td></tr>`).join('')}`;

@@ -21,20 +21,21 @@
     ['1', 'الأصول'], ['11', 'الأصول المتداولة', '1'],
     ['1101', 'النقدية بالخزائن', '11'], ['1102', 'النقدية بالبنوك', '11'],
     ['1103', 'العملاء', '11'], ['1104', 'الوكلاء والمناديب', '11'], ['1105', 'سلف وعهد الموظفين', '11'],
-    ['1106', 'دفعات مقدمة للموردين', '11'], ['1107', 'ضريبة القيمة المضافة - مدخلات', '11'],
+    ['1106', 'دفعات مقدمة للموردين', '11'], ['1107', 'ضريبة القيمة المضافة - مدخلات', '11'], ['1108', 'ضرائب خصم تحت الحساب (خصمها العملاء)', '11'],
     ['12', 'الأصول الثابتة', '1'], ['1201', 'أثاث وأجهزة ومعدات', '12'],
     ['2', 'الخصوم'], ['21', 'الخصوم المتداولة', '2'],
     ['2101', 'الموردون', '21'], ['2102', 'ضريبة القيمة المضافة - مخرجات', '21'], ['2103', 'مستحقات الموظفين', '21'], ['2104', 'مصروفات مستحقة', '21'],
+    ['2105', 'ضريبة الخصم والإضافة المستحقة', '21'], ['2106', 'ضريبة الدمغة المستحقة', '21'], ['2107', 'ضريبة الدخل / الزكاة المستحقة', '21'],
     ['3', 'حقوق الملكية'], ['3101', 'رأس المال', '3'], ['3102', 'الأرباح المحتجزة', '3'], ['3103', 'جاري الشركاء', '3'],
     ['4', 'الإيرادات'], ['4101', 'إيرادات رحلات العمرة', '4'], ['4102', 'إيرادات خدمات منفصلة', '4'],
-    ['4103', 'أرباح فروق العملة', '4'], ['4104', 'إيرادات أخرى', '4'],
+    ['4103', 'أرباح فروق العملة', '4'], ['4104', 'إيرادات أخرى', '4'], ['4105', 'إيرادات السياحة الداخلية', '4'], ['4106', 'إيرادات رحلات اختيارية وإضافات', '4'],
     ['5', 'التكاليف والمصروفات'], ['51', 'تكاليف الرحلات', '5'],
     ['5101', 'تكلفة الفنادق', '51'], ['5102', 'تكلفة الطيران', '51'], ['5103', 'تكلفة التأشيرات والتأمين', '51'],
-    ['5104', 'تكلفة النقل البري', '51'], ['5105', 'تكاليف تشغيل ومزارات', '51'],
+    ['5104', 'تكلفة النقل البري', '51'], ['5105', 'تكاليف تشغيل ومزارات', '51'], ['5106', 'تكاليف السياحة الداخلية (فنادق وقرى)', '51'], ['5107', 'تكاليف رحلات اختيارية وإضافات', '51'],
     ['52', 'المصروفات العمومية والإدارية', '5'],
     ['5201', 'الرواتب والأجور', '52'], ['5202', 'الإيجارات', '52'], ['5203', 'كهرباء ومياه وإنترنت', '52'],
     ['5204', 'تسويق وإعلان', '52'], ['5205', 'عمولات الوكلاء والوسطاء', '52'], ['5206', 'نثريات ومصروفات متنوعة', '52'],
-    ['5207', 'خسائر فروق العملة', '52'], ['5208', 'مصروفات بنكية', '52'], ['5209', 'انتقالات ومواصلات', '52'],
+    ['5207', 'خسائر فروق العملة', '52'], ['5208', 'مصروفات بنكية', '52'], ['5209', 'انتقالات ومواصلات', '52'], ['5210', 'ضرائب ورسوم حكومية', '52'],
   ].map(([code, name, parent]) => ({ code, name, parent: parent || null, system: true }));
 
   const DEFAULT_EXPENSE_CATEGORIES = [
@@ -54,6 +55,27 @@
     RV: 'سند قبض', PV: 'سند صرف', EXP: 'سند مصروف', TR: 'تحويل بين الخزائن/البنوك', BILL: 'فاتورة مورد', JV: 'قيد يومية',
   };
 
+  /** Adds system accounts introduced by newer versions to an existing company chart (never removes anything). */
+  function ensureAccounts(S) {
+    const have = new Set(S.accounts.map((a) => a.code));
+    for (const a of DEFAULT_ACCOUNTS) if (!have.has(a.code)) S.accounts.push({ ...a });
+  }
+  /** Sales-side taxes are INCLUDED in the booking price: net = revenue + VAT + stamp duty. */
+  function salesTaxRates(S) {
+    const c = S.company || {};
+    return { vat: c.vatEnabled ? Number(c.vatRate || 0) : 0, stamp: c.stampEnabled ? Number(c.stampRate || 0) : 0 };
+  }
+  function splitGross(S, gross) {
+    const t = salesTaxRates(S), k = 100 + t.vat + t.stamp;
+    const vat = r2(gross * t.vat / k), stamp = r2(gross * t.stamp / k);
+    return { vat, stamp, net: r2(gross - vat - stamp) };
+  }
+  /** Withholding tax the company must deduct from a supplier payment (Egypt: الخصم والإضافة). */
+  function whtFor(S, amount) {
+    const c = S.company || {};
+    if (!c.whtEnabled || !(amount >= Number(c.whtThreshold || 0))) return 0;
+    return r2(amount * Number(c.whtRate || 0) / 100);
+  }
   const account = (S, code) => S.accounts.find((a) => a.code === code);
   const isLeaf = (S, code) => !S.accounts.some((a) => a.parent === code);
   const children = (S, code) => S.accounts.filter((a) => a.parent === code);
@@ -114,12 +136,10 @@
     const want = live ? r2(b.net) : 0, have = postedFor('BK', recv);
     const diff = r2(want - have);
     if (Math.abs(diff) >= 0.01) {
-      const rate = S.company && S.company.vatEnabled ? Number(S.company.vatRate || 0) : 0;
-      const vat = r2(diff * rate / (100 + rate));
-      const revAcc = b.mode === 'UNBUNDLED' ? '4102' : '4101';
-      const lines = diff > 0
-        ? [{ acc: recv, dr: diff, party }, { acc: revAcc, cr: r2(diff - vat) }, { acc: '2102', cr: vat }]
-        : [{ acc: recv, cr: -diff, party }, { acc: revAcc, dr: r2(-diff + vat) }, { acc: '2102', dr: -vat }];
+      const tx = splitGross(S, Math.abs(diff)), sg = diff > 0 ? 1 : -1;
+      const revAcc = b.revAcc || (b.mode === 'UNBUNDLED' ? '4102' : '4101');
+      const side = (acc, amt, party2) => (amt ? [sg > 0 ? { acc, cr: amt, party: party2 } : { acc, dr: amt, party: party2 }] : []);
+      const lines = [sg > 0 ? { acc: recv, dr: diff, party } : { acc: recv, cr: -diff, party }, ...side(revAcc, tx.net), ...side('2102', tx.vat), ...side('2106', tx.stamp)];
       out.push(post(S, { memo: `${diff > 0 ? 'إيراد' : 'تسوية إيراد'} حجز ${b.code}`, source: { type: 'BK', id: b.id }, tripId: trip && trip.id, branchId: b.branchId, lines, by }));
     }
     // broker commission + agent-credit incentive (payable to the agent)
@@ -157,18 +177,37 @@
       tripId: data.tripId || null, bookingId: data.bookingId || null, branchId: data.branchId || null,
       memo: data.memo || '', fileIds: data.fileIds || [], lines: data.lines || null, method: data.method || '',
       status: 'PENDING', createdBy: actor.name, createdByRole: actor.role, createdAt: Date.now(),
+      // withholding: deducted by us from a supplier payment · or deducted from us by a corporate customer
+      wht: t === 'PV' && data.party && data.party.type === 'supplier' ? (data.wht != null ? r2(data.wht) : whtFor(S, amount)) : 0,
+      whtIn: t === 'RV' ? r2(Number(data.whtIn) || 0) : 0,
     };
+    if (v.wht >= amount || v.whtIn >= amount) throw new Error('ضريبة الخصم أكبر من المبلغ');
     S.vouchers.push(v);
     if (data.autoPost && canApprove(actor.role)) approveVoucher(S, v.id, actor);
     return v;
   }
 
   function voucherLines(S, v) {
+    const lines = baseVoucherLines(S, v);
+    const rate = v.currency === 'EGP' ? 1 : v.fx, cbAcc = v.cashboxId && cashbox(S, v.cashboxId) ? cashbox(S, v.cashboxId).accountCode : null;
+    const adjust = (amt, sideKey, acc, note) => {
+      if (!amt) return;
+      const x = r2(amt * rate), cash = lines.find((l) => l.acc === cbAcc && l[sideKey]);
+      cash[sideKey] = r2(cash[sideKey] - x);
+      lines.push({ acc, [sideKey]: x, note });
+    };
+    if (v.type === 'PV') adjust(v.wht, 'cr', '2105', 'ضريبة خصم وإضافة محجوزة');
+    if (v.type === 'RV') adjust(v.whtIn, 'dr', '1108', 'ضريبة خصمها العميل تحت الحساب');
+    return lines;
+  }
+  function baseVoucherLines(S, v) {
     const egp = r2(v.amount * (v.currency === 'EGP' ? 1 : v.fx));
     const cb = cashbox(S, v.cashboxId);
     switch (v.type) {
       case 'RV': return [{ acc: cb.accountCode, dr: egp }, { acc: partyAcc(v.party) || v.accountCode, cr: egp, party: v.party }];
       case 'PV': {
+        // employee: SALARY = direct expense · DUES = paying a posted payroll (clears 2103) · ADVANCE = on the employee's account
+        if (v.party && v.party.type === 'employee' && v.purpose === 'DUES') return [{ acc: '2103', dr: egp, party: v.party, note: 'صرف مستحقات/راتب' }, { acc: cb.accountCode, cr: egp }];
         const pa = v.party && v.party.type === 'employee' && v.purpose === 'SALARY' ? '5201' : partyAcc(v.party) || v.accountCode;
         // Supplier paid in SAR: carry at the trip reference rate, book the FX difference separately.
         if (v.party && v.party.type === 'supplier' && v.currency === 'SAR' && v.refFx) {
@@ -276,7 +315,11 @@
     const revenue = leaf('4'), tripCosts = leaf('51'), opex = leaf('52');
     const sum = (a) => r2(a.reduce((s, x) => s + x.amount, 0));
     const R = sum(revenue), C = sum(tripCosts), O = sum(opex);
-    return { revenue, tripCosts, opex, totalRevenue: R, totalTripCosts: C, grossProfit: r2(R - C), totalOpex: O, netProfit: r2(R - C - O) };
+    const net = r2(R - C - O), c = S.company || {};
+    // income tax / zakat: an ESTIMATE for management (the accountant posts the real liability to 2107)
+    const taxRate = c.incomeTaxEnabled ? Number(c.incomeTaxRate || 0) : 0, estTax = net > 0 ? r2(net * taxRate / 100) : 0;
+    return { revenue, tripCosts, opex, totalRevenue: R, totalTripCosts: C, grossProfit: r2(R - C), totalOpex: O, netProfit: net,
+      taxRate, taxLabel: c.incomeTaxLabel || 'ضريبة الدخل', estTax, netAfterTax: r2(net - estTax) };
   }
   function balanceSheet(S, f = {}) {
     const b = balances(S, f);
@@ -294,5 +337,6 @@
     r2, account, isLeaf, children, addAccount, accType, debitNormal, nextNo, post, reverse, syncBooking,
     canApprove, createVoucher, approveVoucher, rejectVoucher, cancelPostedVoucher, voucherLines,
     balances, trialBalance, ledger, partyStatement, partyBalance, incomeStatement, balanceSheet, cashboxBalance,
+    ensureAccounts, salesTaxRates, splitGross, whtFor,
   };
 });

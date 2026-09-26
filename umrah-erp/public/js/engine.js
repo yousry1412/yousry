@@ -50,9 +50,11 @@
   const HOLD_STATES = ['SOFT_HOLD', 'PENDING_APPROVAL', 'PENDING_PRICING'];
   const LIVE_STATES = ['SOFT_HOLD', 'PENDING_APPROVAL', 'PENDING_PRICING', 'DEPOSIT', 'CONFIRMED'];
   const ROLES = {
+    // Discount on ANY price is the system owner's decision only — everyone else sends it for the owner's approval.
     SALES:   { ar: 'موظف مبيعات', maxDiscount: 0 },
-    HEAD:    { ar: 'رئيس قسم',    maxDiscount: 3 },
-    MANAGER: { ar: 'مدير مبيعات', maxDiscount: 7 },
+    HEAD:    { ar: 'رئيس قسم',    maxDiscount: 0 },
+    MANAGER: { ar: 'مدير',        maxDiscount: 0 },
+    OWNER:   { ar: 'مالك النظام', maxDiscount: 100 },
   };
   const HOLD_TTL_MIN_H = 2, HOLD_TTL_MAX_H = 24;
   const PASSPORT_STAGES = [
@@ -156,6 +158,28 @@
   }
 
   // --------------------------------------------------- sales governance
+  // ------------------------------------------------ agent (مندوب) commission
+  /** Agent rule: usually a FIXED amount per person (or per booking); PCT kept for legacy brokers. `min` is the floor. */
+  function commissionRule(agent) {
+    return agent.commission || { type: 'PCT', basis: 'PAX', pct: Number(agent.commissionPct || 0), min: 0 };
+  }
+  /**
+   * Base commission for a booking: the trip's rate for this agent (or the trip default) but never below the agent's
+   * minimum; percentage rules keep the minimum as a floor too. Owner adjustments (+/−) are added on the booking.
+   */
+  function commissionFor(state, agent, { adults, chd, gross }) {
+    const r = commissionRule(agent), units = r.basis === 'BOOKING' ? 1 : adults + chd;
+    const tc = (state.trip && state.trip.commissions) || {};
+    const tripRate = tc[agent.id] != null && tc[agent.id] !== '' ? Number(tc[agent.id]) : tc.default != null && tc.default !== '' ? Number(tc.default) : null;
+    const min = Number(r.min || 0);
+    if (r.type === 'PCT' && tripRate == null) {
+      const pctAmt = round2((gross || 0) * Number(r.pct || 0) / 100), floor = round2(min * units);
+      return { base: Math.max(pctAmt, floor), units, rate: null, source: pctAmt >= floor ? `${r.pct}% من السعر` : 'الحد الأدنى' };
+    }
+    const rate = Math.max(tripRate ?? 0, min);
+    return { base: round2(rate * units), units, rate, source: tripRate != null && tripRate >= min ? 'سعر الرحلة' : 'الحد الأدنى للمندوب', basis: r.basis };
+  }
+
   function discountAuthority(user) {
     return ROLES[user.role] ? ROLES[user.role].maxDiscount : 0;
   }
@@ -192,7 +216,11 @@
     // Channel pricing: B2B agent sees NET rate; broker sees public price + commission badge.
     let channelDiscount = 0, agentCommission = 0;
     if (agent && agent.tier === 'B2B') channelDiscount = round2(gross * agent.netDiscountPct / 100);
-    if (agent && agent.tier === 'BROKER') agentCommission = round2(gross * agent.commissionPct / 100);
+    let commission = null;
+    if (agent && agent.tier === 'BROKER') {
+      commission = commissionFor(state, agent, { adults, chd, gross });
+      agentCommission = Math.max(0, round2(commission.base + Number(draft.commissionAdj || 0)));
+    }
 
     const discPct = Number(draft.discountPct || 0);
     const discount = round2((gross - channelDiscount) * discPct / 100);
@@ -216,7 +244,7 @@
       const chk = passportCheck(p.passportExp, state.trip.returnDate);
       if (!chk.ok) warnings.push(`${p.nameAr || p.nameEn || 'مسافر'}: ${chk.message}`);
     }
-    return { lines, gross, channelDiscount, discount, incentive, incentiveDiscount, net, adults, chd, inf, status, reasons, warnings, agentCommission };
+    return { lines, gross, channelDiscount, discount, incentive, incentiveDiscount, net, adults, chd, inf, status, reasons, warnings, agentCommission, commission };
   }
 
   function walletCheck(agent, amountEGP, fxRate) {
@@ -570,7 +598,7 @@
     ROOM_TYPES, CITIES, PAX_TYPES, SALE_MODES, BOOKING_STATUS, HOLD_STATES, LIVE_STATES, ROLES, PASSPORT_STAGES,
     HOLD_TTL_MIN_H, HOLD_TTL_MAX_H, BUS_LAYOUT,
     round2, iso, addDays, daysBetween, ageOn, toEGP, fxVariance,
-    computeCosting, priceList, discountAuthority, priceBooking, walletCheck, applyPayment, clampTTL,
+    computeCosting, priceList, discountAuthority, commissionRule, commissionFor, priceBooking, walletCheck, applyPayment, clampTTL,
     releaseExpiredHolds, freeBookingInventory,
     bedsOfRoom, roomOccupancy, bedOfPax, canPlace, visibleRoomsFor, assignBed, unassignBed, openSharedRoom,
     assignPrivateRoom, swapBeds, attachedNoBedPax, unassignedPax, breakage, lockValidation,

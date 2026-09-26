@@ -7,44 +7,79 @@
 
   // ============================================================ company / branches / taxes
   App.pages.settings = () => {
-    const s = S(), c = s.company;
-    return `<div class="page-head"><div><h2>🏢 الشركة والفروع والضرائب</h2><p>اسم الشركة وبياناتها تظهر في كل المطبوعات · الضريبة حسب دولة الشركة</p></div></div>
+    const s = S(), c = s.company, P = Model.COUNTRIES[c.country] || Model.COUNTRIES.OTHER;
+    const dom = (list, act, extra = '') => Object.entries(Model.DOMAINS).map(([k, d]) => `<label class="chk"><input type="checkbox" data-act-change="${act}" data-d="${k}" ${extra} ${list.includes(k) ? 'checked' : ''}> ${d.icon} ${d.ar}</label>`).join(' ');
+    const chk = (path, on, label) => `<label class="chk"><input type="checkbox" data-bind="${path}" ${on ? 'checked' : ''}> ${label}</label>`;
+    const num = (path, v, label, step = '0.01') => `<div class="field"><label>${label}</label><input class="input" type="number" step="${step}" data-bind="${path}" value="${esc(v ?? 0)}"></div>`;
+    const txt = (path, v, label, ltr) => `<div class="field"><label>${label}</label><input class="input" data-bind="${path}" value="${esc(v || '')}" ${ltr ? 'style="direction:ltr"' : ''}></div>`;
+    const emps = s.employees.filter((e) => (e.status || 'ACTIVE') !== 'TERMINATED');
+    return `<div class="page-head"><div><h2>🏢 الشركة والفروع والضرائب</h2><p>بيانات الشركة تظهر في كل المطبوعات (وثيقة الحجز، السندات، الكشوف) · الضرائب والعملة حسب دولة الشركة · كل فرع يحدد مجالات عمله</p></div></div>
     <div class="grid g2">
-      <div class="card"><h3>بيانات الشركة</h3><div class="grid g2">
-        <div class="field"><label>اسم الشركة</label><input class="input" data-bind="company.name" value="${esc(c.name)}"></div>
-        <div class="field"><label>الدولة</label><select class="input" data-bind="company.country" data-after="countryChanged">${Object.entries(Model.COUNTRIES).map(([k, v]) => opt(k, c.country, v.ar)).join('')}</select></div>
-        <div class="field"><label>السجل التجاري</label><input class="input" data-bind="company.commercialNo" value="${esc(c.commercialNo)}"></div>
-        <div class="field"><label>رقم ترخيص السياحة</label><input class="input" data-bind="company.licenseNo" value="${esc(c.licenseNo || '')}"></div>
-        <div class="field"><label>الهاتف</label><input class="input" data-bind="company.phone" value="${esc(c.phone)}" style="direction:ltr"></div>
-        <div class="field"><label>البريد</label><input class="input" data-bind="company.email" value="${esc(c.email)}" style="direction:ltr"></div>
-        <div class="field" style="grid-column:1/-1"><label>العنوان</label><input class="input" data-bind="company.address" value="${esc(c.address)}"></div></div></div>
-      <div class="card"><h3>🧾 الضرائب</h3>
-        <label class="row"><input type="checkbox" data-bind="company.vatEnabled" ${c.vatEnabled ? 'checked' : ''}> تفعيل ضريبة القيمة المضافة على المبيعات (السعر شامل الضريبة)</label>
-        <div class="grid g2" style="margin-top:8px"><div class="field"><label>نسبة الضريبة %</label><input class="input" type="number" step="0.5" data-bind="company.vatRate" value="${c.vatRate}"></div>
-          <div class="field"><label>الرقم الضريبي</label><input class="input" data-bind="company.taxNo" value="${esc(c.taxNo)}" style="direction:ltr"></div></div>
-        <div class="alert info small" style="margin-top:8px">عند التفعيل: يُفصل مبلغ الضريبة من إيراد كل حجز إلى حساب 2102 (ضريبة مخرجات) وتظهر في الفاتورة. النسبة الافتراضية حسب الدولة: مصر 14% · السعودية 15% · الإمارات 5% — راجع محاسبك في المعاملة الضريبية لنشاط السياحة لديك.</div>
-        <h3 style="margin-top:14px">⏰ التنبيهات</h3><div class="grid g3">
-          <div class="field"><label>تذكير الأقساط قبل (يوم)</label><input class="input" type="number" data-bind="settings.reminderDays" value="${s.settings.reminderDays}"></div>
-          <div class="field"><label>تنبيه انتهاء التعليق قبل (ساعة)</label><input class="input" type="number" data-bind="settings.holdAlertHours" value="${s.settings.holdAlertHours}"></div>
-          <div class="field"><label>تنبيه ملفات الرحلة قبل السفر (يوم)</label><input class="input" type="number" data-bind="settings.docsAlertDays" value="${s.settings.docsAlertDays}"></div></div></div>
+      <div class="card"><h3>📜 البيانات القانونية والترخيص</h3><div class="grid g2">
+        ${txt('company.name', c.name, 'الاسم التجاري (يظهر في البرنامج)')}${txt('company.legalName', c.legalName, 'الاسم القانوني (في العقود)')}
+        <div class="field"><label>دولة التشغيل</label><select class="input" data-bind="company.country" data-after="countryChanged">${Object.entries(Model.COUNTRIES).map(([k, v]) => opt(k, c.country, v.ar)).join('')}</select></div>
+        <div class="field"><label>العملة المحلية · مفتاح الدولة</label><input class="input" readonly value="${esc(c.currency || P.currency)} · +${esc(c.dial || P.dial)}"></div>
+        ${txt('company.commercialNo', c.commercialNo, 'السجل التجاري', 1)}${txt('company.taxNo', c.taxNo, 'الرقم الضريبي / البطاقة الضريبية', 1)}
+        ${txt('company.licenseNo', c.licenseNo, 'رقم ترخيص السياحة', 1)}${txt('company.licenseCategory', c.licenseCategory, 'فئة الترخيص (أ / ب / ج)')}
+        ${txt('company.phone', c.phone, 'الهاتف', 1)}${txt('company.email', c.email, 'البريد', 1)}${txt('company.website', c.website, 'الموقع الإلكتروني', 1)}
+        <div class="field" style="grid-column:1/-1"><label>العنوان</label><input class="input" data-bind="company.address" value="${esc(c.address)}"></div></div>
+        ${P.regulator ? `<div class="alert info small" style="margin-top:8px">🏛️ الجهة المنظمة: ${esc(P.regulator)}${P.umrahAuth ? ` · العمرة: ${esc(P.umrahAuth)}` : ''}</div>` : ''}</div>
+      <div class="stack">
+        <div class="card"><h3>🧭 مجالات عمل الشركة</h3><div class="row" style="gap:18px">${dom(c.domains, 'companyDomain')}</div>
+          <div class="small muted" style="margin-top:6px">كل مجال يظهر كتبويب مستقل في القائمة الجانبية بشاشاته الخاصة. العمرة: رحلات بتسكين مكة/المدينة والتأشيرات. السياحة الداخلية: برامج المصايف والمشاتي، حجز الفنادق والقرى، رحلات اليوم الواحد، الفنادق العائمة والرحلات الاختيارية.</div></div>
+        <div class="card"><h3>🧾 الضرائب — ${esc(P.ar)}</h3>
+          <div class="tax-row">${chk('company.vatEnabled', c.vatEnabled, '<b>ضريبة القيمة المضافة</b> على المبيعات (السعر شامل الضريبة)')}${num('company.vatRate', c.vatRate, 'النسبة %', '0.5')}</div>
+          <div class="tax-row">${chk('company.whtEnabled', c.whtEnabled, '<b>ضريبة الخصم والإضافة</b> تُحجز من مدفوعات الموردين (فنادق، نقل، طيران) وتُورّد للمصلحة')}${num('company.whtRate', c.whtRate, 'النسبة %')}${num('company.whtThreshold', c.whtThreshold, 'من مبلغ', '1')}</div>
+          <div class="tax-row">${chk('company.stampEnabled', c.stampEnabled, '<b>ضريبة الدمغة</b> على الفواتير (ضمن السعر)')}${num('company.stampRate', c.stampRate, 'النسبة %', '0.001')}</div>
+          <div class="tax-row">${chk('company.incomeTaxEnabled', c.incomeTaxEnabled, `<b>${esc(c.incomeTaxLabel || 'ضريبة الدخل')}</b> — تقدير في قائمة الدخل فقط`)}${num('company.incomeTaxRate', c.incomeTaxRate, 'النسبة %', '0.5')}${txt('company.incomeTaxLabel', c.incomeTaxLabel, 'المسمى')}</div>
+          <div class="alert info small" style="margin-top:8px">القيد الآلي: القيمة المضافة ← 2102 · الدمغة ← 2106 · الخصم والإضافة المحجوز ← 2105 · ما يخصمه العملاء منك ← 1108 · الدخل/الزكاة الفعلية ← 2107. النسب الافتراضية تتغير مع الدولة — راجع محاسبك في المعاملة الضريبية لنشاط السياحة (خاصة العمرة للمقيمين بالخارج).</div></div>
+      </div>
     </div>
-    <div class="card" style="margin-top:14px"><div class="row"><h3 style="margin:0">🏬 الفروع</h3><span class="spacer"></span><button class="btn sm primary" data-act="branchAdd">+ فرع</button></div>
-      <table class="t" style="margin-top:8px"><tr><th>الكود</th><th>الاسم</th><th>المدينة</th><th>الخزائن</th></tr>
-      ${s.branches.map((b, i) => `<tr><td class="num">${esc(b.code)}</td><td><input class="input" data-bind="branches.${i}.name" value="${esc(b.name)}"></td><td><input class="input" data-bind="branches.${i}.city" value="${esc(b.city || '')}"></td>
-        <td class="small">${s.cashboxes.filter((c2) => c2.branchId === b.id).map((c2) => esc(c2.name)).join('، ') || '—'}</td></tr>`).join('')}</table></div>`;
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card"><h3>📄 شروط وأحكام وثيقة الحجز</h3><textarea class="input" rows="7" data-bind="company.terms" placeholder="سياسة الإلغاء والاسترداد، مواعيد السداد، المستندات المطلوبة…">${esc(c.terms || '')}</textarea>
+        <div class="small muted">تُطبع في وثيقة الحجز التي يستلمها العميل. اتركها فارغة لاستخدام الشروط الافتراضية.</div></div>
+      ${App.waSettingsCard && ['OWNER', 'MANAGER'].includes(App.role()) ? App.waSettingsCard() : ''}
+      <div class="card"><h3>⏰ التنبيهات</h3><div class="grid g3">
+        <div class="field"><label>تذكير الأقساط قبل (يوم)</label><input class="input" type="number" data-bind="settings.reminderDays" value="${s.settings.reminderDays}"></div>
+        <div class="field"><label>تنبيه انتهاء التعليق قبل (ساعة)</label><input class="input" type="number" data-bind="settings.holdAlertHours" value="${s.settings.holdAlertHours}"></div>
+        <div class="field"><label>تنبيه ملفات الرحلة قبل السفر (يوم)</label><input class="input" type="number" data-bind="settings.docsAlertDays" value="${s.settings.docsAlertDays}"></div></div></div>
+    </div>
+    <div class="card" style="margin-top:14px"><div class="row"><h3 style="margin:0">🏬 الفروع ومجالات عملها</h3><span class="spacer"></span><button class="btn sm primary" data-act="branchAdd">+ فرع</button></div>
+      <div class="tbl-wrap" style="margin-top:8px"><table class="t"><thead><tr><th>الكود</th><th>الاسم</th><th>المدينة</th><th>الهاتف</th><th>المجالات</th><th>مدير الفرع</th><th>الخزائن</th><th>الرحلات</th><th>نشط</th></tr></thead><tbody>
+      ${s.branches.map((b, i) => `<tr><td class="num">${esc(b.code)}</td><td><input class="input sm" data-bind="branches.${i}.name" value="${esc(b.name)}"></td><td><input class="input sm" data-bind="branches.${i}.city" value="${esc(b.city || '')}"></td>
+        <td><input class="input sm" style="direction:ltr;width:130px" data-bind="branches.${i}.phone" value="${esc(b.phone || '')}"></td>
+        <td style="white-space:nowrap">${Object.entries(Model.DOMAINS).filter(([k]) => c.domains.includes(k)).map(([k, d]) => `<label class="chk"><input type="checkbox" data-act-change="branchDomain" data-i="${i}" data-d="${k}" ${(b.domains || []).includes(k) ? 'checked' : ''}> ${d.icon} ${d.ar}</label>`).join('<br>')}</td>
+        <td><select class="input sm" data-bind="branches.${i}.managerEmpId">${opt('', b.managerEmpId, '—')}${emps.map((e) => opt(e.id, b.managerEmpId, e.name)).join('')}</select></td>
+        <td class="small">${s.cashboxes.filter((c2) => c2.branchId === b.id).map((c2) => esc(c2.name)).join('، ') || '—'}</td>
+        <td class="num">${s.trips.filter((d) => d.trip.branchId === b.id).length}</td>
+        <td><input type="checkbox" data-bind="branches.${i}.active" ${b.active !== false ? 'checked' : ''}></td></tr>`).join('')}</tbody></table></div>
+      <div class="small muted" style="margin-top:6px">كل فرع يرى ويبيع رحلات المجالات المفعّلة له فقط، والمستخدم المربوط بفرع يعمل على فرعه (المستخدمون والصلاحيات).</div></div>`;
   };
-  App.actions.countryChanged = () => { const c = S().company; c.vatRate = (Model.COUNTRIES[c.country] || Model.COUNTRIES.EG).vat; };
+  App.actions.countryChanged = () => { const c = S().company; Model.applyCountry(c, c.country); App.render(); };
+  App.actions.companyDomain = (d, el) => {
+    const s = S(), c = s.company;
+    c.domains = el.checked ? [...new Set([...c.domains, d.d])] : c.domains.filter((x) => x !== d.d);
+    if (!c.domains.length) { c.domains = [d.d]; App.toast('لازم مجال واحد على الأقل', 'err'); }
+    for (const b of s.branches) b.domains = (b.domains || []).filter((x) => c.domains.includes(x));
+    if (el.checked) for (const b of s.branches) if (!b.domains.length) b.domains = [d.d];
+    App.audit(`مجالات الشركة: ${c.domains.map((x) => Model.DOMAINS[x].ar).join('، ')}`); App.save(); App.render();
+  };
+  App.actions.branchDomain = (d, el) => {
+    const b = S().branches[Number(d.i)];
+    b.domains = el.checked ? [...new Set([...(b.domains || []), d.d])] : (b.domains || []).filter((x) => x !== d.d);
+    App.save(); App.render();
+  };
   App.actions.branchAdd = () => {
     const name = prompt('اسم الفرع:'); if (!name) return;
     const s = S(), n = s.branches.length + 1;
-    s.branches.push({ id: 'BR' + Date.now().toString(36), code: 'BR-' + String(n).padStart(2, '0'), name: name.trim(), city: '' });
+    s.branches.push({ id: 'BR' + Date.now().toString(36), code: 'BR-' + String(n).padStart(2, '0'), name: name.trim(), city: '', phone: '', address: '', domains: s.company.domains.slice(), managerEmpId: null, active: true });
     App.audit(`إضافة فرع ${name}`); App.save(); App.render();
   };
 
   // ============================================================ users
-  const ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HEAD', 'SALES', 'OPERATIONS', 'AGENT', 'SUPERVISOR', 'HOUSING'];
-  const HINT = { OWNER: 'كل الشركات والصلاحيات + النسخ الاحتياطي', MANAGER: 'كل شيء في شركته + اعتماد الخصم حتى 7% والسندات + المستخدمين', ACCOUNTANT: 'الحسابات والسندات والاعتماد والتقارير',
-    HEAD: 'مبيعات + خصم حتى 3%', SALES: 'حجوزات بدون خصم + رفع دفعات للمراجعة', OPERATIONS: 'التسكين والباص والجوازات والكشوف', AGENT: 'بوابة خاصة: حسابه + حجوزاته + رفع دفعات بالصور',
+  const ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HR', 'HEAD', 'SALES', 'OPERATIONS', 'AGENT', 'SUPERVISOR', 'HOUSING'];
+  const HINT = { OWNER: 'كل الشركات والصلاحيات + النسخ الاحتياطي + وحده يعتمد أي خصم على أي سعر', MANAGER: 'كل شيء في شركته + اعتماد السندات + المستخدمين (الخصومات للمالك فقط)', ACCOUNTANT: 'الحسابات والسندات والاعتماد والتقارير',
+    HR: 'الموارد البشرية: الحضور والإجازات والتقييم والمهام والجزاءات وإعداد الرواتب', HEAD: 'مبيعات وإدارة فريق (الخصم يُرفع للمالك)', SALES: 'حجوزات بدون خصم + رفع دفعات للمراجعة', OPERATIONS: 'التسكين والباص والجوازات والكشوف', AGENT: 'بوابة خاصة: حسابه + حجوزاته + رفع دفعات بالصور',
     SUPERVISOR: 'بوابة خاصة: كشف المشرف لرحلاته', HOUSING: 'بوابة خاصة: كشف مندوب التسكين لرحلاته' };
   let users = null;
   async function loadUsers() { try { users = await App.api('GET', 'api/users'); } catch (e) { users = []; App.toast(e.message, 'err'); } if (App.ui.page === 'users') App.render(); }
@@ -107,6 +142,7 @@
         <div class="row" style="margin-top:8px"><button class="btn danger" data-act="wipeData">🧹 مسح البيانات والبدء من جديد</button><button class="btn ghost" data-act="loadDemo">تحميل بيانات تجريبية</button></div>` : '<span class="muted">من صلاحية المالك.</span>'}
         ${owner ? `<h3 style="margin-top:16px">🏢 الشركات</h3><table class="t">${App.companies.map((c) => `<tr><td>${esc(c.name)}</td><td>${c.id === App.companyId ? '<span class="chip ok">الحالية</span>' : ''}</td></tr>`).join('')}</table>
           <div class="row" style="margin-top:8px"><input class="input" id="nc-name" placeholder="اسم الشركة الجديدة" style="flex:1"><select class="input" id="nc-country" style="width:auto">${Object.entries(Model.COUNTRIES).map(([k, v]) => opt(k, 'EG', v.ar)).join('')}</select>
+          <label class="small"><input type="checkbox" id="nc-dom-UMRAH" checked> 🕋 عمرة</label><label class="small"><input type="checkbox" id="nc-dom-DOMESTIC"> 🏖️ سياحة داخلية</label>
           <label class="small"><input type="checkbox" id="nc-demo"> ببيانات تجريبية</label><button class="btn primary" data-act="newCompany">+ شركة</button></div>` : ''}</div>
     </div>
     <div class="card" style="margin-top:14px"><h3>🕓 سجل الإصدارات (آخر 100)</h3><div class="tbl-wrap"><table class="t"><thead><tr><th>#</th><th>الإصدار</th><th>التاريخ</th><th>بواسطة</th><th>النوع</th><th>الحجم</th><th></th></tr></thead><tbody>
@@ -129,7 +165,7 @@
   };
   App.actions.newCompany = async () => {
     try {
-      const c = await App.api('POST', 'api/companies', { name: App.val('nc-name'), country: App.val('nc-country'), demo: App.val('nc-demo') });
+      const c = await App.api('POST', 'api/companies', { name: App.val('nc-name'), country: App.val('nc-country'), demo: App.val('nc-demo'), domains: Object.keys(Model.DOMAINS).filter((k) => App.val('nc-dom-' + k)) });
       App.companies = await App.api('GET', 'api/companies'); App.toast(`✅ تم إنشاء ${c.name} — اخترها من أعلى الشاشة`); App.render();
     } catch (e) { App.toast(e.message, 'err'); }
   };
