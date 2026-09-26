@@ -736,6 +736,7 @@ router.put(
     const { company_id } = ctx(req);
     assertOwned(db.prepare('SELECT * FROM vehicles WHERE id = ?').get(req.params.id), company_id, 'سيارة غير موجودة');
     const { name, ownership, default_driver_id, plate_number, capacity, photo, monthly_rent, notes, is_active } = req.body;
+    if (!['owned', 'rented'].includes(ownership)) throw new Error('لازم تحدد ملكية السيارة: ملك خاص أو مأجورة');
     const driverName = services.resolveDriverName(company_id, default_driver_id);
     const existing = db.prepare('SELECT photo FROM vehicles WHERE id=?').get(req.params.id);
     db.prepare(

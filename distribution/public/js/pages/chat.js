@@ -102,6 +102,7 @@ function renderChatAttachPreview() {
     removeBtn.addEventListener('click', () => {
       chatPendingAttachment = null;
       document.getElementById('chatFileInput').value = '';
+      document.getElementById('chatCameraInput').value = '';
       renderChatAttachPreview();
     });
   }
@@ -121,7 +122,9 @@ Pages.chat = async function () {
         <div id="chatAttachPreviewSlot"></div>
         <div class="chat-compose-row">
           <input type="file" id="chatFileInput" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" style="display:none" />
+          <input type="file" id="chatCameraInput" accept="image/*" capture="environment" style="display:none" />
           <button type="button" class="btn secondary chat-attach-btn" id="chatAttachBtn" title="إرفاق ملف أو صورة">📎</button>
+          <button type="button" class="btn secondary chat-attach-btn" id="chatCameraBtn" title="تصوير بالكاميرا">📷</button>
           <textarea name="body" id="chatBody" placeholder="اكتب رسالتك..." maxlength="2000" rows="1"></textarea>
           <button type="submit" class="btn">إرسال</button>
         </div>
@@ -133,6 +136,7 @@ Pages.chat = async function () {
   const mentionSelect = document.getElementById('chatMentionSelect');
   const bodyInput = document.getElementById('chatBody');
   const fileInput = document.getElementById('chatFileInput');
+  const cameraInput = document.getElementById('chatCameraInput');
 
   const [team, messages] = await Promise.all([Api.get('/chat/team'), Api.get('/chat/messages')]);
   chatTeamById = {};
@@ -145,24 +149,27 @@ Pages.chat = async function () {
   renderChatMessages(messagesEl, messages, me.id);
   messagesEl.scrollTop = messagesEl.scrollHeight;
 
-  document.getElementById('chatAttachBtn').addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', async () => {
-    const file = fileInput.files[0];
+  async function handleChatAttachmentFile(file, inputEl) {
     if (!file) return;
     if (file.size > CHAT_ATTACHMENT_MAX_BYTES) {
       UI.toast('حجم الملف كبير جدًا (٦ ميجابايت كحد أقصى)', 'error');
-      fileInput.value = '';
+      inputEl.value = '';
       return;
     }
     try {
       const isImage = file.type.startsWith('image/');
       const dataUri = isImage ? await compressImageFile(file) : await readFileAsDataUri(file);
-      chatPendingAttachment = { dataUri, name: file.name, mime: isImage ? 'image/jpeg' : file.type || 'application/octet-stream' };
+      chatPendingAttachment = { dataUri, name: file.name || 'صورة الكاميرا.jpg', mime: isImage ? 'image/jpeg' : file.type || 'application/octet-stream' };
       renderChatAttachPreview();
     } catch (err) {
       UI.toast('تعذّر قراءة الملف', 'error');
     }
-  });
+  }
+
+  document.getElementById('chatAttachBtn').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => handleChatAttachmentFile(fileInput.files[0], fileInput));
+  document.getElementById('chatCameraBtn').addEventListener('click', () => cameraInput.click());
+  cameraInput.addEventListener('change', () => handleChatAttachmentFile(cameraInput.files[0], cameraInput));
   renderChatAttachPreview();
 
   document.getElementById('chatForm').addEventListener('submit', async (e) => {
@@ -182,6 +189,7 @@ Pages.chat = async function () {
       mentionSelect.value = '';
       chatPendingAttachment = null;
       fileInput.value = '';
+      cameraInput.value = '';
       renderChatAttachPreview();
       if (msg.id > chatLastId) {
         chatLastId = msg.id;

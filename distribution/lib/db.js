@@ -197,6 +197,14 @@ ensureColumn('sales_invoices', 'stamp_duty_amount', 'stamp_duty_amount REAL NOT 
 ensureColumn('chat_messages', 'attachment_data', 'attachment_data TEXT');
 ensureColumn('chat_messages', 'attachment_name', 'attachment_name TEXT');
 ensureColumn('chat_messages', 'attachment_mime', 'attachment_mime TEXT');
+// أصناف اتسجلت قبل ما ترقيم الكود (SKU) يبقى آلي - نديها كود بنفس الصيغة دلوقتي بدل ما تفضل
+// فاضية. مبني على الـ id بتاع الصنف نفسه (مش على nextNumber) عشان مايتعارضش أبدًا مع أي كود
+// هيتولّد لصنف جديد بعد كده (اللي دايمًا بيبقى مبني على تسلسل أكبر من أي id موجود بالفعل).
+db.exec(`
+  UPDATE products SET sku = 'SKU-' ||
+    (CASE WHEN length(CAST(id AS TEXT)) >= 6 THEN CAST(id AS TEXT) ELSE substr('000000' || id, -6) END)
+  WHERE sku IS NULL OR sku = ''
+`);
 dropCheckConstraintIfPresent(
   'trip_expenses',
   "paid_from IN ('cash','bank')",
