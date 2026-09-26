@@ -207,6 +207,7 @@ function createPartner({ company_id, branch_id, name, phone, share_percentage, n
 }
 
 function createCustomAccount({ company_id, code, name, type, parent_code, is_postable }) {
+  if (!['asset', 'liability', 'equity', 'revenue', 'expense'].includes(type)) throw new Error('لازم تحدد نوع الحساب');
   const exists = db.prepare('SELECT 1 FROM accounts WHERE company_id = ? AND code = ?').get(company_id, code);
   if (exists) throw new Error(`الكود ${code} مستخدم بالفعل في شجرة الحسابات`);
   db.prepare(
@@ -604,6 +605,7 @@ function listProductCategories(companyId) {
 
 function createProduct({ company_id, branch_id, category_id, name, sku, unit, kind, sale_price, cost_price, reorder_level, opening_qty, bom, track_expiry, photo, storage_method, default_branch_id }) {
   return inTransaction(() => {
+    if (!['trade', 'raw_material', 'manufactured'].includes(kind)) throw new Error('لازم تحدد نوع المنتج');
     if (category_id) assertBelongs('product_categories', category_id, company_id, 'التصنيف');
     if (default_branch_id) assertBelongs('branches', default_branch_id, company_id, 'المخزن الرئيسي');
     const info = db
@@ -1110,6 +1112,7 @@ function resolveDriverName(companyId, defaultDriverId) {
 }
 
 function createVehicle({ company_id, branch_id, name, ownership, default_driver_id, plate_number, capacity, photo, monthly_rent, notes }) {
+  if (!['owned', 'rented'].includes(ownership)) throw new Error('لازم تحدد ملكية السيارة: ملك خاص أو مأجورة');
   const driverName = resolveDriverName(company_id, default_driver_id);
   const info = db
     .prepare(
@@ -1341,6 +1344,7 @@ function addTripExpense({ trip_id, category, amount, paid_from, notes, latitude,
   return inTransaction(() => {
     const trip = requireOpenTrip(trip_id);
     assertPeriodOpen(trip.company_id, trip.branch_id, trip.trip_date);
+    if (!['fuel', 'rent', 'maintenance', 'toll', 'other'].includes(category)) throw new Error('لازم تحدد نوع المصروف');
     const amt = round2(Number(amount));
     if (!(amt > 0)) throw new Error('المبلغ لازم يكون أكبر من صفر');
     const from = paid_from || 'cash';
@@ -2177,6 +2181,7 @@ function createStockAdjustment({ company_id, branch_id, product_id, qty_counted,
 function createExpense({ company_id, branch_id, category, amount, expense_date, paid_from, notes, created_by_user_id }) {
   return inTransaction(() => {
     assertPeriodOpen(company_id, branch_id, expense_date);
+    if (!['rent', 'salaries', 'utilities', 'maintenance', 'fuel', 'other'].includes(category)) throw new Error('لازم تحدد نوع المصروف');
     const amt = round2(Number(amount));
     if (!(amt > 0)) throw new Error('المبلغ لازم يكون أكبر من صفر');
     const expense_no = nextNumber('expenses', 'EXP');
