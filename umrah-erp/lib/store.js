@@ -18,8 +18,8 @@ const db = new DatabaseSync(path.join(DATA_DIR, 'umrah.db'));
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
 
-const ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HEAD', 'SALES', 'OPERATIONS', 'AGENT', 'SUPERVISOR', 'HOUSING'];
-const STAFF_ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HEAD', 'SALES', 'OPERATIONS'];
+const ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HR', 'HEAD', 'SALES', 'OPERATIONS', 'AGENT', 'SUPERVISOR', 'HOUSING'];
+const STAFF_ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HR', 'HEAD', 'SALES', 'OPERATIONS'];
 const PORTAL_ROLES = ['AGENT', 'SUPERVISOR', 'HOUSING'];
 
 db.exec(`
@@ -81,6 +81,9 @@ ensureColumn('users', 'company_id', 'company_id INTEGER');
 ensureColumn('users', 'branch_id', 'branch_id TEXT');
 ensureColumn('users', 'agent_ref', 'agent_ref TEXT');
 ensureColumn('users', 'phone', 'phone TEXT');
+ensureColumn('chat_messages', 'to_user_id', 'to_user_id INTEGER');
+ensureColumn('chat_messages', 'to_name', 'to_name TEXT');
+ensureColumn('chat_messages', 'private', 'private INTEGER NOT NULL DEFAULT 0');
 (function migrateSingleState() {
   const old = db.prepare("SELECT name FROM sqlite_master WHERE name = 'app_state'").get();
   if (!old || db.prepare('SELECT COUNT(*) c FROM companies').get().c) return;
@@ -232,22 +235,33 @@ function getFile(companyId, id) {
 }
 
 // ---------------------------------------------------------------- chat
-function postChat(companyId, channel, user, text, fileId) {
+/** to: addressed user (optional) · priv: 1 = only sender + recipient can ever read it; 0 = everyone in the channel sees it, tagged to the person. */
+function postChat(companyId, channel, user, text, fileId, to, priv) {
   text = String(text || '').slice(0, 4000);
   if (!text.trim() && !fileId) throw new Error('رسالة فارغة');
-  const info = db.prepare('INSERT INTO chat_messages (company_id, channel, user_id, user_name, text, file_id) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(companyId, channel, user.id, user.display_name, text, fileId || null);
+  const info = db.prepare('INSERT INTO chat_messages (company_id, channel, user_id, user_name, text, file_id, to_user_id, to_name, private) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(companyId, channel, user.id, user.display_name, text, fileId || null, to ? to.id : null, to ? to.display_name : null, to && priv ? 1 : 0);
   return Number(info.lastInsertRowid);
 }
-const listChat = (companyId, channel, since) => db.prepare(`SELECT m.*, f.name AS file_name, f.mime AS file_mime FROM chat_messages m LEFT JOIN files f ON f.id = m.file_id
-  WHERE m.company_id = ? AND m.channel = ? AND m.id > ? ORDER BY m.id DESC LIMIT 200`).all(companyId, channel, Number(since) || 0).reverse();
+// Visibility is enforced here (not in the browser): a private message is returned only to its two parties.
+const VISIBLE = '(m.private = 0 OR m.user_id = @me OR m.to_user_id = @me)';
+function listChat(companyId, channel, since, meId, withId) {
+  const where = channel === 'dm'
+    ? `(m.channel = 'dm' OR m.private = 1) AND (m.user_id = @me OR m.to_user_id = @me)${withId ? ' AND (m.user_id = @w OR m.to_user_id = @w)' : ''}`
+    : `m.channel = @ch AND ${VISIBLE}`;
+  const stmt = db.prepare(`SELECT m.*, f.name AS file_name, f.mime AS file_mime FROM chat_messages m LEFT JOIN files f ON f.id = m.file_id
+    WHERE m.company_id = @c AND ${where} AND m.id > @since ORDER BY m.id DESC LIMIT 200`);
+  const params = { c: companyId, me: meId, since: Number(since) || 0 }; // node:sqlite rejects unused named parameters
+  if (channel === 'dm') { if (withId) params.w = Number(withId) || 0; } else params.ch = channel;
+  return stmt.all(params).reverse();
+}
 function markChatRead(userId, companyId, channel, lastId) {
   db.prepare('INSERT INTO chat_reads (user_id, company_id, channel, last_id) VALUES (?, ?, ?, ?) ON CONFLICT(user_id, company_id, channel) DO UPDATE SET last_id = MAX(last_id, excluded.last_id)')
     .run(userId, companyId, channel, Number(lastId) || 0);
 }
-const chatUnread = (userId, companyId) => db.prepare(`SELECT m.channel, COUNT(*) AS c FROM chat_messages m
-  LEFT JOIN chat_reads r ON r.user_id = ? AND r.company_id = m.company_id AND r.channel = m.channel
-  WHERE m.company_id = ? AND m.id > COALESCE(r.last_id, 0) AND m.user_id <> ? GROUP BY m.channel`).all(userId, companyId, userId);
+const chatUnread = (userId, companyId) => db.prepare(`SELECT m.channel, COUNT(*) AS c, SUM(CASE WHEN m.to_user_id = @me THEN 1 ELSE 0 END) AS mine FROM chat_messages m
+  LEFT JOIN chat_reads r ON r.user_id = @me AND r.company_id = m.company_id AND r.channel = m.channel
+  WHERE m.company_id = @c AND m.id > COALESCE(r.last_id, 0) AND m.user_id <> @me AND ${VISIBLE} GROUP BY m.channel`).all({ me: userId, c: companyId });
 
 // ------------------------------------------------------- notifications
 function notify(companyId, { roles, userId, text, link }) {
@@ -265,7 +279,7 @@ const markNotificationsRead = (userId, lastId) => db.prepare('INSERT INTO notif_
 const kvGet = (k) => { const r = db.prepare('SELECT value FROM kv WHERE key = ?').get(k); return r ? JSON.parse(r.value) : null; };
 const kvSet = (k, v) => db.prepare('INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, JSON.stringify(v));
 const audit = (userId, companyId, action) => db.prepare('INSERT INTO audit (user_id, company_id, action) VALUES (?, ?, ?)').run(userId || null, companyId || null, action);
-const listAudit = (companyId) => db.prepare('SELECT a.*, u.display_name FROM audit a LEFT JOIN users u ON u.id = a.user_id WHERE a.company_id = ? OR a.company_id IS NULL ORDER BY a.id DESC LIMIT 200').all(companyId);
+const listAudit = (companyId, limit = 200) => db.prepare('SELECT a.*, u.display_name FROM audit a LEFT JOIN users u ON u.id = a.user_id WHERE a.company_id = ? OR a.company_id IS NULL ORDER BY a.id DESC LIMIT ?').all(companyId, Math.min(3000, Math.max(1, Number(limit) || 200)));
 
 // --------------------------------------------------------- full backup
 /** Everything needed to rebuild the system on another machine (a flash drive copy). */
@@ -286,7 +300,7 @@ function importAll(b) {
   fs.writeFileSync(path.join(BACKUP_DIR, `before-restore-${Date.now()}.json`), JSON.stringify(exportAll()));
   const cols = { companies: ['id', 'name', 'created_at'], users: ['id', 'username', 'display_name', 'password_hash', 'role', 'is_active', 'created_at', 'company_id', 'branch_id', 'agent_ref', 'phone'],
     company_state: ['company_id', 'version', 'json', 'updated_at', 'updated_by'], state_versions: ['id', 'company_id', 'version', 'json', 'saved_at', 'saved_by', 'label'],
-    files: ['id', 'company_id', 'name', 'mime', 'size', 'uploaded_by', 'created_at'], chat_messages: ['id', 'company_id', 'channel', 'user_id', 'user_name', 'text', 'file_id', 'created_at'],
+    files: ['id', 'company_id', 'name', 'mime', 'size', 'uploaded_by', 'created_at'], chat_messages: ['id', 'company_id', 'channel', 'user_id', 'user_name', 'text', 'file_id', 'created_at', 'to_user_id', 'to_name', 'private'],
     notifications: ['id', 'company_id', 'roles', 'user_id', 'text', 'link', 'created_at'], kv: ['key', 'value'] };
   db.exec('PRAGMA foreign_keys = OFF');
   db.exec('BEGIN');
@@ -294,7 +308,7 @@ function importAll(b) {
     for (const t of ['auth_sessions', 'chat_reads', 'notif_reads', ...Object.keys(cols)]) db.exec(`DELETE FROM ${t}`);
     for (const [t, c] of Object.entries(cols)) {
       const st = db.prepare(`INSERT INTO ${t} (${c.join(',')}) VALUES (${c.map(() => '?').join(',')})`);
-      for (const row of b.tables[t] || []) st.run(...c.map((k) => (row[k] === undefined ? null : row[k])));
+      for (const row of b.tables[t] || []) st.run(...c.map((k) => (row[k] == null ? (k === 'private' ? 0 : null) : row[k])));
     }
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); db.exec('PRAGMA foreign_keys = ON'); throw e; }

@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node --test tests/engine.test.js tests/accounting.test.js",
+    "test": "node --test tests/engine.test.js tests/accounting.test.js tests/hr.test.js",
     "test:e2e": "node --test tests/api.e2e.js"
   },
   "license": "MIT",

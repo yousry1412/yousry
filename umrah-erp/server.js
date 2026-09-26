@@ -5,7 +5,8 @@
  *   /api/state         one versioned document per company + governance checks
  *   /api/versions      history, labelled snapshots, restore
  *   /api/files         uploads (photos, passports, receipts, trip files)
- *   /api/chat          internal chat with attachments
+ *   /api/chat          internal chat with attachments + direct/private messages
+ *   /api/hr/*          employee self-service: server-time attendance, leave requests, tasks
  *   /api/notifications notification centre
  *   /api/portal/*      restricted views for agents, supervisors, housing reps
  *   /api/backup        full backup download (flash drive) · /api/restore
@@ -19,6 +20,7 @@ const { parseCookies, setCookie, clearCookie } = require('./lib/cookies');
 const Engine = require('./public/js/engine.js');
 const Acc = require('./public/js/accounting.js');
 const Model = require('./public/js/model.js');
+const Hr = require('./public/js/hr.js');
 const { buildSeed } = require('./public/js/data.js');
 
 const app = express();
@@ -32,7 +34,7 @@ app.use((req, res, next) => {
   res.set('X-Content-Type-Options', 'nosniff');
   res.set('X-Frame-Options', 'SAMEORIGIN');
   res.set('Referrer-Policy', 'same-origin');
-  res.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=()');
+  res.set('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(self)');
   res.set('Content-Security-Policy', [
     "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com", "img-src 'self' data: blob:", "connect-src 'self'",
@@ -109,6 +111,7 @@ function loadDoc(companyId) {
 function emitEvents(companyId, events) {
   for (const e of events) {
     if (e.roles) store.notify(companyId, { roles: e.roles, text: e.text, link: e.link });
+    else if (e.userId) store.notify(companyId, { userId: e.userId, text: e.text, link: e.link });
     else if (e.userName) {
       const u = store.listUsers(companyId).find((x) => x.display_name === e.userName);
       if (u) store.notify(companyId, { userId: u.id, text: e.text, link: e.link });
@@ -244,20 +247,83 @@ api.get('/files/:id', (req, res) => {
 });
 
 // ---------------------------------------------------------------- chat
-const CHANNELS = { general: store.STAFF_ROLES, field: [...store.STAFF_ROLES, 'SUPERVISOR', 'HOUSING'], agents: [...store.STAFF_ROLES, 'AGENT'] };
+const CHANNELS = { general: store.STAFF_ROLES, field: [...store.STAFF_ROLES, 'SUPERVISOR', 'HOUSING'], agents: [...store.STAFF_ROLES, 'AGENT'], dm: store.ROLES };
 const chanOk = (req) => CHANNELS[req.params.ch] && CHANNELS[req.params.ch].includes(req.user.role);
+/** People a user may address: staff see everyone in the company; field/agent accounts see staff (+ field colleagues). */
+function chatPeople(req) {
+  const staff = store.STAFF_ROLES.includes(req.user.role);
+  return store.listUsers(req.companyId).filter((u) => u.is_active && u.id !== req.user.id && (u.company_id === req.companyId || u.role === 'OWNER'))
+    .filter((u) => staff || store.STAFF_ROLES.includes(u.role) || (req.user.role !== 'AGENT' && ['SUPERVISOR', 'HOUSING'].includes(u.role)))
+    .map(({ id, display_name, role }) => ({ id, display_name, role }));
+}
+api.get('/chat/people', (req, res) => res.json(chatPeople(req)));
 api.get('/chat/unread', (req, res) => res.json(store.chatUnread(req.user.id, req.companyId).filter((x) => CHANNELS[x.channel] && CHANNELS[x.channel].includes(req.user.role))));
 api.get('/chat/:ch', (req, res) => {
   if (!chanOk(req)) return res.status(403).json({ error: 'لا تملك صلاحية هذه المحادثة' });
-  const rows = store.listChat(req.companyId, req.params.ch, req.query.since);
+  const rows = store.listChat(req.companyId, req.params.ch, req.query.since, req.user.id, req.query.with);
   if (rows.length) store.markChatRead(req.user.id, req.companyId, req.params.ch, rows[rows.length - 1].id);
   res.json(rows);
 });
 api.post('/chat/:ch', express.json({ limit: '50kb' }), (req, res) => {
   if (!chanOk(req)) return res.status(403).json({ error: 'لا تملك صلاحية هذه المحادثة' });
   try {
-    if (req.body.fileId && !store.getFile(req.companyId, req.body.fileId)) throw new Error('المرفق غير موجود');
-    res.json({ id: store.postChat(req.companyId, req.params.ch, req.user, req.body.text, req.body.fileId) });
+    const b = req.body || {}, ch = req.params.ch;
+    if (b.fileId && !store.getFile(req.companyId, b.fileId)) throw new Error('المرفق غير موجود');
+    let to = null;
+    if (b.to) {
+      to = chatPeople(req).find((u) => u.id === Number(b.to));
+      if (!to) throw new Error('المستلم غير متاح');
+      if (!CHANNELS[ch].includes(to.role)) throw new Error(`${to.display_name} لا يرى هذه المحادثة — أرسلها كرسالة خاصة`);
+    } else if (ch === 'dm') throw new Error('اختر المستلم');
+    const priv = ch === 'dm' ? 1 : b.private ? 1 : 0;
+    const id = store.postChat(req.companyId, ch, req.user, b.text, b.fileId, to, priv);
+    if (to) store.notify(req.companyId, { userId: to.id, text: `💬 ${req.user.display_name} ${priv ? '(رسالة خاصة)' : 'وجّه لك رسالة'}: ${String(b.text || '📎 مرفق').slice(0, 90)}`, link: 'chat' });
+    res.json({ id });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ------------------------------------------------------ HR self-service
+// Punches use the SERVER clock (company timezone) — the device clock can't be used to fake attendance.
+const myEmp = (S, u) => Hr.empOfUser(S, u.id);
+api.get('/hr/me', (req, res) => {
+  const { S } = loadDoc(req.companyId), e = myEmp(S, req.user);
+  if (!e) return res.json({ linked: false });
+  res.json({ linked: true, ...Hr.selfView(S, e, req.query.period) });
+});
+api.post('/hr/punch', express.json(), (req, res) => {
+  try {
+    const g = req.body && req.body.geo, geo = g && Number.isFinite(+g.lat) && Number.isFinite(+g.lng) ? { lat: +(+g.lat).toFixed(5), lng: +(+g.lng).toFixed(5), acc: Math.round(+g.acc || 0) } : null;
+    const r = mutate(req.companyId, req.user.display_name, (S) => {
+      const e = myEmp(S, req.user); if (!e) throw new Error('حسابك غير مربوط بملف موظف — راجع الموارد البشرية');
+      const p = Hr.punch(S, e.id, Date.now(), geo);
+      S.audit.unshift({ at: Date.now(), by: req.user.display_name, msg: `${p.kind === 'IN' ? 'تسجيل حضور' : 'تسجيل انصراف'} ${p.kind === 'IN' ? p.rec.in : p.rec.out}${geo ? ' 📍' : ''}` });
+      S.audit.length = Math.min(S.audit.length, 3000);
+      return p;
+    });
+    res.json(r);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+api.post('/hr/leave', express.json(), (req, res) => {
+  try {
+    const l = mutate(req.companyId, req.user.display_name, (S) => {
+      const e = myEmp(S, req.user); if (!e) throw new Error('حسابك غير مربوط بملف موظف');
+      if (req.body.fileId && !store.getFile(req.companyId, req.body.fileId)) throw new Error('المرفق غير موجود');
+      return { ...Hr.requestLeave(S, e.id, req.body || {}, req.user.display_name), empName: e.name };
+    });
+    store.notify(req.companyId, { roles: Hr.HR_ADMINS, text: `🌴 طلب إجازة ${Hr.LEAVE_TYPES[l.type]} من ${l.empName}: ${l.from} ← ${l.to} (${l.days} يوم)`, link: 'hrLeaves' });
+    res.json(l);
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+api.post('/hr/task/:id', express.json(), (req, res) => {
+  try {
+    const st = ['OPEN', 'DOING', 'DONE'].includes(req.body.status) ? req.body.status : null;
+    if (!st) throw new Error('حالة غير صحيحة');
+    const t = mutate(req.companyId, req.user.display_name, (S) => {
+      const e = myEmp(S, req.user); if (!e) throw new Error('حسابك غير مربوط بملف موظف');
+      return { ...Hr.setTaskStatus(S, req.params.id, e.id, st), empName: e.name };
+    });
+    if (st === 'DONE') store.notify(req.companyId, { roles: Hr.HR_ADMINS, text: `✅ ${t.empName} أنهى المهمة: ${t.title}`, link: 'hrTasks' });
+    res.json(t);
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
@@ -283,7 +349,7 @@ async function refreshFx(force) {
 api.get('/fx', async (req, res) => res.json((await refreshFx(req.query.refresh === '1')) || { rate: null }));
 
 // --------------------------------------------------------------- audit
-api.get('/audit', allow('OWNER', 'MANAGER', 'ACCOUNTANT'), (req, res) => res.json(store.listAudit(req.companyId)));
+api.get('/audit', allow('OWNER', 'MANAGER', 'ACCOUNTANT', 'HR'), (req, res) => res.json(store.listAudit(req.companyId, req.query.limit)));
 
 // -------------------------------------------------------------- backup
 api.get('/backup', allow('OWNER'), (req, res) => {

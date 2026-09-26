@@ -32,8 +32,8 @@
 
   const NAV = {
     AGENT: [['account', '💼', 'حسابي'], ['bookings', '🧾', 'حجوزاتي'], ['newBooking', '➕', 'حجز جديد'], ['payment', '💰', 'رفع دفعة'], ['chat', '💬', 'الشات']],
-    SUPERVISOR: [['sheets', '🧑‍✈️', 'كشف المشرف'], ['chat', '💬', 'الشات']],
-    HOUSING: [['sheets', '🛏️', 'كشف التسكين'], ['chat', '💬', 'الشات']],
+    SUPERVISOR: [['sheets', '🧑‍✈️', 'كشف المشرف'], ['me', '🪪', 'حسابي كموظف'], ['chat', '💬', 'الشات']],
+    HOUSING: [['sheets', '🛏️', 'كشف التسكين'], ['me', '🪪', 'حسابي كموظف'], ['chat', '💬', 'الشات']],
   };
   P.render = () => {
     const d = P.data;
@@ -163,4 +163,11 @@
   App.actions.pTrip = (d) => { P.tripId = d.value; P.render(); };
   App.actions.pPrintSheet = () => { const t = P.data.trips.find((x) => x.id === P.tripId); App.printDoc('Sheet', window.Sheets[P.data.role === 'SUPERVISOR' ? 'supervisor' : 'housing'](t)); };
   PAGES.chat = () => App.chatView();
+  // employee self-service (attendance, leaves, tasks, payslips) for field staff who are also employees
+  P.refreshMe = async () => { try { App.meData = await App.api('GET', 'api/hr/me'); } catch (e) { App.meData = { linked: false }; } };
+  PAGES.me = () => {
+    if (!App.meData) { P.refreshMe().then(() => P.render()); return '<div class="card muted">جارِ التحميل…</div>'; }
+    if (!App.meData.linked) return '<div class="card empty-state"><h3>🪪 حسابي كموظف</h3><p class="muted">حسابك غير مربوط بملف موظف — راجع الموارد البشرية.</p></div>';
+    return App.meView(App.meData);
+  };
 })();

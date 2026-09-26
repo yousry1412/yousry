@@ -9,7 +9,9 @@
  *    settings, cash boxes or lock prices
  * Returns { errors: [], events: [] } — events feed the notification centre.
  * ===================================================================== */
+const Hr = require('../public/js/hr.js');
 const APPROVERS = ['OWNER', 'MANAGER', 'ACCOUNTANT'];
+const HR_ADMINS = Hr.HR_ADMINS;
 const ADMINS = ['OWNER', 'MANAGER'];
 const BOOKING_SOURCES = ['BK', 'BKC'];
 
@@ -76,7 +78,7 @@ function validate(oldS, newS, user) {
     }
   }
   // money & pricing integrity (the UI already enforces these; the server makes them unbypassable)
-  const MAX_DISC = { OWNER: 7, MANAGER: 7, HEAD: 3, SALES: 0, ACCOUNTANT: 0, OPERATIONS: 0 };
+  const MAX_DISC = { OWNER: 7, MANAGER: 7, HEAD: 3, SALES: 0, ACCOUNTANT: 0, OPERATIONS: 0, HR: 0 };
   const oldA = new Map(oldS.agents.map((a) => [a.id, a]));
   for (const a of newS.agents) {
     const o = oldA.get(a.id);
@@ -103,7 +105,65 @@ function validate(oldS, newS, user) {
     if (!o && b.status === 'PENDING_PRICING') events.push({ roles: ['OWNER', 'MANAGER'], text: `🔒 ${trip.code} · ${b.code}: خدمات مجزأة بانتظار التسعير`, link: 'booking' });
     if (o && o.b.status !== 'CANCELLED' && b.status === 'CANCELLED') events.push({ roles: ['OWNER', 'MANAGER', 'ACCOUNTANT'], text: `⚠️ ${trip.code} · ${b.code}: تم إلغاء الحجز`, link: 'booking' });
   }
+  // HR: attendance, leaves, sanctions, evaluations & salaries are HR-admin data; payroll posting is an accounting act
+  validateHr(oldS, newS, user, errors, events);
   return { errors: [...new Set(errors)].slice(0, 10), events };
 }
 
-module.exports = { validate, APPROVERS, ADMINS };
+function validateHr(oldS, newS, user, errors, events) {
+  const hrAdmin = HR_ADMINS.includes(user.role), approver = APPROVERS.includes(user.role);
+  if (!oldS.hr) return;
+  if (!newS.hr) { errors.push('بيانات الموارد البشرية لا يمكن حذفها'); return; }
+  const oh = Hr.normalize(oldS.hr), nh = Hr.normalize(newS.hr);
+  const core = (h) => ({ ...h, payroll: null, adjustments: h.adjustments.map((a) => ({ ...a, payrollId: null })) });
+  if (!hrAdmin && stable(core(oh)) !== stable(core(nh))) errors.push('تعديل الحضور والإجازات والجزاءات والتقييمات من صلاحية الموارد البشرية أو المدير');
+  // payroll: HR prepares drafts, approvers post, posted runs are frozen
+  const oldP = new Map(oh.payroll.map((r) => [r.id, r]));
+  for (const r of oh.payroll) if (r.status === 'POSTED') { const n = nh.payroll.find((x) => x.id === r.id); if (!n || stable(n) !== stable(r)) errors.push(`مسير رواتب ${r.period} مُرحّل ولا يمكن تعديله أو حذفه`); }
+  for (const n of nh.payroll) {
+    const o = oldP.get(n.id);
+    if (n.status === 'POSTED' && (!o || o.status !== 'POSTED') && !approver) errors.push('ترحيل مسير الرواتب من صلاحية المحاسب أو المدير');
+    if (n.status === 'POSTED' && o && o.status === 'DRAFT' && stable({ ...o, status: 0, jeId: 0, postedBy: 0, postedAt: 0 }) !== stable({ ...n, status: 0, jeId: 0, postedBy: 0, postedAt: 0 })) errors.push(`لا يمكن تعديل مبالغ مسير ${n.period} أثناء الترحيل`);
+    if (n.status === 'DRAFT' && (!o || stable(o) !== stable(n)) && !hrAdmin) errors.push('إعداد مسير الرواتب من صلاحية الموارد البشرية');
+    if (n.status === 'POSTED' && o && o.status === 'DRAFT') events.push({ roles: HR_ADMINS, text: `💵 تم ترحيل مسير رواتب ${n.period} بإجمالي ${Math.round(n.total)}`, link: 'hrPayroll' });
+  }
+  // punches corrected by HR must carry an audit trail; nobody approves their own leave or rates themselves
+  const empUser = new Map(newS.employees.map((e) => [e.id, e.userId ? Number(e.userId) : null]));
+  const oldAt = new Map(oh.attendance.map((a) => [a.id, a]));
+  for (const a of nh.attendance) {
+    const o = oldAt.get(a.id);
+    if (o && (o.in !== a.in || o.out !== a.out) && (a.edits || []).length <= (o.edits || []).length && !(o.out == null && a.out && o.in === a.in && a.source === 'SELF')) errors.push(`تعديل بصمة ${a.date} لازم يتسجل بسبب`);
+  }
+  const oldL = new Map(oh.leaves.map((l) => [l.id, l]));
+  for (const l of nh.leaves) {
+    const o = oldL.get(l.id), uid = empUser.get(l.empId);
+    if (o && o.status === 'PENDING' && l.status !== 'PENDING') {
+      if (uid === user.id && user.role !== 'OWNER') errors.push('لا يمكنك اعتماد إجازتك بنفسك');
+      if (uid) events.push({ userId: uid, text: `${l.status === 'APPROVED' ? '✅ تمت الموافقة على' : '❌ تم رفض'} طلب إجازتك ${l.from}${l.to !== l.from ? ' ← ' + l.to : ''}${l.decisionNote ? ': ' + l.decisionNote : ''}`, link: 'me' });
+    }
+  }
+  const oldE = new Set(oh.evaluations.map((e) => e.id));
+  for (const e of nh.evaluations) if (!oldE.has(e.id)) {
+    const uid = empUser.get(e.empId);
+    if (uid === user.id && user.role !== 'OWNER') errors.push('لا يمكنك تقييم نفسك');
+    if (uid) events.push({ userId: uid, text: `📊 تم تسجيل تقييم أدائك عن ${e.period}`, link: 'me' });
+  }
+  const oldAdj = new Set(oh.adjustments.map((a) => a.id));
+  for (const a of nh.adjustments) if (!oldAdj.has(a.id)) {
+    const uid = empUser.get(a.empId);
+    if (uid === user.id && user.role !== 'OWNER') errors.push('لا يمكنك تسجيل مكافأة أو جزاء لنفسك');
+    if (uid) events.push({ userId: uid, text: `${a.kind === 'REWARD' ? '🎁 مكافأة' : a.kind === 'WARNING' ? '⚠️ إنذار' : '⛔ جزاء'}: ${a.reason}${a.amount ? ' (' + a.amount + ')' : ''}`, link: 'me' });
+  }
+  const oldT = new Set(oh.tasks.map((t) => t.id));
+  for (const t of nh.tasks) if (!oldT.has(t.id)) { const uid = empUser.get(t.empId); if (uid) events.push({ userId: uid, text: `📌 مهمة جديدة: ${t.title} (تسليم ${t.due})`, link: 'me' }); }
+  // salaries & employee financial terms
+  const oldEmp = new Map((oldS.employees || []).map((e) => [e.id, e]));
+  for (const e of newS.employees) {
+    const o = oldEmp.get(e.id);
+    const money = (x) => stable([Number(x.salary) || 0, Number(x.allowances) || 0, Number(x.commissionPct) || 0, x.userId || null, x.status || 'ACTIVE']);
+    if (o && money(o) !== money(e) && !hrAdmin) errors.push(`تعديل راتب/بدلات/عمولة/حالة ${e.name} أو ربطه بحساب من صلاحية الموارد البشرية`);
+    if (!o && !hrAdmin && !approver) errors.push('إضافة موظف من صلاحية الموارد البشرية أو الحسابات');
+  }
+}
+
+module.exports = { validate, APPROVERS, ADMINS, HR_ADMINS };

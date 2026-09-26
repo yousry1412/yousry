@@ -464,3 +464,54 @@ table.t td { border-bottom-color: #153a2e; }
   .page-head h2::after { display: none; }
 }
 @media print { .fx-pill { display: none !important; } }
+
+/* ---------------------------------------------------------------- HR */
+.clickable { cursor: pointer; }
+.score-big { display: flex; align-items: baseline; gap: 8px; margin: 4px 0 12px; }
+.score-big b { font-size: 42px; color: var(--gold-2); line-height: 1; }
+.score-big > span:first-of-type { color: var(--faint); }
+.score-part { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 2fr) 38px; gap: 8px; align-items: center; margin: 6px 0; font-size: 13px; }
+.score-part .progress > span { background: linear-gradient(90deg, var(--emerald-2), var(--emerald)); }
+.task-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.task-row:last-child { border-bottom: 0; }
+.task-row.late { border-right: 3px solid var(--danger); padding-right: 8px; }
+tr.row-late td { background: rgba(255, 93, 93, .06); }
+tr.total td { border-top: 2px solid var(--line-2); }
+.punch-card { text-align: center; }
+.punch-now { font-size: 46px; font-weight: 700; color: var(--gold-2); letter-spacing: 2px; }
+.punch-btn { font-size: 18px; padding: 14px 34px; border-radius: 999px; }
+.att-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.att-day { border: 1px solid var(--line); border-radius: 8px; padding: 4px; min-height: 48px; display: flex; flex-direction: column; align-items: center; font-size: 12px; background: var(--bg-2); }
+.att-day .d { color: var(--faint); font-size: 10px; align-self: flex-start; }
+.att-day .i { font-size: 15px; }
+.att-day .t { font-size: 10px; color: var(--muted); }
+.att-day.ok { border-color: #1b6b47; } .att-day.hold { border-color: #7d6613; background: #1c1707; }
+.att-day.danger { border-color: #7a2c2c; background: #1f0b0b; } .att-day.deposit { border-color: #7e4715; }
+.att-day.off { opacity: .45; }
+.att-matrix th, .att-matrix td.att-c { padding: 4px 3px; text-align: center; min-width: 22px; font-size: 12px; }
+.att-matrix th.off { color: var(--faint); }
+.att-c { cursor: pointer; } .att-c.ok { color: var(--ok); } .att-c.hold { color: var(--hold); } .att-c.danger { color: var(--danger); background: rgba(255, 93, 93, .07); } .att-c.deposit { color: var(--deposit); }
+.emp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.emp-top { display: flex; gap: 12px; align-items: center; }
+.avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2px solid var(--gold); flex: none; }
+.avatar.lg { width: 72px; height: 72px; }
+.avatar.ph { display: inline-flex; align-items: center; justify-content: center; background: var(--panel-2); color: var(--gold-2); font-weight: 700; font-size: 20px; }
+.chk { display: inline-flex; gap: 4px; align-items: center; font-size: 13px; }
+.input.sm { padding: 5px 8px; }
+/* chat: addressed & private messages */
+.msg .to { font-size: 11px; color: var(--emerald); margin-bottom: 2px; }
+.msg.private { border: 1px dashed var(--private); }
+.msg.private .to { color: var(--private); }
+.msg.mention { border: 1px solid var(--gold); }
+.chat-target { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
+.chat-target select { max-width: 220px; }
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 999px; overflow: hidden; }
+.seg button { background: transparent; border: 0; color: var(--muted); padding: 5px 12px; cursor: pointer; font: inherit; }
+.seg button.on { background: var(--emerald-2); color: #fff; }
+.dm-people { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+@media (max-width: 600px) {
+  .att-matrix { font-size: 11px; }
+  .punch-now { font-size: 36px; }
+  .score-part { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 32px; }
+}
+.badge-inline { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 99px; background: var(--danger); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }

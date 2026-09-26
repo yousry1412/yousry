@@ -169,6 +169,8 @@
     switch (v.type) {
       case 'RV': return [{ acc: cb.accountCode, dr: egp }, { acc: partyAcc(v.party) || v.accountCode, cr: egp, party: v.party }];
       case 'PV': {
+        // employee: SALARY = direct expense · DUES = paying a posted payroll (clears 2103) · ADVANCE = on the employee's account
+        if (v.party && v.party.type === 'employee' && v.purpose === 'DUES') return [{ acc: '2103', dr: egp, party: v.party, note: 'صرف مستحقات/راتب' }, { acc: cb.accountCode, cr: egp }];
         const pa = v.party && v.party.type === 'employee' && v.purpose === 'SALARY' ? '5201' : partyAcc(v.party) || v.accountCode;
         // Supplier paid in SAR: carry at the trip reference rate, book the FX difference separately.
         if (v.party && v.party.type === 'supplier' && v.currency === 'SAR' && v.refFx) {

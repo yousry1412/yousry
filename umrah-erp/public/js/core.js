@@ -81,7 +81,7 @@
     fileLink: (id, name) => `<a href="${App.fileUrl(id)}" target="_blank" rel="noopener">📎 ${esc(name || 'مرفق')}</a>`,
     noTrip: () => `<div class="card empty-state"><h3>✈️ لا توجد رحلة مختارة</h3><p class="muted">أنشئ رحلة جديدة أو اختر رحلة من أعلى الشاشة.</p><button class="btn primary" data-act="go" data-page="trips">الذهاب للرحلات</button></div>`,
   };
-  App.audit = (msg) => { App.S.audit.unshift({ at: Date.now(), by: App.actor().name, msg }); App.S.audit.length = Math.min(App.S.audit.length, 300); };
+  App.audit = (msg) => { App.S.audit.unshift({ at: Date.now(), by: App.actor().name, msg }); App.S.audit.length = Math.min(App.S.audit.length, 3000); };
   const getPath = (o, p) => p.split('.').reduce((x, k) => (x == null ? x : x[k]), o);
   const setPath = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); const t = ks.reduce((x, k) => x[k], o); t[last] = v; };
   App.getPath = getPath; App.setPath = setPath;
@@ -93,8 +93,8 @@
   App.val = (id) => { const el = document.getElementById(id); return el ? readValue(el) : undefined; };
 
   // --------------------------------------------------------- roles
-  const ROLE_MAP = { OWNER: 'MANAGER', MANAGER: 'MANAGER', HEAD: 'HEAD', SALES: 'SALES', OPERATIONS: 'SALES', ACCOUNTANT: 'SALES' };
-  App.ROLE_LABEL = { OWNER: 'المالك', MANAGER: 'مدير', ACCOUNTANT: 'محاسب', HEAD: 'رئيس قسم مبيعات', SALES: 'موظف مبيعات', OPERATIONS: 'عمليات وتسكين', AGENT: 'مندوب/وكيل', SUPERVISOR: 'مشرف رحلة', HOUSING: 'مندوب تسكين' };
+  const ROLE_MAP = { OWNER: 'MANAGER', MANAGER: 'MANAGER', HEAD: 'HEAD', SALES: 'SALES', OPERATIONS: 'SALES', ACCOUNTANT: 'SALES', HR: 'SALES' };
+  App.ROLE_LABEL = { OWNER: 'المالك', MANAGER: 'مدير', ACCOUNTANT: 'محاسب', HR: 'موارد بشرية', HEAD: 'رئيس قسم مبيعات', SALES: 'موظف مبيعات', OPERATIONS: 'عمليات وتسكين', AGENT: 'مندوب/وكيل', SUPERVISOR: 'مشرف رحلة', HOUSING: 'مندوب تسكين' };
   App.role = () => (App.online ? App.me.role : { MANAGER: 'OWNER', HEAD: 'HEAD', SALES: 'SALES' }[App.h.user().role] || 'SALES');
   App.actor = () => ({ name: App.online ? App.me.display_name : App.h.user().name, role: App.role(), staffId: App.ui.actingUser, userId: App.me && App.me.id });
   App.can = (...roles) => roles.includes(App.role());
@@ -252,20 +252,25 @@
   const SAL = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HEAD', 'SALES'];
   const OPS = ['OWNER', 'MANAGER', 'HEAD', 'SALES', 'OPERATIONS'];
   const ADM = ['OWNER', 'MANAGER'];
+  const HRV = ['OWNER', 'MANAGER', 'HR'];
+  const EVERY = [...ALL, 'HR'];
   App.NAV = [
-    ['home', '🏠', 'الرئيسية', [['home', 'لوحة التحكم والتنبيهات', ALL]]],
+    ['home', '🏠', 'الرئيسية', [['home', 'لوحة التحكم والتنبيهات', EVERY], ['me', 'حسابي كموظف', EVERY]]],
     ['trips', '✈️', 'الرحلات والتشغيل', [['trips', 'الرحلات', ALL], ['builder', 'التكلفة والتسعير', [...FIN, 'HEAD']], ['heatmap', 'رادار الإتاحات', ALL],
       ['rooms', 'التسكين المزدوج', OPS], ['bus', 'مقاعد الباص', OPS], ['ops', 'العمليات والكشوف', OPS], ['tripfiles', 'ملفات الرحلة', ALL]]],
     ['sales', '🧾', 'المبيعات والعملاء', [['booking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL]]],
     ['purch', '🏨', 'الموردون والفنادق', [['suppliers', 'الموردون', [...FIN, 'OPERATIONS']], ['hotels', 'الفنادق والمخصصات', [...FIN, 'OPERATIONS', 'HEAD']]]],
     ['fin', '💰', 'المالية والحسابات', [['treasury', 'الخزائن والبنوك', FIN], ['vouchers', 'السندات والاعتمادات', ALL], ['expenses', 'المصروفات', FIN],
-      ['employees', 'الموظفون', FIN], ['fx', 'أسعار الصرف', ALL], ['coa', 'شجرة الحسابات', FIN], ['journal', 'القيود اليومية', FIN], ['reports', 'التقارير المالية', FIN], ['pnl', 'أرباح الرحلة', FIN]]],
-    ['comm', '💬', 'التواصل', [['chat', 'الشات الداخلي', ALL]]],
+      ['employees', 'الموظفون', FIN], ['fx', 'أسعار الصرف', EVERY], ['coa', 'شجرة الحسابات', FIN], ['journal', 'القيود اليومية', FIN], ['reports', 'التقارير المالية', FIN], ['pnl', 'أرباح الرحلة', FIN]]],
+    ['hr', '👥', 'الموارد البشرية', [['hrDash', 'لوحة الأداء والمراقبة', HRV], ['hrEmployees', 'ملفات الموظفين', HRV], ['hrAttendance', 'الحضور والانصراف', HRV], ['hrLeaves', 'الإجازات', HRV],
+      ['hrTasks', 'المهام والتكليفات', HRV], ['hrReviews', 'الأهداف والتقييم', HRV], ['hrAdjust', 'المكافآت والجزاءات', HRV], ['hrPayroll', 'مسير الرواتب', [...HRV, 'ACCOUNTANT']],
+      ['hrMonitor', 'سجل النشاط والمراقبة', HRV], ['hrSettings', 'إعدادات الدوام والتقييم', HRV]]],
+    ['comm', '💬', 'التواصل', [['chat', 'الشات الداخلي', EVERY]]],
     ['admin', '⚙️', 'الإدارة', [['settings', 'الشركة والفروع والضرائب', ADM], ['users', 'المستخدمون والصلاحيات', ADM], ['backup', 'النسخ الاحتياطي والإصدارات', ADM]]],
   ];
   const TRIP_PAGES = ['builder', 'heatmap', 'rooms', 'bus', 'ops', 'pnl', 'tripfiles'];
   const pageAllowed = (p) => { for (const g of App.NAV) for (const [k, , roles] of g[3]) if (k === p) return roles.includes(App.role()); return true; };
-  const pageTitle = (p) => { for (const g of App.NAV) for (const [k, l] of g[3]) if (k === p) return l; return { bookingView: 'تفاصيل الحجز', customerView: 'حساب العميل', partyView: 'كشف حساب' }[p] || ''; };
+  const pageTitle = (p) => { for (const g of App.NAV) for (const [k, l] of g[3]) if (k === p) return l; return { bookingView: 'تفاصيل الحجز', customerView: 'حساب العميل', partyView: 'كشف حساب', hrEmployee: 'ملف الموظف' }[p] || ''; };
 
   function renderShell() {
     const S = App.S, role = App.role();
@@ -274,7 +279,7 @@
     document.getElementById('nav').innerHTML = App.NAV.map(([gid, ico, label, items]) => {
       const vis = items.filter(([, , roles]) => roles.includes(role));
       if (!vis.length) return '';
-      if (vis.length === 1 && gid === 'home') return navItem(vis[0], ico);
+      if (gid === 'home') return vis.map((it, i) => navItem(it, i ? '🪪' : ico)).join('');
       const open = App.ui.navOpen[gid] ?? vis.some(([k]) => k === App.ui.page);
       return `<details class="nav-group" data-gid="${gid}" ${open ? 'open' : ''}><summary><span class="nav-icon">${ico}</span>${label}<span class="nav-caret">▾</span></summary>${vis.map((it) => navItem(it)).join('')}</details>`;
     }).join('');
@@ -419,7 +424,7 @@
     try {
       App.notifications = await App.api('GET', 'api/notifications');
       const u = await App.api('GET', 'api/chat/unread');
-      App.chatUnread = u.reduce((s, x) => s + x.c, 0);
+      App.chatUnread = u.reduce((s, x) => s + x.c, 0); App.chatUnreadBy = Object.fromEntries(u.map((x) => [x.channel, x.c]));
       const top = document.getElementById('top'); if (top && !document.querySelector('.modal-bg')) renderShell();
     } catch (e) { /* ignore */ }
   }

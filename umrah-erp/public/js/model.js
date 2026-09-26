@@ -7,9 +7,9 @@
  *    creation (browser + agent portal on the server), alerts centre
  * ===================================================================== */
 (function (root, factory) {
-  if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine.js'), require('./accounting.js'));
-  else root.Model = factory(root.Engine, root.Acc);
-})(typeof self !== 'undefined' ? self : this, function (E, Acc) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(require('./engine.js'), require('./accounting.js'), require('./hr.js'));
+  else root.Model = factory(root.Engine, root.Acc, root.Hr);
+})(typeof self !== 'undefined' ? self : this, function (E, Acc, Hr) {
   'use strict';
   const TRIP_KEYS = ['trip', 'bookings', 'pax', 'rooms', 'beds', 'bus', 'roomingLocked', 'settlements', 'fieldExpenses', 'docs'];
   const COUNTRIES = {
@@ -59,7 +59,7 @@
       users: [], agents: [], suppliers: [], hotels: [], allotments: [], customers: [], employees: [],
       accounts: Acc.DEFAULT_ACCOUNTS.map((a) => ({ ...a })),
       expenseCategories: Acc.DEFAULT_EXPENSE_CATEGORIES.map((a) => ({ ...a })),
-      cashboxes: [], vouchers: [], journal: [], counters: {}, trips: [], activeTripId: null, audit: [],
+      cashboxes: [], vouchers: [], journal: [], counters: {}, trips: [], activeTripId: null, audit: [], hr: Hr.empty(),
     };
   }
   function addCashbox(S, { name, type, currency, branchId, bankName, iban }) {
@@ -234,6 +234,11 @@
       if (fx.alert) out.push({ level: 'warn', group: 'مالية', text: `سعر الصرف التنفيذي ${fx.exec} يختلف عن العالمي ${fx.global} بنسبة ${fx.spreadPct > 0 ? '+' : ''}${fx.spreadPct}% (الحد ${fx.threshold}%) — راجع السعر`, page: 'fx' });
       for (const a of S.agents) if (a.tier === 'B2B' && a.balance < -a.creditLimit * 0.9) out.push({ level: 'warn', group: 'مالية', text: `الوكيل ${a.name} قارب/تجاوز السقف الائتماني`, page: 'agents' });
     }
+    if (Hr.HR_ADMINS.includes(role) && S.hr) {
+      const g = 'الموارد البشرية', month = today.slice(0, 7);
+      for (const l of S.hr.leaves.filter((x) => x.status === 'PENDING')) { const e = S.employees.find((x) => x.id === l.empId); out.push({ level: 'warn', group: g, text: `طلب إجازة ${Hr.LEAVE_TYPES[l.type]} من ${e ? e.name : ''} (${l.from} ← ${l.to}) بانتظار قرارك`, page: 'hrLeaves', ref: l.id }); }
+      for (const e of Hr.activeEmps(S)) for (const f of Hr.flags(S, e, month, today)) out.push({ level: f.level, group: g, text: `${e.name}: ${f.text}`, page: 'hrEmployee', ref: e.id });
+    }
     for (const doc of S.trips) {
       const t = doc.trip;
       if (t.status === 'CLOSED') continue;
@@ -357,6 +362,7 @@
     // A pending receipt uploaded by a sales rep, to showcase the approval cycle
     const pendingB = doc.bookings.find((b) => b.code === 'BK-01015');
     if (pendingB) createVoucher(S, { type: 'RV', amount: 15000, cashboxId: bank.id, party: { type: 'customer', id: pendingB.customerId }, bookingId: pendingB.id, tripId: trip.id, memo: 'القسط الأول — إيصال إيداع مرفوع من السيلز', method: 'إيداع بنكي' }, { name: 'منة الله (سيلز)', role: 'SALES' });
+    Hr.seedDemo(S, s3.seededAt || Date.now());
     return S;
   }
   function counterFromCodes(S, key, codes) {
@@ -372,6 +378,7 @@
     for (const d of S.trips) { d.docs = d.docs || []; d.fieldExpenses = d.fieldExpenses || []; d.settlements = d.settlements || []; }
     S.settings = S.settings || { reminderDays: 3, holdAlertHours: 3, docsAlertDays: 14 };
     S.fx.history = S.fx.history || []; if (S.fx.alertSpreadPct == null) S.fx.alertSpreadPct = 3;
+    S.hr = Hr.normalize(S.hr);
     mountTrip(S, S.activeTripId);
     return S;
   }

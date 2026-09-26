@@ -42,9 +42,9 @@
   };
 
   // ============================================================ users
-  const ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HEAD', 'SALES', 'OPERATIONS', 'AGENT', 'SUPERVISOR', 'HOUSING'];
+  const ROLES = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HR', 'HEAD', 'SALES', 'OPERATIONS', 'AGENT', 'SUPERVISOR', 'HOUSING'];
   const HINT = { OWNER: 'كل الشركات والصلاحيات + النسخ الاحتياطي', MANAGER: 'كل شيء في شركته + اعتماد الخصم حتى 7% والسندات + المستخدمين', ACCOUNTANT: 'الحسابات والسندات والاعتماد والتقارير',
-    HEAD: 'مبيعات + خصم حتى 3%', SALES: 'حجوزات بدون خصم + رفع دفعات للمراجعة', OPERATIONS: 'التسكين والباص والجوازات والكشوف', AGENT: 'بوابة خاصة: حسابه + حجوزاته + رفع دفعات بالصور',
+    HR: 'الموارد البشرية: الحضور والإجازات والتقييم والمهام والجزاءات وإعداد الرواتب', HEAD: 'مبيعات + خصم حتى 3%', SALES: 'حجوزات بدون خصم + رفع دفعات للمراجعة', OPERATIONS: 'التسكين والباص والجوازات والكشوف', AGENT: 'بوابة خاصة: حسابه + حجوزاته + رفع دفعات بالصور',
     SUPERVISOR: 'بوابة خاصة: كشف المشرف لرحلاته', HOUSING: 'بوابة خاصة: كشف مندوب التسكين لرحلاته' };
   let users = null;
   async function loadUsers() { try { users = await App.api('GET', 'api/users'); } catch (e) { users = []; App.toast(e.message, 'err'); } if (App.ui.page === 'users') App.render(); }
