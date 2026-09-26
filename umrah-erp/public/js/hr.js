@@ -15,6 +15,13 @@
   const LEAVE_TYPES = { ANNUAL: 'اعتيادية', SICK: 'مرضية', CASUAL: 'عارضة', UNPAID: 'بدون أجر' };
   const ADJ_KINDS = { REWARD: 'مكافأة', PENALTY: 'جزاء مالي', WARNING: 'إنذار' };
   const EVAL_CRITERIA = { commitment: 'الالتزام والانضباط', service: 'خدمة العملاء', teamwork: 'العمل الجماعي', quality: 'جودة العمل والدقة', initiative: 'المبادرة والتطوير' };
+  /** What a monthly target measures. Money targets are measured on sales value or on the profit the employee generated. */
+  const TARGET_METRICS = {
+    BOOKINGS: { ar: 'عدد الحجوزات', unit: 'حجز', money: false }, PAX: { ar: 'عدد الأفراد / المعتمرين', unit: 'فرد', money: false },
+    SALES: { ar: 'قيمة المبيعات', unit: 'ج.م', money: true }, PROFIT: { ar: 'الربحية (هامش الربح المحقق)', unit: 'ج.م', money: true },
+    COLLECTIONS: { ar: 'التحصيل', unit: 'ج.م', money: true },
+  };
+  const MIN_SALARY_MULTIPLE = 4; // the system refuses any target worth less than 4× the employee's monthly pay
   const EMP_STATUS = { ACTIVE: 'على رأس العمل', LEAVE: 'في إجازة', SUSPENDED: 'موقوف', TERMINATED: 'منتهي الخدمة' };
   const TZ = { EG: 'Africa/Cairo', SA: 'Asia/Riyadh', AE: 'Asia/Dubai', KW: 'Asia/Kuwait', JO: 'Asia/Amman', OTHER: 'Africa/Cairo' };
   const HR_ADMINS = ['OWNER', 'MANAGER', 'HR'];
@@ -118,14 +125,62 @@
 
   // ------------------------------------------------------------ KPIs
   /** Everything an employee did in the system during a month, attributed by linked staff ids / display names. */
+  /** Profit a booking brings (ex-tax, after cost and agent commission). Domestic: real cost; Umrah: from the trip margin. */
+  function bookingProfit(S, b, trip) {
+    const c = S.company || {}, k = 100 + (c.vatEnabled ? Number(c.vatRate || 0) : 0) + (c.stampEnabled ? Number(c.stampRate || 0) : 0);
+    const exTax = (b.net || 0) * 100 / k;
+    let cost;
+    if (b.domestic) cost = Number(b.cost || 0);
+    else {
+      const m = Number((trip && trip.marginPct) || 10), list = (b.net || 0) / Math.max(0.01, 1 - (Number(b.discountPct) || 0) / 100);
+      cost = (list * 100 / k) / (1 + m / 100);
+    }
+    return r2(exTax - cost - (b.agentCommission || 0));
+  }
+  /** Company averages used to translate count targets into money (last 180 days of live bookings). */
+  function averages(S) {
+    const since = Date.now() - 180 * 86400000, rows = [];
+    for (const d of S.trips || []) for (const b of d.bookings) if (b.createdAt >= since && ['DEPOSIT', 'CONFIRMED'].includes(b.status)) rows.push({ net: b.net || 0, pax: d.pax.filter((p) => p.bookingId === b.id).length });
+    for (const b of (S.dom && S.dom.bookings) || []) if (b.createdAt >= since && ['DEPOSIT', 'CONFIRMED'].includes(b.status)) rows.push({ net: b.net || 0, pax: b.units ? b.units.adults + b.units.chd : 1 });
+    const n = rows.length, sum = rows.reduce((s, x) => s + x.net, 0), pax = rows.reduce((s, x) => s + x.pax, 0);
+    return { perBooking: n ? sum / n : 0, perPax: pax ? sum / pax : 0 };
+  }
+  const monthlyPay = (emp) => (Number(emp.salary) || 0) + (Number(emp.allowances) || 0);
+  /** Smallest acceptable target for a metric: worth at least 4× the monthly pay (counts converted with company averages). */
+  function targetMinimum(S, emp, metric) {
+    const floor = MIN_SALARY_MULTIPLE * monthlyPay(emp);
+    if (!floor) return 0;
+    if (TARGET_METRICS[metric].money) return Math.ceil(floor);
+    const av = averages(S), unit = metric === 'PAX' ? av.perPax : av.perBooking;
+    return unit > 0 ? Math.ceil(floor / unit) : 1;
+  }
+  function validateTarget(S, emp, t) {
+    if (!TARGET_METRICS[t.metric]) throw new Error('اختر نوع التارجت');
+    if (!(Number(t.value) > 0)) throw new Error('اكتب قيمة التارجت');
+    const min = targetMinimum(S, emp, t.metric);
+    if (Number(t.value) < min) throw new Error(`التارجت لا يقل عن ${MIN_SALARY_MULTIPLE} أضعاف راتب ${emp.name} (${Math.round(monthlyPay(emp))}) — الحد الأدنى ${min} ${TARGET_METRICS[t.metric].unit}`);
+    const inc = t.incentive || {};
+    if (inc.type === 'FIXED' && !(Number(inc.amount) > 0)) throw new Error('اكتب مبلغ الحافز');
+    if (inc.type === 'PCT' && !(Number(inc.pct) > 0 && Number(inc.pct) <= 50)) throw new Error('نسبة الحافز بين 0 و 50%');
+    return true;
+  }
+  /** Incentive earned when the target is reached: fixed amount or % of the sales/profit achieved. */
+  function targetBonus(S, emp, period, k) {
+    const t = k.target;
+    if (!t || !t.metric || !t.incentive || t.incentive.type === 'NONE' || !(k.actuals[t.metric] >= t.value)) return 0;
+    if (t.incentive.type === 'FIXED') return r2(Number(t.incentive.amount) || 0);
+    return r2((t.incentive.base === 'PROFIT' ? Math.max(0, k.profit) : k.sales) * (Number(t.incentive.pct) || 0) / 100);
+  }
   function kpis(S, emp, period) {
     const ids = new Set([...(emp.staffIds || []), emp.userId ? 'SU' + emp.userId : null].filter(Boolean));
     const names = new Set([emp.name, ...(emp.aliases || [])]);
     const mine = (x) => ids.has(x.userId) || names.has(x.createdBy);
     const bookings = [];
-    for (const d of S.trips || []) for (const b of d.bookings) if (mine(b) && monthOfMs(b.createdAt) === period) bookings.push({ b, pax: d.pax.filter((p) => p.bookingId === b.id).length });
+    for (const d of S.trips || []) for (const b of d.bookings) if (mine(b) && monthOfMs(b.createdAt) === period) bookings.push({ b, trip: d.trip, pax: d.pax.filter((p) => p.bookingId === b.id).length });
+    for (const b of (S.dom && S.dom.bookings) || []) if (mine(b) && monthOfMs(b.createdAt) === period) bookings.push({ b, pax: b.units ? b.units.adults + b.units.chd + b.units.inf : 0 });
     const live = bookings.filter(({ b }) => ['DEPOSIT', 'CONFIRMED'].includes(b.status));
     const sales = r2(live.reduce((s, { b }) => s + (b.net || 0), 0));
+    const profit = r2(live.reduce((s, x) => s + bookingProfit(S, x.b, x.trip), 0));
     const vouchers = S.vouchers.filter((v) => names.has(v.createdBy) && monthOfMs(v.createdAt) === period);
     const collections = r2(vouchers.filter((v) => v.type === 'RV' && v.status === 'POSTED').reduce((s, v) => s + v.amount * (v.currency === 'EGP' ? 1 : v.fx), 0));
     const approved = S.vouchers.filter((v) => names.has(v.approvedBy) && v.approvedAt && monthOfMs(v.approvedAt) === period && v.status !== 'REJECTED');
@@ -138,12 +193,14 @@
     const tasksLate = tasks.filter((t) => t.status !== 'DONE').length + tasks.filter((t) => t.status === 'DONE' && t.doneAt && E.iso(new Date(t.doneAt)) > t.due).length;
     const actions = (S.audit || []).filter((a) => names.has(a.by) && monthOfMs(a.at) === period).length;
     const target = S.hr.targets.find((t) => t.empId === emp.id && t.period === period);
+    const actuals = { BOOKINGS: live.length, PAX: live.reduce((s, x) => s + x.pax, 0), SALES: sales, PROFIT: profit, COLLECTIONS: collections };
     const ach = [];
+    if (target && target.metric && target.value) ach.push(Math.min(150, (actuals[target.metric] / target.value) * 100));
     if (target && target.sales) ach.push(Math.min(150, (sales / target.sales) * 100));
     if (target && target.bookings) ach.push(Math.min(150, (live.length / target.bookings) * 100));
     if (target && target.collections) ach.push(Math.min(150, (collections / target.collections) * 100));
     return {
-      bookings: bookings.length, liveBookings: live.length, pax: live.reduce((s, x) => s + x.pax, 0), sales, collections,
+      bookings: bookings.length, liveBookings: live.length, pax: live.reduce((s, x) => s + x.pax, 0), sales, profit, collections, actuals,
       conversion: bookings.length ? r2((live.length / bookings.length) * 100) : null,
       cancelled: bookings.filter(({ b }) => b.status === 'CANCELLED').length, expired: bookings.filter(({ b }) => b.status === 'EXPIRED').length,
       discountCount: discounts.length, avgDiscount: discounts.length ? r2(discounts.reduce((s, { b }) => s + b.discountPct, 0) / discounts.length) : 0,
@@ -202,13 +259,14 @@
     const unpaidDed = r2(att.unpaidDays * daily);
     const overtime = r2((att.overtimeMinutes / 60) * hourly * (st.overtimeRate || 1.5));
     const commission = r2(k.sales * (Number(emp.commissionPct) || 0) / 100);
+    const bonus = targetBonus(S, emp, period, k);
     const adj = S.hr.adjustments.filter((a) => a.empId === emp.id && a.status === 'APPROVED' && monthOf(a.date) === period && !a.payrollId);
     const rewards = r2(adj.filter((a) => a.kind === 'REWARD').reduce((s, a) => s + (Number(a.amount) || 0), 0));
     const penalties = r2(adj.filter((a) => a.kind === 'PENALTY').reduce((s, a) => s + (Number(a.amount) || 0), 0));
-    const gross = r2(basic + allowances + overtime + commission + rewards - lateDed - absenceDed - unpaidDed - penalties);
+    const gross = r2(basic + allowances + overtime + commission + bonus + rewards - lateDed - absenceDed - unpaidDed - penalties);
     const advanceBal = Math.max(0, Acc.partyStatement(S, 'employee', emp.id).rows.filter((r) => r.acc === '1105').reduce((s, r) => s + r.dr - r.cr, 0));
     const advances = r2(Math.min(advanceBal, Math.max(0, gross)));
-    return { empId: emp.id, name: emp.name, basic, allowances, overtime, commission, rewards, lateDed, absenceDed, unpaidDed, penalties, gross: Math.max(0, gross), advances,
+    return { empId: emp.id, name: emp.name, basic, allowances, overtime, commission, targetBonus: bonus, rewards, lateDed, absenceDed, unpaidDed, penalties, gross: Math.max(0, gross), advances,
       net: r2(Math.max(0, gross) - advances), adjIds: adj.map((a) => a.id), att: { present: att.present, absent: att.absent, lateMinutes: att.lateMinutes, overtimeMinutes: att.overtimeMinutes, workdays: att.workdays } };
   }
   function preparePayroll(S, period, by, today) {
@@ -290,9 +348,9 @@
     adj('EM2', 'REWARD', 1500, 'تحقيق هدف مبيعات الموسم', ago(5));
     adj('EM1', 'WARNING', 0, 'تأخير متكرر بدون إذن', ago(3));
     adj('EM1', 'PENALTY', 300, 'خصم يوم لتكرار التأخير', ago(3));
-    S.hr.targets.push({ id: uid('TG'), empId: 'EM1', period: month, sales: 400000, bookings: 8, collections: 0 });
-    S.hr.targets.push({ id: uid('TG'), empId: 'EM2', period: month, sales: 450000, bookings: 5, collections: 0 });
-    S.hr.targets.push({ id: uid('TG'), empId: 'EM4', period: month, sales: 600000, bookings: 4, collections: 0 });
+    S.hr.targets.push({ id: uid('TG'), empId: 'EM1', period: month, metric: 'SALES', value: 400000, incentive: { type: 'PCT', pct: 1, base: 'SALES' }, by: 'demo', at: now });
+    S.hr.targets.push({ id: uid('TG'), empId: 'EM2', period: month, metric: 'BOOKINGS', value: 5, incentive: { type: 'FIXED', amount: 2000 }, by: 'demo', at: now });
+    S.hr.targets.push({ id: uid('TG'), empId: 'EM4', period: month, metric: 'PROFIT', value: 100000, incentive: { type: 'PCT', pct: 3, base: 'PROFIT' }, by: 'demo', at: now });
     const task = (empId, title, due, status) => S.hr.tasks.push({ id: uid('TK'), empId, title, due, status, priority: 'NORMAL', by: 'أ. هشام (مدير المبيعات)', at: now, doneAt: status === 'DONE' ? new Date(due + 'T12:00:00').getTime() : null });
     task('EM1', 'متابعة تحصيل أقساط العملاء المتأخرة', ago(2), 'OPEN');
     task('EM1', 'استكمال صور جوازات حجوزات الرحلة', E.iso(E.addDays(today, 2)), 'OPEN');
@@ -324,6 +382,6 @@
     };
   }
 
-  return { selfView, normalize, editAttendance, seedDemo, LEAVE_TYPES, ADJ_KINDS, EVAL_CRITERIA, EMP_STATUS, HR_ADMINS, empty, uid, mins, hhmm, daysOfMonth, dow, localNow, empOfUser, activeEmps,
+  return { TARGET_METRICS, MIN_SALARY_MULTIPLE, bookingProfit, averages, monthlyPay, targetMinimum, validateTarget, targetBonus, selfView, normalize, editAttendance, seedDemo, LEAVE_TYPES, ADJ_KINDS, EVAL_CRITERIA, EMP_STATUS, HR_ADMINS, empty, uid, mins, hhmm, daysOfMonth, dow, localNow, empOfUser, activeEmps,
     punch, requestLeave, setTaskStatus, workdaysBetween, attendanceMonth, leaveBalance, kpis, evaluationScore, score, flags, payrollLine, preparePayroll, postPayroll };
 });

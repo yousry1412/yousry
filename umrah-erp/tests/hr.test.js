@@ -98,3 +98,27 @@ test('governance: HR data is HR-admin only; self-approval refused; posted payrol
   const ev = gov.validate(old2, n, { role: 'HR', id: 8 });
   assert.equal(ev.errors.length, 0); assert.ok(ev.events.some((e) => e.userId === 7));
 });
+
+test('targets: type choice, 4× salary floor (counts via company averages), incentive into payroll', () => {
+  const S = Model.load(buildSeed(Date.now()), 'x'), p = E.iso(new Date()).slice(0, 7), gov = require('../lib/governance.js');
+  const mona = S.employees.find((e) => e.id === 'EM1'), pay = Hr.monthlyPay(mona);
+  assert.throws(() => Hr.validateTarget(S, mona, { metric: 'SALES', value: pay * 4 - 1 }), /أضعاف/);
+  assert.ok(Hr.validateTarget(S, mona, { metric: 'SALES', value: pay * 4 }));
+  const minB = Hr.targetMinimum(S, mona, 'BOOKINGS'), av = Hr.averages(S);
+  assert.equal(minB, Math.ceil((pay * 4) / av.perBooking));
+  assert.throws(() => Hr.validateTarget(S, mona, { metric: 'PROFIT', value: 100 }), /الحد الأدنى/);
+  // incentive: fixed amount when achieved, nothing when not
+  const t = S.hr.targets.find((x) => x.empId === 'EM1' && x.period === p);
+  Object.assign(t, { metric: 'BOOKINGS', value: 1, incentive: { type: 'FIXED', amount: 1500 } });
+  assert.equal(Hr.payrollLine(S, mona, p).targetBonus, 1500);
+  t.value = 9999;
+  assert.equal(Hr.payrollLine(S, mona, p).targetBonus, 0);
+  // % of profit
+  Object.assign(t, { metric: 'SALES', value: 1, incentive: { type: 'PCT', pct: 2, base: 'PROFIT' } });
+  const k = Hr.kpis(S, mona, p);
+  assert.equal(Hr.payrollLine(S, mona, p).targetBonus, Math.round(k.profit * 2) / 100);
+  // server refuses a target below the floor even from an HR admin
+  const old = JSON.parse(Model.serialize(S)), n = JSON.parse(Model.serialize(S));
+  n.hr.targets.push({ id: 'TGX', empId: 'EM2', period: p, metric: 'SALES', value: 1000, incentive: { type: 'NONE' } });
+  assert.ok(gov.validate(old, n, { role: 'HR', id: 99 }).errors.some((e) => /أضعاف/.test(e)));
+});

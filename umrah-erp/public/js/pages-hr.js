@@ -70,6 +70,7 @@
         ${partsHtml(sc.parts, { target: 40, attendance: 25, evaluation: 25, tasks: 10, ...(S() && S().hr ? S().hr.settings.weights : {}) })}
         ${sc.warnings ? `<div class="chip danger" style="margin-top:6px">خصم ${sc.warnings * 5} نقاط بسبب إنذارات/جزاءات الشهر</div>` : ''}</div>
     </div>
+    <div class="card" style="margin-top:14px"><h3>🎯 التارجت بتاعي — ${esc(v.period)}</h3>${App.targetCard(k.target, k)}</div>
     <div class="grid g4" style="margin-top:14px">
       <div class="card kpi"><div class="lbl">نسبة الحضور</div><div class="val">${pct(att.attendancePct)}</div><div class="hint">${att.present} حضور · ${att.absent} غياب</div></div>
       <div class="card kpi"><div class="lbl">التأخير</div><div class="val ${att.lateCount >= 3 ? 'danger' : ''}">${att.lateCount}</div><div class="hint">${att.lateMinutes} دقيقة · إضافي ${Math.round(att.overtimeMinutes / 60)} س</div></div>
@@ -91,7 +92,7 @@
       <div class="card"><h3>📝 تقييمات المدير</h3>${v.evaluations.map((e) => `<div class="task-row"><div><b>${esc(e.period)}</b> · ${Object.keys(Hr.EVAL_CRITERIA).map((c) => `${Hr.EVAL_CRITERIA[c]} ${'★'.repeat(Number(e.scores[c]) || 0)}`).join(' · ')}<div class="small muted">${esc(e.note || '')} — ${esc(e.by)}</div></div></div>`).join('') || '<div class="muted small">لا تقييمات بعد.</div>'}</div>
     </div>
     <div class="card" style="margin-top:14px"><h3>💵 قسائم الراتب</h3><div class="tbl-wrap"><table class="t small"><thead><tr><th>الشهر</th><th>الأساسي+البدلات</th><th>إضافي+عمولة+مكافآت</th><th>الخصومات</th><th>سلف مستقطعة</th><th>الصافي</th><th></th></tr></thead><tbody>
-      ${v.payslips.map(({ period: p, line: l }) => `<tr><td>${esc(p)}</td><td>${h.egp(l.basic + l.allowances)}</td><td>${h.egp(l.overtime + l.commission + l.rewards)}</td><td>${h.egp(l.lateDed + l.absenceDed + l.unpaidDed + l.penalties)}</td><td>${h.egp(l.advances)}</td><td><b>${h.egp(l.net)}</b></td>
+      ${v.payslips.map(({ period: p, line: l }) => `<tr><td>${esc(p)}</td><td>${h.egp(l.basic + l.allowances)}</td><td>${h.egp(l.overtime + l.commission + (l.targetBonus || 0) + l.rewards)}</td><td>${h.egp(l.lateDed + l.absenceDed + l.unpaidDed + l.penalties)}</td><td>${h.egp(l.advances)}</td><td><b>${h.egp(l.net)}</b></td>
         <td><button class="btn sm ghost" data-act="hrSlipSelf" data-p="${esc(p)}">🖨️</button></td></tr>`).join('') || '<tr><td colspan="7" class="muted">لا قسائم مُرحّلة بعد.</td></tr>'}</tbody></table></div></div>`;
   };
   App.meData = null; // portal keeps the last server view here
@@ -130,7 +131,7 @@
   function slipHtml(company, e, p, l) {
     const row = (a, b) => `<tr><td>${a}</td><td>${h.n2(b)}</td></tr>`;
     return `<div class="head"><div><h2>قسيمة راتب ${esc(p)}</h2><div>${esc(e.code || '')} · ${esc(e.name)}${e.job ? ' · ' + esc(e.job) : ''}</div></div><div>${esc(company)}</div></div>
-      <table><tr><th>المستحقات</th><th>المبلغ</th></tr>${row('الراتب الأساسي', l.basic)}${row('البدلات', l.allowances)}${row(`الإضافي (${Math.round(l.att.overtimeMinutes / 60)} ساعة)`, l.overtime)}${row('العمولة', l.commission)}${row('المكافآت', l.rewards)}
+      <table><tr><th>المستحقات</th><th>المبلغ</th></tr>${row('الراتب الأساسي', l.basic)}${row('البدلات', l.allowances)}${row(`الإضافي (${Math.round(l.att.overtimeMinutes / 60)} ساعة)`, l.overtime)}${row('العمولة', l.commission)}${l.targetBonus ? row('حافز تحقيق التارجت', l.targetBonus) : ''}${row('المكافآت', l.rewards)}
       <tr><th>الاستقطاعات</th><th></th></tr>${row(`التأخير (${l.att.lateMinutes} دقيقة)`, l.lateDed)}${row(`الغياب (${l.att.absent} يوم)`, l.absenceDed)}${row('إجازة بدون أجر', l.unpaidDed)}${row('الجزاءات', l.penalties)}${row('استقطاع السلف', l.advances)}
       <tr><th>صافي المستحق</th><th>${h.n2(l.net)} ج.م</th></tr></table>
       <p>أيام العمل: ${l.att.workdays} · الحضور: ${l.att.present}</p><div class="sign"><div>الموارد البشرية ................</div><div>المحاسب ................</div><div>توقيع الموظف ................</div></div>`;
@@ -250,6 +251,7 @@
       <div class="card"><h3>📊 الأداء — ${esc(p)}</h3><div class="score-big"><b class="num">${Math.round(sc.total)}</b><span>/100</span> ${ratingChip(sc)}</div>${partsHtml(sc.parts, s.hr.settings.weights)}
         ${sc.warnings ? `<div class="chip danger" style="margin-top:6px">−${sc.warnings * 5} نقاط إنذارات/جزاءات</div>` : ''}<h4 style="margin:14px 0 6px">مؤشرات من الشغل الفعلي في النظام</h4>${kpiTable(sc.kpis)}</div>
       <div class="stack">
+        <div class="card"><h3>🎯 التارجت</h3>${App.targetCard(sc.kpis.target, sc.kpis, { admin: hr })}</div>
         <div class="card"><h3>🚩 ملاحظات المراقبة</h3><div class="alert-list">${fl.map((f) => `<div class="alert ${f.level === 'err' ? 'err' : f.level === 'warn' ? 'warn' : 'info'}">${esc(f.text)}</div>`).join('') || '<div class="muted small">✅ لا ملاحظات.</div>'}</div></div>
         <div class="card"><h3>📋 البيانات</h3><table class="t small"><tbody>
           <tr><td>التعيين</td><td>${esc(e.hireDate || '—')}</td></tr><tr><td>العقد</td><td>${esc({ FULL: 'دوام كامل', PART: 'جزئي', TEMP: 'مؤقت', FREELANCE: 'بالقطعة' }[e.contractType] || '—')}${e.contractEnd ? ' حتى ' + esc(e.contractEnd) : ''}</td></tr>
@@ -379,35 +381,76 @@
   App.actions.hrTaskDel = (d) => { if (!hrOnly() || !confirm('حذف المهمة؟')) return; S().hr.tasks = S().hr.tasks.filter((t) => t.id !== d.id); done('حذف مهمة'); };
 
   // ================================================================ TARGETS & EVALUATIONS
+  // ---------------------------------------------------------------- targets (types + 4× salary floor + incentive)
+  const tgUnit = (m) => Hr.TARGET_METRICS[m].unit;
+  const fmtTg = (m, v) => (Hr.TARGET_METRICS[m].money ? h.egp(v) : `<span class="num">${h.n0(v)}</span> ${tgUnit(m)}`);
+  const incText = (inc) => (!inc || inc.type === 'NONE' ? 'بدون حافز' : inc.type === 'FIXED' ? `حافز ${h.n0(inc.amount)} ج.م عند التحقيق` : `حافز ${inc.pct}% من ${inc.base === 'PROFIT' ? 'الربحية' : 'المبيعات'} المحققة`);
+  /** Target card (HR list, employee profile and "My account"). */
+  App.targetCard = (t, k, opts = {}) => {
+    if (!t) return `<div class="muted small">لم يُحدد تارجت لهذا الشهر${opts.admin ? '' : ' — تواصل مع مديرك'}.</div>`;
+    if (!t.metric) return `<div class="small">تارجت قديم: مبيعات ${h.n0(t.sales || 0)} · حجوزات ${t.bookings || 0}</div>`;
+    const actual = k.actuals[t.metric], p = t.value ? (actual / t.value) * 100 : 0, left = Math.max(0, t.value - actual);
+    const now = new Date(), [y, m] = t.period.split('-').map(Number), last = new Date(y, m, 0).getDate();
+    const daysLeft = t.period === E.iso(now).slice(0, 7) ? Math.max(1, last - now.getDate() + 1) : 0;
+    return `<div class="target-card"><div class="row" style="justify-content:space-between"><b>🎯 ${esc(Hr.TARGET_METRICS[t.metric].ar)}</b><span class="chip ${p >= 100 ? 'ok' : p >= 70 ? 'hold' : 'danger'}">${Math.round(p)}%</span></div>
+      <div class="tg-nums"><div><small>التارجت</small><b>${fmtTg(t.metric, t.value)}</b></div><div><small>المحقق</small><b class="ok">${fmtTg(t.metric, actual)}</b></div><div><small>المتبقي</small><b class="${left ? 'danger' : 'ok'}">${left ? fmtTg(t.metric, left) : '✅ تم'}</b></div></div>
+      ${bar(p)}<div class="small muted" style="margin-top:6px">${esc(incText(t.incentive))}${daysLeft && left ? ` · باقي ${daysLeft} يوم — المطلوب يومياً ${Hr.TARGET_METRICS[t.metric].money ? h.n0(left / daysLeft) + ' ج.م' : Math.ceil(left / daysLeft) + ' ' + tgUnit(t.metric)}` : ''}${p >= 100 && t.incentive && t.incentive.type !== 'NONE' ? ` · <b class="ok">الحافز المستحق ${h.n0(Hr.targetBonus(S(), null, t.period, k))} ج.م</b>` : ''}</div></div>`;
+  };
   App.pages.hrReviews = () => {
-    const s = S(), p = period(), td = today();
-    return `<div class="page-head"><div><h2>🎯 الأهداف والتقييم</h2><p>هدف شهري لكل موظف (مبيعات، عدد حجوزات، تحصيل) + تقييم المدير على 5 محاور</p></div><div class="row">${periodPicker()}<button class="btn" data-act="hrCopyTargets">نسخ أهداف الشهر السابق</button><button class="btn primary" data-act="hrEvalForm">+ تقييم</button></div></div>
-    <div class="card"><h3>🎯 أهداف ${esc(p)} والإنجاز الفعلي</h3><div class="tbl-wrap"><table class="t"><thead><tr><th>الموظف</th><th>هدف المبيعات</th><th>المحقق</th><th>هدف الحجوزات</th><th>المحقق</th><th>هدف التحصيل</th><th>المحقق</th><th>الإنجاز</th><th></th></tr></thead><tbody>
-      ${Hr.activeEmps(s).map((e) => { const k = Hr.kpis(s, e, p), t = k.target || {}; return `<tr><td>${esc(e.name)}</td>
-        <td><input class="input sm num" type="number" id="tg-s-${e.id}" value="${t.sales || ''}" style="width:110px"></td><td>${h.egp(k.sales)}</td>
-        <td><input class="input sm num" type="number" id="tg-b-${e.id}" value="${t.bookings || ''}" style="width:70px"></td><td class="num">${k.liveBookings}</td>
-        <td><input class="input sm num" type="number" id="tg-c-${e.id}" value="${t.collections || ''}" style="width:110px"></td><td>${h.egp(k.collections)}</td>
-        <td style="min-width:90px">${k.achievement == null ? '—' : bar(k.achievement) + pct(k.achievement)}</td><td><button class="btn sm" data-act="hrTargetSave" data-id="${e.id}">حفظ</button></td></tr>`; }).join('')}
-    </tbody></table></div></div>
+    const s = S(), p = period();
+    return `<div class="page-head"><div><h2>🎯 التارجت والتقييم</h2><p>تارجت شهري لكل موظف بالنوع اللي تختاره (عدد حجوزات، عدد أفراد، قيمة مبيعات، ربحية، تحصيل) مع حافز مقطوع أو نسبة — والنظام لا يقبل تارجت أقل من ${Hr.MIN_SALARY_MULTIPLE} أضعاف الراتب</p></div>
+      <div class="row">${periodPicker()}<button class="btn" data-act="hrCopyTargets">نسخ تارجت الشهر السابق</button><button class="btn primary" data-act="hrEvalForm">+ تقييم</button></div></div>
+    <div class="emp-grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">${Hr.activeEmps(s).map((e) => { const k = Hr.kpis(s, e, p);
+      return `<div class="card"><div class="row" style="justify-content:space-between"><b>${esc(e.name)}</b><span class="small muted">راتب ${h.n0(Hr.monthlyPay(e))} · الحد الأدنى ${h.n0(Hr.MIN_SALARY_MULTIPLE * Hr.monthlyPay(e))}</span></div>
+        <div style="margin-top:8px">${App.targetCard(k.target, k, { admin: true })}</div>
+        <div class="row" style="margin-top:8px"><button class="btn sm primary" data-act="hrTargetForm" data-id="${e.id}">🎯 ${k.target ? 'تعديل التارجت' : 'تحديد التارجت'}</button></div></div>`; }).join('')}</div>
     <div class="card" style="margin-top:14px"><h3>📝 التقييمات</h3><div class="tbl-wrap"><table class="t small"><thead><tr><th>الفترة</th><th>الموظف</th>${Object.values(Hr.EVAL_CRITERIA).map((c) => `<th>${c}</th>`).join('')}<th>النسبة</th><th>ملاحظات</th><th>المقيّم</th></tr></thead><tbody>
       ${s.hr.evaluations.slice().reverse().map((x) => `<tr><td>${esc(x.period)}</td><td>${esc(empName(x.empId))}</td>${Object.keys(Hr.EVAL_CRITERIA).map((c) => `<td class="num">${x.scores[c]}/5</td>`).join('')}<td>${pct(Hr.evaluationScore({ hr: { evaluations: [x] } }, x.empId, x.period))}</td><td>${esc(x.note || '')}</td><td>${esc(x.by)}</td></tr>`).join('') || `<tr><td colspan="9" class="muted">لا تقييمات.</td></tr>`}
     </tbody></table></div></div>`;
   };
-  App.actions.hrTargetSave = (d) => {
+  App.actions.hrTargetForm = (d) => {
     if (!hrOnly()) return;
-    const s = S(), p = period(), v = (k) => Number(App.val(`tg-${k}-${d.id}`)) || 0;
-    let t = s.hr.targets.find((x) => x.empId === d.id && x.period === p);
-    if (!t) { t = { id: Hr.uid('TG'), empId: d.id, period: p }; s.hr.targets.push(t); }
-    Object.assign(t, { sales: v('s'), bookings: v('b'), collections: v('c') });
-    done(`هدف ${p} لـ ${empName(d.id)}`); App.toast('تم حفظ الهدف');
+    const s = S(), e = emp(d.id), p = period(), t = s.hr.targets.find((x) => x.empId === d.id && x.period === p) || { metric: 'SALES', value: '', incentive: { type: 'NONE' } };
+    const f = App.ui.tgf = { empId: d.id, metric: t.metric || 'SALES', value: t.value || '', inc: (t.incentive || {}).type || 'NONE', amount: (t.incentive || {}).amount || '', pct: (t.incentive || {}).pct || '', base: (t.incentive || {}).base || 'SALES' };
+    renderTargetForm(e, p, f);
   };
-  App.actions.hrTargetForm = (d) => { App.ui.hrPeriod = period(); App.actions.go({ page: 'hrReviews' }); setTimeout(() => { const el = document.getElementById('tg-s-' + d.id); if (el) el.focus(); }, 50); };
+  function renderTargetForm(e, p, f) {
+    const s = S(), min = Hr.targetMinimum(s, e, f.metric), av = Hr.averages(s);
+    App.modal(`<h3>🎯 تارجت ${esc(e.name)} — ${esc(p)}</h3>
+      <div class="field"><label>نوع التارجت</label><div class="tg-types">${Object.entries(Hr.TARGET_METRICS).map(([k, x]) => `<button class="act-card ${f.metric === k ? 'on' : ''}" data-act="tgMetric" data-k="${k}"><b>${x.ar}</b><small>${x.money ? 'مبلغ' : 'عدد'}</small></button>`).join('')}</div></div>
+      <div class="grid g2" style="margin-top:8px"><div class="field"><label>قيمة التارجت (${tgUnit(f.metric)})</label><input class="input" id="tg-val" type="number" min="${min}" value="${esc(f.value)}" placeholder="الحد الأدنى ${min}"></div>
+        <div class="alert info small" style="margin:0">⚖️ لا يقل عن ${Hr.MIN_SALARY_MULTIPLE} × راتب ${h.n0(Hr.monthlyPay(e))} = ${h.n0(Hr.MIN_SALARY_MULTIPLE * Hr.monthlyPay(e))} ج.م${Hr.TARGET_METRICS[f.metric].money ? '' : ` — بمتوسط ${h.n0(f.metric === 'PAX' ? av.perPax : av.perBooking)} ج.م لل${f.metric === 'PAX' ? 'فرد' : 'حجز'} = <b>${min} ${tgUnit(f.metric)}</b> على الأقل`}</div></div>
+      <div class="field" style="margin-top:8px"><label>حافز تحقيق التارجت (يُضاف لمسير الرواتب تلقائياً)</label><select class="input" id="tg-inc" data-act-change="tgInc">${opt('NONE', f.inc, 'بدون حافز')}${opt('FIXED', f.inc, 'مبلغ مقطوع')}${opt('PCT', f.inc, 'نسبة من المحقق')}</select></div>
+      ${f.inc === 'FIXED' ? `<div class="grid g2">${field('tg-amt', 'مبلغ الحافز (ج.م)', f.amount, 'type="number"')}</div>` : ''}
+      ${f.inc === 'PCT' ? `<div class="grid g2">${field('tg-pct', 'النسبة %', f.pct, 'type="number" step="0.1"')}<div class="field"><label>من</label><select class="input" id="tg-base">${opt('SALES', f.base, 'المبيعات المحققة')}${opt('PROFIT', f.base, 'الربحية المحققة')}</select></div></div>` : ''}
+      <div class="row" style="margin-top:12px"><button class="btn primary" data-act="tgSave">حفظ التارجت</button><button class="btn" data-act="closeModal">إلغاء</button></div>`);
+  }
+  const keepTg = () => { const f = App.ui.tgf, v = (id) => { const el = document.getElementById(id); return el ? el.value : undefined; };
+    f.value = v('tg-val') ?? f.value; f.amount = v('tg-amt') ?? f.amount; f.pct = v('tg-pct') ?? f.pct; f.base = v('tg-base') ?? f.base; return f; };
+  App.actions.tgMetric = (d) => { const f = keepTg(); f.metric = d.k; f.value = ''; renderTargetForm(emp(f.empId), period(), f); };
+  App.actions.tgInc = (d) => { const f = keepTg(); f.inc = d.value; renderTargetForm(emp(f.empId), period(), f); };
+  App.actions.tgSave = () => {
+    const s = S(), f = keepTg(), e = emp(f.empId), p = period();
+    const incentive = f.inc === 'FIXED' ? { type: 'FIXED', amount: Number(f.amount) } : f.inc === 'PCT' ? { type: 'PCT', pct: Number(f.pct), base: f.base } : { type: 'NONE' };
+    const t = { metric: f.metric, value: Number(f.value), incentive };
+    try { Hr.validateTarget(s, e, t); } catch (err) { return App.toast('⛔ ' + err.message, 'err'); }
+    let x = s.hr.targets.find((y) => y.empId === e.id && y.period === p);
+    if (!x) { x = { id: Hr.uid('TG'), empId: e.id, period: p }; s.hr.targets.push(x); }
+    for (const k of ['sales', 'bookings', 'collections']) delete x[k];
+    Object.assign(x, t, { by: App.actor().name, at: Date.now() });
+    done(`تارجت ${p} لـ ${e.name}: ${Hr.TARGET_METRICS[t.metric].ar} ${t.value}`); App.toast('✅ تم حفظ التارجت وإشعار الموظف');
+  };
   App.actions.hrCopyTargets = () => {
     if (!hrOnly()) return;
     const s = S(), p = period(), prev = E.iso(E.addDays(p + '-01', -1)).slice(0, 7);
-    let n = 0;
-    for (const t of s.hr.targets.filter((x) => x.period === prev)) if (!s.hr.targets.some((x) => x.empId === t.empId && x.period === p)) { s.hr.targets.push({ ...t, id: Hr.uid('TG'), period: p }); n++; }
-    done(`نسخ ${n} هدف إلى ${p}`); App.toast(`تم نسخ ${n} هدف`);
+    let n = 0, skipped = 0;
+    for (const t of s.hr.targets.filter((x) => x.period === prev)) {
+      if (s.hr.targets.some((x) => x.empId === t.empId && x.period === p)) continue;
+      const e = emp(t.empId); if (!e) continue;
+      if (t.metric) { try { Hr.validateTarget(s, e, t); } catch (err) { skipped++; continue; } }
+      s.hr.targets.push({ ...t, id: Hr.uid('TG'), period: p }); n++;
+    }
+    done(`نسخ ${n} تارجت إلى ${p}`); App.toast(`تم نسخ ${n} تارجت${skipped ? ` · ${skipped} لم تُنسخ لأنها أقل من ${Hr.MIN_SALARY_MULTIPLE} أضعاف الراتب الحالي` : ''}`);
   };
   App.actions.hrEvalForm = (d) => {
     if (!hrOnly()) return;
@@ -465,11 +508,11 @@
       <div class="card kpi"><div class="lbl">الإجمالي</div><div class="val">${h.egp(sum('gross'))}</div><div class="hint">مدين مصروف الرواتب 5201</div></div>
       <div class="card kpi"><div class="lbl">سلف مستقطعة</div><div class="val">${h.egp(sum('advances'))}</div><div class="hint">دائن السلف 1105</div></div>
       <div class="card kpi"><div class="lbl">صافي المستحق</div><div class="val gold">${h.egp(sum('net'))}</div><div class="hint">دائن مستحقات الموظفين 2103</div></div></div>
-    <div class="card" style="margin-top:14px"><div class="tbl-wrap"><table class="t" id="hrPrTbl"><thead><tr><th>الموظف</th><th>الأساسي</th><th>البدلات</th><th>إضافي</th><th>عمولة</th><th>مكافآت</th><th>تأخير</th><th>غياب</th><th>بدون أجر</th><th>جزاءات</th><th>الإجمالي</th><th>سلف</th><th>الصافي</th><th></th></tr></thead><tbody>
-      ${lines.map((l) => { const pd = paid(l.empId); return `<tr><td><b>${esc(l.name)}</b><div class="small muted">${l.att.present}/${l.att.workdays} يوم · ${l.att.lateMinutes} د تأخير</div></td><td>${h.n0(l.basic)}</td><td>${h.n0(l.allowances)}</td><td>${h.n0(l.overtime)}</td><td>${h.n0(l.commission)}</td><td>${h.n0(l.rewards)}</td>
+    <div class="card" style="margin-top:14px"><div class="tbl-wrap"><table class="t" id="hrPrTbl"><thead><tr><th>الموظف</th><th>الأساسي</th><th>البدلات</th><th>إضافي</th><th>عمولة</th><th>حافز التارجت</th><th>مكافآت</th><th>تأخير</th><th>غياب</th><th>بدون أجر</th><th>جزاءات</th><th>الإجمالي</th><th>سلف</th><th>الصافي</th><th></th></tr></thead><tbody>
+      ${lines.map((l) => { const pd = paid(l.empId); return `<tr><td><b>${esc(l.name)}</b><div class="small muted">${l.att.present}/${l.att.workdays} يوم · ${l.att.lateMinutes} د تأخير</div></td><td>${h.n0(l.basic)}</td><td>${h.n0(l.allowances)}</td><td>${h.n0(l.overtime)}</td><td>${h.n0(l.commission)}</td><td>${h.n0(l.targetBonus || 0)}</td><td>${h.n0(l.rewards)}</td>
         <td class="danger">${h.n0(l.lateDed)}</td><td class="danger">${h.n0(l.absenceDed)}</td><td class="danger">${h.n0(l.unpaidDed)}</td><td class="danger">${h.n0(l.penalties)}</td><td>${h.n0(l.gross)}</td><td>${h.n0(l.advances)}</td><td><b>${h.n0(l.net)}</b></td>
         <td class="row" style="gap:4px"><button class="btn sm ghost" data-act="hrSlip" data-emp="${l.empId}">🧾</button>${run && run.status === 'POSTED' ? (pd >= l.net - 0.01 ? '<span class="chip ok">مصروف</span>' : `<button class="btn sm" data-act="hrPrPay" data-emp="${l.empId}" data-amt="${Math.round((l.net - pd) * 100) / 100}">💸 صرف</button>`) : ''}</td></tr>`; }).join('')}
-      <tr class="total"><td>الإجمالي</td>${['basic', 'allowances', 'overtime', 'commission', 'rewards', 'lateDed', 'absenceDed', 'unpaidDed', 'penalties', 'gross', 'advances', 'net'].map((k) => `<td><b>${h.n0(sum(k))}</b></td>`).join('')}<td></td></tr>
+      <tr class="total"><td>الإجمالي</td>${['basic', 'allowances', 'overtime', 'commission', 'targetBonus', 'rewards', 'lateDed', 'absenceDed', 'unpaidDed', 'penalties', 'gross', 'advances', 'net'].map((k) => `<td><b>${h.n0(sum(k))}</b></td>`).join('')}<td></td></tr>
     </tbody></table></div><div class="small muted" style="margin-top:6px">قواعد الحساب من "إعدادات الدوام": يوم العمل = الأساسي ÷ ${s.hr.settings.monthDays} · كل ${s.hr.settings.lateBlockMin} دقيقة تأخير = ${s.hr.settings.lateBlockDay} يوم · الإضافي × ${s.hr.settings.overtimeRate}</div></div>`;
   };
   App.actions.hrPrPrepare = () => {

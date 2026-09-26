@@ -114,6 +114,7 @@
     if (App.companyId) headers['X-Company'] = String(App.companyId);
     if (body !== undefined && !raw) headers['Content-Type'] = 'application/json';
     const r = await fetch(url, { method, headers: raw ? { ...headers, ...raw } : headers, body: body === undefined ? undefined : raw ? body : JSON.stringify(body) });
+    const sd = Date.parse(r.headers.get('Date') || ''); if (sd) App.serverSkew = sd - Date.now(); // clock follows the server, not the device
     const d = await r.json().catch(() => ({}));
     if (r.status === 401 && App.me) { renderAuth(false); throw new Error('انتهت الجلسة — سجّل الدخول'); }
     if (!r.ok) { const e = new Error(d.error || 'تعذر تنفيذ الطلب'); e.status = r.status; e.data = d; throw e; }
@@ -246,6 +247,18 @@
     }
   };
 
+  // ------------------------------------------------------- clock (server time, company timezone)
+  App.serverSkew = 0;
+  const TZ = { EG: 'Africa/Cairo', SA: 'Asia/Riyadh', AE: 'Asia/Dubai', KW: 'Asia/Kuwait', QA: 'Asia/Qatar', BH: 'Asia/Bahrain', OM: 'Asia/Muscat', JO: 'Asia/Amman', IQ: 'Asia/Baghdad', LB: 'Asia/Beirut',
+    PS: 'Asia/Gaza', SD: 'Africa/Khartoum', LY: 'Africa/Tripoli', TN: 'Africa/Tunis', DZ: 'Africa/Algiers', MA: 'Africa/Casablanca', TR: 'Europe/Istanbul', PK: 'Asia/Karachi', ID: 'Asia/Jakarta', MY: 'Asia/Kuala_Lumpur' };
+  App.clockHtml = () => {
+    const now = new Date(Date.now() + (App.serverSkew || 0)), tz = TZ[(App.S && App.S.company.country) || 'EG'] || 'Africa/Cairo';
+    const time = now.toLocaleTimeString('ar-EG', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
+    const day = now.toLocaleDateString('ar-EG', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long' });
+    return `<b>${time}</b><small>${day}</small>`;
+  };
+  setInterval(() => document.querySelectorAll('[data-clock]').forEach((el) => { el.innerHTML = App.clockHtml(); }), 15000);
+
   // ------------------------------------------------------- navigation
   const ALL = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HEAD', 'SALES', 'OPERATIONS'];
   const FIN = ['OWNER', 'MANAGER', 'ACCOUNTANT'];
@@ -293,6 +306,12 @@
     const S = App.S, role = App.role();
     const alerts = Model.alerts(S, role);
     document.getElementById('brandCompany').textContent = S.company.name;
+    const ds = App.domains(), sw = ds.length > 1 ? `<div class="domain-switch" role="tablist">${ds.map((d) => `<button role="tab" class="${App.domain() === d ? 'on' : ''}" data-act="setDomain" data-d="${d}">${Model.DOMAINS[d].icon} <span>${Model.DOMAINS[d].ar}</span></button>`).join('')}</div>` : '';
+    const ctx = document.getElementById('sideCtx');
+    if (ctx) ctx.innerHTML = `<span class="clock-chip" data-clock>${App.clockHtml()}</span>
+      ${App.online && App.companies.length > 1 ? `<label>الشركة</label><select class="input" data-act-change="switchCompany">${App.companies.map((c) => App.h.opt(c.id, App.companyId, `${(c.domains || []).map((d) => Model.DOMAINS[d] ? Model.DOMAINS[d].icon : '').join('')} ${c.name}`)).join('')}</select>` : ''}
+      ${sw ? `<label>النشاط</label>${sw}` : `<span class="domain-one">${Model.DOMAINS[App.domain()].icon} ${Model.DOMAINS[App.domain()].ar}</span>`}
+      ${App.online && App.role() === 'OWNER' ? '<button class="btn sm" data-act="go" data-page="companies">🏢 الشركات وأنشطتها</button>' : ''}`;
     document.getElementById('nav').innerHTML = App.NAV.map(([gid, ico, label, items]) => {
       const vis = groupOn(gid) ? items.filter(([k, , roles]) => roles.includes(role) && itemOn(k)) : [];
       if (!vis.length) return '';
@@ -311,6 +330,7 @@
         ${S.trips.length && App.domain() === 'UMRAH' ? `<select data-act-change="switchTrip" title="الرحلة">${S.trips.map((d) => App.h.opt(d.id, S.activeTripId, `${d.trip.code} · ${d.trip.name}`)).join('')}</select>` : ''}
       </div>
       <div class="top-spacer"></div>
+      <span class="clock-chip" data-clock title="الوقت بتوقيت السيرفر">${App.clockHtml()}</span>
       ${(() => { const fx = Model.fxInfo(S); return `<button class="fx-pill hide-sm ${fx.alert ? 'alert' : ''}" data-act="go" data-page="fx" title="سعر الريال: التنفيذي مقابل العالمي">
         <span>💱 تنفيذي <b class="num">${fx.exec}</b></span><span class="sep"></span><span>عالمي <b class="num">${fx.global ?? '—'}</b></span>${fx.spreadPct != null ? `<span class="spread num">${fx.spreadPct > 0 ? '+' : ''}${fx.spreadPct}%</span>` : ''}</button>`; })()}
       <button class="icon-btn" data-act="go" data-page="home" title="التنبيهات">🔔${unread ? `<span class="badge">${unread > 99 ? '99+' : unread}</span>` : ''}</button>

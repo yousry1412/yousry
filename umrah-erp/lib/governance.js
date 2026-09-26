@@ -166,6 +166,16 @@ function validateHr(oldS, newS, user, errors, events) {
   }
   const oldT = new Set(oh.tasks.map((t) => t.id));
   for (const t of nh.tasks) if (!oldT.has(t.id)) { const uid = empUser.get(t.empId); if (uid) events.push({ userId: uid, text: `📌 مهمة جديدة: ${t.title} (تسليم ${t.due})`, link: 'me' }); }
+  // targets: never below 4× the employee's monthly pay (checked here so no client can bypass it)
+  const oldTg = new Map(oh.targets.map((t) => [t.id, stable(t)]));
+  for (const t of nh.targets) {
+    if (!t.metric || oldTg.get(t.id) === stable(t)) continue;
+    const emp = newS.employees.find((e) => e.id === t.empId);
+    if (!emp) { errors.push('التارجت لموظف غير موجود'); continue; }
+    try { Hr.validateTarget({ ...newS, hr: nh }, emp, t); } catch (e) { errors.push(e.message); }
+    const uid = empUser.get(t.empId);
+    if (uid && !oldTg.has(t.id)) events.push({ userId: uid, text: `🎯 تارجت ${t.period}: ${Hr.TARGET_METRICS[t.metric].ar} ${Math.round(t.value)} ${Hr.TARGET_METRICS[t.metric].unit}`, link: 'me' });
+  }
   // salaries & employee financial terms
   const oldEmp = new Map((oldS.employees || []).map((e) => [e.id, e]));
   for (const e of newS.employees) {
