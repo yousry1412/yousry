@@ -1,136 +1,67 @@
 /* =====================================================================
- * Umrah ERP — App core: state store, persistence, event delegation,
- * rendering loop, modal/toast/print/export helpers, TTL ticker.
- * Pages register themselves in App.pages / App.actions / App.partials.
+ * Umrah ERP — App core
+ * state store (company document, mounted trip) · persistence (online:
+ * versioned server document / offline: localStorage demo) · auth ·
+ * sidebar navigation with role-based groups · notifications & chat
+ * badges · uploads · modal/toast/print/export helpers · TTL ticker.
+ * Pages register in App.pages / App.actions / App.partials.
  * ===================================================================== */
 (function () {
   'use strict';
-  const E = window.Engine;
-  const LS_KEY = 'umrah-erp-state-v3';
-  const App = (window.App = { E, pages: {}, actions: {}, partials: {} });
+  const E = window.Engine, Acc = window.Acc, Model = window.Model;
+  const LS_KEY = 'umrah-erp-state-v4';
+  const App = (window.App = { E, Acc, Model, pages: {}, actions: {}, partials: {} });
 
-  // ------------------------------------------------------------ state
-  function load() {
-    try {
-      const raw = localStorage.getItem(LS_KEY);
-      if (!raw) return null;
-      const s = JSON.parse(raw);
-      return s && s.version === 3 ? s : null;
-    } catch (e) { return null; }
-  }
-  function hydrate(s) {
-    // Derived collections the seed does not carry.
-    if (!s.agentLedger) {
-      // Rebuild a reconciling ledger: opening balance + booking debits (B2B) / commission credits (broker) = current balance.
-      s.agentLedger = [];
-      for (const a of s.agents) {
-        const conv = (egp) => E.round2(a.currency === 'SAR' ? egp / s.fx.current : egp);
-        const bks = s.bookings.filter((b) => b.agentId === a.id);
-        if (a.tier === 'B2B') {
-          const debits = bks.map((b) => ({ b, amt: conv(b.net) }));
-          const opening = E.round2(a.balance + debits.reduce((x, y) => x + y.amt, 0));
-          s.agentLedger.push({ agentId: a.id, at: s.seededAt - 30 * 86400000, desc: 'رصيد افتتاحي / شحن محفظة', debit: opening < 0 ? -opening : 0, credit: opening > 0 ? opening : 0 });
-          for (const { b, amt } of debits) s.agentLedger.push({ agentId: a.id, at: b.createdAt, desc: `خصم حجز ${b.code} من المحفظة (سعر صافي)`, debit: amt, credit: 0, bookingId: b.id });
-        } else {
-          for (const b of bks) s.agentLedger.push({ agentId: a.id, at: b.createdAt, desc: `عمولة وسيط – حجز ${b.code}`, debit: 0, credit: b.agentCommission, bookingId: b.id });
-          a.balance = bks.reduce((x, b) => x + b.agentCommission, 0);
-        }
-      }
-    }
-    for (const p of s.pax) if (p.boarding == null) p.boarding = Number(p.id.slice(1)) % 3;
-    return s;
-  }
-  // Two modes:
-  //  - ONLINE  (served by umrah-erp/server.js): login + one shared state on the server, versioned.
-  //  - OFFLINE (file:// or static hosting without the API): single-user demo in localStorage.
-  App.S = null;
-  App.online = false;
-  App.me = null;
-  App.version = 0;
-  let saveTimer = null, inFlight = false, dirty = false;
-
-  App.save = () => {
-    if (!App.online) { try { localStorage.setItem(LS_KEY, JSON.stringify(App.S)); } catch (e) { /* private mode */ } return; }
-    dirty = true; setSync('saving');
-    clearTimeout(saveTimer); saveTimer = setTimeout(flush, 250);
-  };
-  async function flush() {
-    if (inFlight || !dirty) return;
-    inFlight = true; dirty = false;
-    try {
-      const r = await fetch('api/state', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseVersion: App.version, state: App.S }) });
-      if (r.status === 409) {
-        applyRemote(await r.json());
-        App.toast('⚠️ مستخدم آخر عدّل البيانات في نفس اللحظة — تم تحميل آخر نسخة، من فضلك أعد تنفيذ آخر عملية', 'warn');
-      } else if (r.status === 401) {
-        App.online && renderAuth(false);
-      } else if (!r.ok) {
-        dirty = true; App.toast('تعذر الحفظ على السيرفر — سيعاد المحاولة تلقائياً', 'err');
-      } else {
-        App.version = (await r.json()).version; setSync('saved');
-      }
-    } catch (e) { dirty = true; setSync('offline'); }
-    inFlight = false;
-    if (dirty) saveTimer = setTimeout(flush, 2000);
-  }
-  function applyRemote(d) {
-    App.S = hydrate(d.state); App.version = d.version; bindMe(); setSync('saved'); App.render();
-  }
-  // Maps the logged-in account to the in-app staff list that drives discount authority.
-  const ROLE_MAP = { OWNER: 'MANAGER', MANAGER: 'MANAGER', HEAD: 'HEAD', SALES: 'SALES', OPERATIONS: 'SALES' };
-  function bindMe() {
-    if (!App.online || !App.me) return;
-    const id = 'SU' + App.me.id, role = ROLE_MAP[App.me.role];
-    const u = App.S.users.find((x) => x.id === id);
-    if (u) { u.name = App.me.display_name; u.role = role; } else App.S.users.push({ id, name: App.me.display_name, role });
-    App.ui.actingUser = id;
-  }
-  let syncState = 'saved';
-  function setSync(st) { syncState = st; const el = document.getElementById('sync'); if (el) el.outerHTML = syncChip(); }
-  const syncChip = () => `<span id="sync" class="chip ${syncState === 'offline' ? 'danger' : syncState === 'saving' ? 'hold' : 'ok'}">${syncState === 'offline' ? '⚠️ غير متصل' : syncState === 'saving' ? '⏳ جارِ الحفظ' : '☁️ محفوظ'}</span>`;
-
-  App.reset = async () => {
-    if (App.online) {
-      const r = await fetch('api/state/reset', { method: 'POST' });
-      if (!r.ok) return App.toast((await r.json()).error || 'تعذر', 'err');
-      const d = await (await fetch('api/state')).json(); applyRemote(d);
-    } else { App.S = hydrate(window.MockData.buildSeed()); App.save(); App.render(); }
-    App.ui.selPax = null; App.ui.pickedBed = null;
-    App.toast('تمت إعادة تحميل البيانات التجريبية');
-  };
+  App.S = null; App.online = false; App.me = null; App.version = 0; App.companies = []; App.companyId = null;
+  App.notifications = { items: [], unread: 0 }; App.chatUnread = 0; App.fxGlobal = null;
 
   App.ui = {
-    page: 'builder', city: 'MAK', roomMode: 'sales', selPax: null, pickedBed: null, pickedSeat: null, pickedBusPax: null,
-    heatAllot: 'AL-MAK-01', heatStart: null, heatEnd: null, opsTab: 'vault', reportCity: 'MAK', actingUser: 'U3',
-    bookingFilter: 'ALL', paxSearch: '', waTpl: 'confirm', waFilter: 'ALL', voucherPax: null, stmtAgent: 'A1',
-    extranetAgent: null, showPool: false, showAllTypes: false, vaultFilter: 'ALL',
-    draft: null,
+    page: 'home', city: 'MAK', roomMode: 'sales', selPax: null, pickedBed: null, pickedSeat: null, pickedBusPax: null,
+    heatAllot: null, heatStart: null, heatEnd: null, opsTab: 'vault', reportCity: 'MAK', actingUser: 'U3',
+    bookingFilter: 'ALL', paxSearch: '', waTpl: 'confirm', waFilter: 'ALL', voucherPax: null, stmtAgent: null,
+    extranetAgent: null, showAllTypes: false, vaultFilter: 'ALL', draft: null, navOpen: {},
   };
 
-  // ---------------------------------------------------------- helpers
+  // ------------------------------------------------------------ helpers
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const nf0 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
   const nf2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function fmtLeft(ms) {
+    if (ms <= 0) return 'انتهت المهلة';
+    const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  }
   App.h = {
     esc,
     egp: (n) => (n == null ? '—' : `<span class="num">${nf0.format(Math.round(n))}</span> ج.م`),
     sar: (n) => (n == null ? '—' : `<span class="num">${nf0.format(Math.round(n))}</span> ر.س`),
-    cur: (n, c) => (c === 'SAR' ? App.h.sar(n) : App.h.egp(n)),
+    cur: (n, c) => (c === 'SAR' ? App.h.sar(n) : c && c !== 'EGP' ? `<span class="num">${nf0.format(Math.round(n))}</span> ${esc(c)}` : App.h.egp(n)),
+    money: (n) => `<span class="num">${nf2.format(n || 0)}</span>`,
     n0: (n) => nf0.format(Math.round(n || 0)),
     n2: (n) => nf2.format(n || 0),
     dt: (ms) => new Date(ms).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' }),
     day: (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'short' }),
-    user: () => App.S.users.find((u) => u.id === App.ui.actingUser),
+    user: () => App.S.users.find((u) => u.id === App.ui.actingUser) || { name: '—', role: 'SALES' },
     booking: (id) => App.S.bookings.find((b) => b.id === id),
     pax: (id) => App.S.pax.find((p) => p.id === id),
     agent: (id) => App.S.agents.find((a) => a.id === id),
-    supplier: (id) => App.S.suppliers.find((s) => s.id === id),
+    supplier: (id) => App.S.suppliers.find((s) => s.id === id) || { name: '—' },
+    customer: (id) => App.S.customers.find((c) => c.id === id),
+    employee: (id) => App.S.employees.find((c) => c.id === id),
     room: (id) => App.S.rooms.find((r) => r.id === id),
+    cashbox: (id) => App.S.cashboxes.find((c) => c.id === id),
+    branch: (id) => App.S.branches.find((b) => b.id === id) || { name: '—' },
+    partyName(p) {
+      if (!p) return '—';
+      const x = p.type === 'customer' ? App.h.customer(p.id) : p.type === 'agent' ? App.h.agent(p.id) : p.type === 'supplier' ? App.S.suppliers.find((s) => s.id === p.id) : App.h.employee(p.id);
+      return x ? `${x.code ? x.code + ' · ' : ''}${x.name}` : '—';
+    },
     statusChip(st) {
       const m = E.BOOKING_STATUS[st] || { ar: st };
       const cls = { SOFT_HOLD: 'hold', PENDING_APPROVAL: 'hold', PENDING_PRICING: 'hold', DEPOSIT: 'deposit', CONFIRMED: 'confirmed', EXPIRED: 'expired', CANCELLED: 'cancelled' }[st] || '';
       return `<span class="chip ${cls}">${esc(m.ar)}</span>`;
     },
+    vStatus: (s) => ({ PENDING: '<span class="chip hold">بانتظار الاعتماد</span>', POSTED: '<span class="chip ok">معتمد ومرحّل</span>', REJECTED: '<span class="chip danger">مرفوض</span>', CANCELLED: '<span class="chip">ملغي بقيد عكسي</span>' }[s] || s),
     genderChip: (g) => (g === 'M' ? '<span class="chip male">♂ رجال</span>' : g === 'F' ? '<span class="chip female">♀ سيدات</span>' : g === 'P' ? '<span class="chip private">🔒 مغلقة</span>' : '<span class="chip">غير مفتوحة</span>'),
     paxGender: (g) => (g === 'M' ? '<span class="chip male">♂ ذكر</span>' : '<span class="chip female">♀ أنثى</span>'),
     countdown: (until) => `<span class="num" data-countdown="${until}">${fmtLeft(until - Date.now())}</span>`,
@@ -139,17 +70,18 @@
       return `<div class="progress ${pct >= 100 ? 'full' : ''}" title="${pct}%"><span style="width:${pct}%"></span></div><div class="small muted num">${pct}%</div>`;
     },
     channelLabel(b) {
-      if (b.channel === 'DIRECT') { const u = App.S.users.find((x) => x.id === b.userId); return `مباشر – ${esc(u ? u.name : '')}`; }
+      if (b.channel === 'DIRECT') { const u = App.S.users.find((x) => x.id === b.userId); return `مباشر – ${esc(u ? u.name : b.createdBy || '')}`; }
       const a = App.h.agent(b.agentId); return `${b.channel === 'B2B' ? 'وكيل' : 'وسيط'} – ${esc(a ? a.name : '')}`;
     },
+    opt: (v, cur, label) => `<option value="${esc(v)}" ${String(v) === String(cur) ? 'selected' : ''}>${esc(label ?? v)}</option>`,
+    thumb(fileId, label) {
+      if (!fileId) return `<span class="thumb empty" title="${esc(label)}">—</span>`;
+      return `<a class="thumb" href="${App.fileUrl(fileId)}" target="_blank" rel="noopener" title="${esc(label)}"><img src="${App.fileUrl(fileId)}" alt="${esc(label)}" loading="lazy"></a>`;
+    },
+    fileLink: (id, name) => `<a href="${App.fileUrl(id)}" target="_blank" rel="noopener">📎 ${esc(name || 'مرفق')}</a>`,
+    noTrip: () => `<div class="card empty-state"><h3>✈️ لا توجد رحلة مختارة</h3><p class="muted">أنشئ رحلة جديدة أو اختر رحلة من أعلى الشاشة.</p><button class="btn primary" data-act="go" data-page="trips">الذهاب للرحلات</button></div>`,
   };
-  function fmtLeft(ms) {
-    if (ms <= 0) return 'انتهت المهلة';
-    const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-  }
-  App.audit = (msg) => { App.S.audit.unshift({ at: Date.now(), by: App.h.user().name, msg }); App.S.audit.length = Math.min(App.S.audit.length, 200); };
-
+  App.audit = (msg) => { App.S.audit.unshift({ at: Date.now(), by: App.actor().name, msg }); App.S.audit.length = Math.min(App.S.audit.length, 300); };
   const getPath = (o, p) => p.split('.').reduce((x, k) => (x == null ? x : x[k]), o);
   const setPath = (o, p, v) => { const ks = p.split('.'); const last = ks.pop(); const t = ks.reduce((x, k) => x[k], o); t[last] = v; };
   App.getPath = getPath; App.setPath = setPath;
@@ -158,23 +90,128 @@
     if (el.type === 'number' || el.dataset.num !== undefined) { const n = parseFloat(el.value); return Number.isFinite(n) ? n : 0; }
     return el.value;
   }
+  App.val = (id) => { const el = document.getElementById(id); return el ? readValue(el) : undefined; };
 
-  // --------------------------------------------------------- feedback
+  // --------------------------------------------------------- roles
+  const ROLE_MAP = { OWNER: 'MANAGER', MANAGER: 'MANAGER', HEAD: 'HEAD', SALES: 'SALES', OPERATIONS: 'SALES', ACCOUNTANT: 'SALES' };
+  App.ROLE_LABEL = { OWNER: 'المالك', MANAGER: 'مدير', ACCOUNTANT: 'محاسب', HEAD: 'رئيس قسم مبيعات', SALES: 'موظف مبيعات', OPERATIONS: 'عمليات وتسكين', AGENT: 'مندوب/وكيل', SUPERVISOR: 'مشرف رحلة', HOUSING: 'مندوب تسكين' };
+  App.role = () => (App.online ? App.me.role : { MANAGER: 'OWNER', HEAD: 'HEAD', SALES: 'SALES' }[App.h.user().role] || 'SALES');
+  App.actor = () => ({ name: App.online ? App.me.display_name : App.h.user().name, role: App.role(), staffId: App.ui.actingUser, userId: App.me && App.me.id });
+  App.can = (...roles) => roles.includes(App.role());
+  App.isApprover = () => Acc.canApprove(App.role());
+  function bindMe() {
+    if (!App.online || !App.me || !App.S) return;
+    const id = 'SU' + App.me.id, role = ROLE_MAP[App.me.role] || 'SALES';
+    const u = App.S.users.find((x) => x.id === id);
+    if (!u) App.S.users.push({ id, name: App.me.display_name, role });
+    else if (u.name !== App.me.display_name || u.role !== role) { u.name = App.me.display_name; u.role = role; }
+    App.ui.actingUser = id;
+  }
+
+  // --------------------------------------------------------- API
+  App.api = async (method, url, body, raw) => {
+    const headers = { 'X-Requested-With': 'umrah' };
+    if (App.companyId) headers['X-Company'] = String(App.companyId);
+    if (body !== undefined && !raw) headers['Content-Type'] = 'application/json';
+    const r = await fetch(url, { method, headers: raw ? { ...headers, ...raw } : headers, body: body === undefined ? undefined : raw ? body : JSON.stringify(body) });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 401 && App.me) { renderAuth(false); throw new Error('انتهت الجلسة — سجّل الدخول'); }
+    if (!r.ok) { const e = new Error(d.error || 'تعذر تنفيذ الطلب'); e.status = r.status; e.data = d; throw e; }
+    return d;
+  };
+  App.fileUrl = (id) => `api/files/${encodeURIComponent(id)}?c=${App.companyId || ''}`;
+  /** Upload a File/Blob; images are resized to ≤1600px JPEG in the browser first. */
+  App.upload = async (file) => {
+    if (!App.online) throw new Error('رفع الملفات متاح في النسخة الأونلاين فقط');
+    let blob = file, name = file.name || 'photo.jpg', type = file.type || 'application/octet-stream';
+    if (/^image\/(jpeg|png|webp)$/.test(type) && file.size > 350000) {
+      try {
+        const img = await createImageBitmap(file);
+        const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.82)); type = 'image/jpeg'; name = name.replace(/\.\w+$/, '') + '.jpg';
+      } catch (e) { /* keep original */ }
+    }
+    if (blob.size > 15 * 1024 * 1024) throw new Error('حجم الملف أكبر من 15MB');
+    return App.api('POST', 'api/files', blob, { 'Content-Type': type, 'X-File-Name': encodeURIComponent(name) });
+  };
+  /** Pick file(s) through a hidden input. capture=true opens the camera on phones. */
+  App.pickFiles = ({ accept = 'image/*,application/pdf', capture = false, multiple = false } = {}) => new Promise((resolve) => {
+    const i = document.createElement('input');
+    i.type = 'file'; i.accept = accept; if (capture) i.setAttribute('capture', 'environment'); i.multiple = multiple;
+    i.onchange = () => resolve([...i.files]);
+    i.click();
+  });
+  App.uploadPicked = async (opts) => {
+    const files = await App.pickFiles(opts);
+    const out = [];
+    for (const f of files) { try { out.push(await App.upload(f)); } catch (e) { App.toast(e.message, 'err'); } }
+    if (out.length) App.toast(`📎 تم رفع ${out.length} ملف`);
+    return out;
+  };
+
+  // ------------------------------------------------------ persistence
+  let saveTimer = null, inFlight = false, dirty = false, syncState = 'saved';
+  App.save = () => {
+    if (!App.online) { try { localStorage.setItem(LS_KEY, Model.serialize(App.S)); } catch (e) { /* private mode */ } return; }
+    dirty = true; setSync('saving');
+    clearTimeout(saveTimer); saveTimer = setTimeout(flush, 250);
+  };
+  async function flush() {
+    if (inFlight || !dirty) return;
+    inFlight = true; dirty = false;
+    try {
+      const d = await App.api('PUT', 'api/state', { baseVersion: App.version, state: JSON.parse(Model.serialize(App.S)) });
+      App.version = d.version; setSync('saved');
+    } catch (e) {
+      if (e.status === 409 || e.status === 403) {
+        App.toast(e.status === 409 ? '⚠️ مستخدم آخر عدّل البيانات في نفس اللحظة — تم تحميل آخر نسخة، أعد تنفيذ آخر عملية' : '⛔ ' + e.message, e.status === 409 ? 'warn' : 'err');
+        await reloadState();
+      } else if (e.status) { dirty = true; App.toast('تعذر الحفظ على السيرفر — سيعاد المحاولة', 'err'); }
+      else { dirty = true; setSync('offline'); }
+    }
+    inFlight = false;
+    if (dirty) saveTimer = setTimeout(flush, 2000);
+  }
+  function mountFromDoc(doc) {
+    const pref = localStorage.getItem('umrah-trip-' + App.companyId);
+    App.S = Model.load(doc);
+    if (pref && App.S.trips.some((t) => t.id === pref)) Model.mountTrip(App.S, pref);
+    bindMe();
+    if (!App.ui.heatAllot && App.S.allotments[0]) App.ui.heatAllot = App.S.allotments[0].id;
+  }
+  async function reloadState() {
+    const d = await App.api('GET', 'api/state');
+    mountFromDoc(d.state); App.version = d.version; setSync('saved'); App.render();
+  }
+  App.reloadState = reloadState;
+  function setSync(st) { syncState = st; const el = document.getElementById('sync'); if (el) el.outerHTML = syncChip(); }
+  const syncChip = () => `<span id="sync" class="chip ${syncState === 'offline' ? 'danger' : syncState === 'saving' ? 'hold' : 'ok'}" title="حالة الحفظ">${syncState === 'offline' ? '⚠️ غير متصل' : syncState === 'saving' ? '⏳ حفظ' : '☁️ محفوظ'}</span>`;
+
+  App.switchTrip = (id) => {
+    Model.mountTrip(App.S, id);
+    try { localStorage.setItem('umrah-trip-' + App.companyId, id); } catch (e) { /* ignore */ }
+    App.ui.selPax = null; App.ui.pickedBed = null; App.ui.heatStart = App.ui.heatEnd = null;
+    App.render();
+  };
+
+  // ------------------------------------------------------- feedback
   App.toast = (msg, kind = '') => {
     const box = document.getElementById('toasts');
     const t = document.createElement('div');
     t.className = 'toast ' + kind; t.textContent = msg;
     box.appendChild(t);
-    setTimeout(() => t.remove(), kind === 'err' ? 6000 : 3800);
+    setTimeout(() => t.remove(), kind === 'err' ? 7000 : 4000);
   };
-  App.modal = (html) => { document.getElementById('modal-root').innerHTML = `<div class="modal-bg" data-act="modalBg"><div class="modal">${html}</div></div>`; };
+  App.modal = (html, wide) => { document.getElementById('modal-root').innerHTML = `<div class="modal-bg" data-act="modalBg"><div class="modal ${wide ? 'wide' : ''}">${html}</div></div>`; };
   App.closeModal = () => { document.getElementById('modal-root').innerHTML = ''; };
   App.actions.modalBg = (d, el, ev) => { if (ev.target === el) App.closeModal(); };
   App.actions.closeModal = () => App.closeModal();
-  App.val = (id) => { const el = document.getElementById(id); return el ? readValue(el) : undefined; };
+  App.confirm = (msg) => window.confirm(msg);
 
-  /** Print an isolated document (rooming list, manifest, voucher) via a hidden iframe → Save as PDF. */
   App.printDoc = (title, bodyHtml, landscape) => {
+    const S = App.S, c = S.company;
     const f = document.createElement('iframe');
     f.style.cssText = 'position:fixed;width:0;height:0;border:0;left:-9999px';
     document.body.appendChild(f);
@@ -184,19 +221,19 @@
       <style>@page{size:A4 ${landscape ? 'landscape' : 'portrait'};margin:12mm}body{font-family:'IBM Plex Sans Arabic',Tahoma,sans-serif;color:#111;font-size:11px}
       table{width:100%;border-collapse:collapse}th,td{border:1px solid #888;padding:4px 6px;text-align:start}th{background:#0d3b2c;color:#fff}
       h1,h2{color:#0d3b2c;margin:0 0 4px}.ltr{direction:ltr;text-align:left}.muted{color:#555}.box{border:1px solid #0d3b2c;border-radius:8px;padding:10px;margin:8px 0}
-      .head{display:flex;justify-content:space-between;border-bottom:3px solid #b8912f;padding-bottom:8px;margin-bottom:10px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}</style>
-      </head><body>${bodyHtml}</body></html>`);
+      .head{display:flex;justify-content:space-between;border-bottom:3px solid #b8912f;padding-bottom:8px;margin-bottom:10px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+      .co{font-size:10px;color:#444;border-bottom:1px solid #ccc;padding-bottom:4px;margin-bottom:8px}.sign{display:flex;justify-content:space-between;margin-top:30px}</style>
+      </head><body><div class="co"><b>${esc(c.name)}</b>${c.commercialNo ? ' · س.ت ' + esc(c.commercialNo) : ''}${c.taxNo ? ' · رقم ضريبي ' + esc(c.taxNo) : ''}${c.licenseNo ? ' · ترخيص ' + esc(c.licenseNo) : ''}${c.phone ? ' · ' + esc(c.phone) : ''}${c.address ? ' · ' + esc(c.address) : ''}</div>${bodyHtml}</body></html>`);
     d.close();
     setTimeout(() => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 1500); }, 250);
   };
   App.download = (filename, content, mime) => {
-    const blob = new Blob([content], { type: mime });
+    const blob = content instanceof Blob ? content : new Blob([content], { type: mime });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = filename;
     document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   };
-  /** Excel-compatible exports: UTF-8 CSV with BOM + SpreadsheetML-flavoured HTML (.xls). */
   App.exportTable = (basename, headers, rows, fmt) => {
     if (fmt === 'csv') {
       const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -209,158 +246,232 @@
     }
   };
 
-  // ----------------------------------------------------------- render
-  const NAV = [
-    ['التخطيط والتسعير', [['builder', '🧮', 'البناء والتكلفة وFX'], ['heatmap', '🗓️', 'رادار الإتاحات']]],
-    ['المبيعات', [['booking', '🧾', 'محرك الحجز'], ['agents', '🤝', 'بوابة الوكلاء والمحافظ']]],
-    ['التشغيل', [['rooms', '🛏️', 'التسكين المزدوج'], ['bus', '🚌', 'مقاعد الباص'], ['ops', '🛂', 'العمليات والتقارير']]],
-    ['المالية', [['pnl', '📊', 'الإغلاق والأرباح']]],
+  // ------------------------------------------------------- navigation
+  const ALL = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HEAD', 'SALES', 'OPERATIONS'];
+  const FIN = ['OWNER', 'MANAGER', 'ACCOUNTANT'];
+  const SAL = ['OWNER', 'MANAGER', 'ACCOUNTANT', 'HEAD', 'SALES'];
+  const OPS = ['OWNER', 'MANAGER', 'HEAD', 'SALES', 'OPERATIONS'];
+  const ADM = ['OWNER', 'MANAGER'];
+  App.NAV = [
+    ['home', '🏠', 'الرئيسية', [['home', 'لوحة التحكم والتنبيهات', ALL]]],
+    ['trips', '✈️', 'الرحلات والتشغيل', [['trips', 'الرحلات', ALL], ['builder', 'التكلفة والتسعير', [...FIN, 'HEAD']], ['heatmap', 'رادار الإتاحات', ALL],
+      ['rooms', 'التسكين المزدوج', OPS], ['bus', 'مقاعد الباص', OPS], ['ops', 'العمليات والكشوف', OPS], ['tripfiles', 'ملفات الرحلة', ALL]]],
+    ['sales', '🧾', 'المبيعات والعملاء', [['booking', 'الحجوزات', [...SAL, 'OPERATIONS']], ['customers', 'العملاء', SAL], ['agents', 'الوكلاء والمناديب', SAL]]],
+    ['purch', '🏨', 'الموردون والفنادق', [['suppliers', 'الموردون', [...FIN, 'OPERATIONS']], ['hotels', 'الفنادق والمخصصات', [...FIN, 'OPERATIONS', 'HEAD']]]],
+    ['fin', '💰', 'المالية والحسابات', [['treasury', 'الخزائن والبنوك', FIN], ['vouchers', 'السندات والاعتمادات', ALL], ['expenses', 'المصروفات', FIN],
+      ['employees', 'الموظفون', FIN], ['coa', 'شجرة الحسابات', FIN], ['journal', 'القيود اليومية', FIN], ['reports', 'التقارير المالية', FIN], ['pnl', 'أرباح الرحلة', FIN]]],
+    ['comm', '💬', 'التواصل', [['chat', 'الشات الداخلي', ALL]]],
+    ['admin', '⚙️', 'الإدارة', [['settings', 'الشركة والفروع والضرائب', ADM], ['users', 'المستخدمون والصلاحيات', ADM], ['backup', 'النسخ الاحتياطي والإصدارات', ADM]]],
   ];
-  const ROLE_LABEL = { OWNER: 'المالك', MANAGER: 'مدير مبيعات', HEAD: 'رئيس قسم', SALES: 'موظف مبيعات', OPERATIONS: 'عمليات وتسكين' };
-  App.ROLE_LABEL = ROLE_LABEL;
+  const TRIP_PAGES = ['builder', 'heatmap', 'rooms', 'bus', 'ops', 'pnl', 'tripfiles'];
+  const pageAllowed = (p) => { for (const g of App.NAV) for (const [k, , roles] of g[3]) if (k === p) return roles.includes(App.role()); return true; };
+  const pageTitle = (p) => { for (const g of App.NAV) for (const [k, l] of g[3]) if (k === p) return l; return { bookingView: 'تفاصيل الحجز', customerView: 'حساب العميل', partyView: 'كشف حساب' }[p] || ''; };
+
   function renderShell() {
-    const S = App.S, h = App.h, t = S.trip;
-    const nav = App.online && App.me.role === 'OWNER' ? [...NAV, ['الإدارة', [['users', '👥', 'المستخدمون والصلاحيات']]]] : NAV;
-    document.getElementById('nav').innerHTML = nav.map(([sec, items]) => `<div class="nav-sec">${sec}</div>` +
-      items.map(([k, ico, lbl]) => `<button class="${App.ui.page === k ? 'active' : ''}" data-act="go" data-page="${k}"><span class="ico">${ico}</span>${lbl}</button>`).join('')).join('');
+    const S = App.S, role = App.role();
+    const alerts = Model.alerts(S, role);
+    document.getElementById('brandCompany').textContent = S.company.name;
+    document.getElementById('nav').innerHTML = App.NAV.map(([gid, ico, label, items]) => {
+      const vis = items.filter(([, , roles]) => roles.includes(role));
+      if (!vis.length) return '';
+      if (vis.length === 1 && gid === 'home') return navItem(vis[0], ico);
+      const open = App.ui.navOpen[gid] ?? vis.some(([k]) => k === App.ui.page);
+      return `<details class="nav-group" data-gid="${gid}" ${open ? 'open' : ''}><summary><span class="nav-icon">${ico}</span>${label}<span class="nav-caret">▾</span></summary>${vis.map((it) => navItem(it)).join('')}</details>`;
+    }).join('');
+    const t = S.trip;
+    const unread = App.notifications.unread + alerts.filter((a) => a.level !== 'info').length;
     document.getElementById('top').innerHTML = `
-      <div>
-        <div class="trip-title">${esc(t.name)} <span class="chip gold">${esc(t.costCenter)}</span> ${t.lockedPrices ? '<span class="chip ok">🔒 الأسعار مقفلة</span>' : '<span class="chip hold">الأسعار غير مقفلة</span>'}</div>
-        <div class="meta">سفر <span class="num">${t.departDate}</span> ← عودة <span class="num">${t.returnDate}</span> · ${esc(t.flight)}</div>
+      <button class="menu-toggle" data-act="toggleMenu" aria-label="القائمة">☰</button>
+      <div class="topbar-title">${esc(pageTitle(App.ui.page))}</div>
+      <div class="context-switcher">
+        ${App.online && App.companies.length > 1 ? `<select data-act-change="switchCompany" title="الشركة">${App.companies.map((c) => App.h.opt(c.id, App.companyId, c.name)).join('')}</select>` : ''}
+        ${S.trips.length ? `<select data-act-change="switchTrip" title="الرحلة">${S.trips.map((d) => App.h.opt(d.id, S.activeTripId, `${d.trip.code} · ${d.trip.name}`)).join('')}</select>` : ''}
       </div>
-      <div class="top-tools">
-        <span class="chip">صرف مرجعي <b class="num">${t.fxRef}</b></span>
-        <span class="chip ${S.fx.current > t.fxRef ? 'danger' : 'ok'}">صرف السوق <b class="num">${S.fx.current}</b></span>
-        ${App.online ? `${syncChip()}<span class="chip gold">👤 ${esc(App.me.display_name)} · ${esc(ROLE_LABEL[App.me.role])} · خصم ≤ ${E.ROLES[ROLE_MAP[App.me.role]].maxDiscount}%</span>
-          ${App.me.role === 'OWNER' ? '<button class="btn sm ghost" data-act="resetDemo" title="إعادة البيانات التجريبية للجميع">↺ بيانات تجريبية</button>' : ''}
-          <button class="btn sm ghost" data-act="logout">خروج</button>`
-        : `<label class="small muted">المستخدم الحالي</label>
-        <select class="input" style="width:auto" data-ui="actingUser">${S.users.map((u) => `<option value="${u.id}" ${u.id === App.ui.actingUser ? 'selected' : ''}>${esc(u.name)} · خصم ≤ ${E.ROLES[u.role].maxDiscount}%</option>`).join('')}</select>
-        <button class="btn sm ghost" data-act="resetDemo" title="إعادة البيانات التجريبية">↺ بيانات تجريبية</button>`}
-      </div>`;
+      <div class="top-spacer"></div>
+      ${t ? `<span class="chip hide-sm" title="صرف السوق مقابل المرجعي">SAR ${S.fx.current} / مرجعي ${t.fxRef}</span>` : ''}
+      <button class="icon-btn" data-act="go" data-page="home" title="التنبيهات">🔔${unread ? `<span class="badge">${unread > 99 ? '99+' : unread}</span>` : ''}</button>
+      ${App.online ? `<button class="icon-btn" data-act="go" data-page="chat" title="الشات">💬${App.chatUnread ? `<span class="badge">${App.chatUnread}</span>` : ''}</button>${syncChip()}` : ''}
+      ${App.online ? `<span class="topbar-user hide-sm">👤 ${esc(App.me.display_name)} · ${esc(App.ROLE_LABEL[App.me.role])}</span><button class="btn sm ghost" data-act="logout">خروج</button>`
+        : `<select class="hide-sm" data-ui="actingUser" title="المستخدم (نسخة العرض)">${S.users.map((u) => App.h.opt(u.id, App.ui.actingUser, `${u.name} · خصم ≤ ${E.ROLES[u.role].maxDiscount}%`)).join('')}</select>`}`;
   }
+  const navItem = ([k, label], ico) => `<a class="nav-item ${App.ui.page === k ? 'active' : ''}" data-act="go" data-page="${k}">${ico ? `<span class="nav-icon">${ico}</span>` : ''}${label}</a>`;
+
   let focusKey = null;
   App.render = () => {
+    if (!App.S) return;
+    if (!pageAllowed(App.ui.page)) App.ui.page = 'home';
     renderShell();
-    const page = App.pages[App.ui.page] || App.pages.builder;
-    document.getElementById('content').innerHTML = page();
+    const page = App.pages[App.ui.page] || App.pages.home;
+    let html;
+    try { html = TRIP_PAGES.includes(App.ui.page) && !App.S.trip ? App.h.noTrip() : page(); }
+    catch (e) { console.error(e); html = `<div class="card"><h3>حدث خطأ في عرض الصفحة</h3><p class="muted">${esc(e.message)}</p></div>`; }
+    document.getElementById('content').innerHTML = html;
     if (focusKey) {
       const el = document.querySelector(focusKey);
       if (el) { el.focus(); if (el.setSelectionRange && el.type === 'text') { const l = el.value.length; el.setSelectionRange(l, l); } }
       focusKey = null;
     }
+    if (App.after) { const f = App.after; App.after = null; f(); }
   };
-  App.refreshPartials = () => {
-    document.querySelectorAll('[data-partial]').forEach((el) => { const fn = App.partials[el.dataset.partial]; if (fn) el.innerHTML = fn(); });
-  };
+  App.refreshPartials = () => document.querySelectorAll('[data-partial]').forEach((el) => { const fn = App.partials[el.dataset.partial]; if (fn) el.innerHTML = fn(); });
   function keyOf(el) {
     for (const a of ['data-bind', 'data-ui', 'data-live']) if (el && el.hasAttribute && el.hasAttribute(a)) return `[${a}="${el.getAttribute(a)}"]`;
     return el && el.id ? '#' + el.id : null;
   }
-  // Re-render after the browser has moved focus, then restore it (keeps Tab navigation smooth).
   const deferRender = () => setTimeout(() => { focusKey = keyOf(document.activeElement); App.render(); }, 0);
 
-  // --------------------------------------------------- event delegation
+  // ------------------------------------------------- event delegation
   document.addEventListener('click', (ev) => {
     const el = ev.target.closest('[data-act]');
-    if (!el) return;
+    if (!el || el.tagName === 'SELECT') return;
     const fn = App.actions[el.dataset.act];
-    if (fn) fn(el.dataset, el, ev);
+    if (fn) { if (el.tagName === 'A' && !el.getAttribute('target')) ev.preventDefault(); fn(el.dataset, el, ev); }
   });
   document.addEventListener('change', (ev) => {
     const el = ev.target;
-    if (el.hasAttribute('data-bind')) { setPath(App.S, el.dataset.bind, readValue(el)); App.save(); if (el.dataset.after && App.actions[el.dataset.after]) App.actions[el.dataset.after](el.dataset, el); deferRender(); }
+    if (el.dataset.actChange && App.actions[el.dataset.actChange]) return App.actions[el.dataset.actChange]({ ...el.dataset, value: el.value }, el, ev);
+    if (el.hasAttribute('data-bind')) { setPath(App.S, el.dataset.bind, readValue(el)); if (el.dataset.after && App.actions[el.dataset.after]) App.actions[el.dataset.after](el.dataset, el); App.save(); deferRender(); }
     else if (el.hasAttribute('data-ui')) { setPath(App.ui, el.dataset.ui, readValue(el)); deferRender(); }
   });
   document.addEventListener('input', (ev) => {
     const el = ev.target;
     if (el.hasAttribute('data-live')) { setPath(App.ui, el.dataset.live, readValue(el)); App.refreshPartials(); }
   });
-  // Drag & drop (bus seats).
-  document.addEventListener('dragstart', (ev) => { const el = ev.target.closest('[data-drag-pax]'); if (el) ev.dataTransfer.setData('text/plain', el.dataset.dragPax); });
-  document.addEventListener('dragover', (ev) => { const el = ev.target.closest('[data-drop-seat]'); if (el) { ev.preventDefault(); el.classList.add('drop'); } });
-  document.addEventListener('dragleave', (ev) => { const el = ev.target.closest('[data-drop-seat]'); if (el) el.classList.remove('drop'); });
+  // Remember which sidebar groups the user opened/closed (only on real clicks, not on re-render).
+  document.addEventListener('click', (ev) => { const sm = ev.target.closest && ev.target.closest('.nav-group > summary'); if (sm) { const d = sm.parentElement; App.ui.navOpen[d.dataset.gid] = !d.open; } }, true);
+  document.addEventListener('dragstart', (ev) => { const el = ev.target.closest && ev.target.closest('[data-drag-pax]'); if (el) ev.dataTransfer.setData('text/plain', el.dataset.dragPax); });
+  document.addEventListener('dragover', (ev) => { const el = ev.target.closest && ev.target.closest('[data-drop-seat]'); if (el) { ev.preventDefault(); el.classList.add('drop'); } });
+  document.addEventListener('dragleave', (ev) => { const el = ev.target.closest && ev.target.closest('[data-drop-seat]'); if (el) el.classList.remove('drop'); });
   document.addEventListener('drop', (ev) => {
-    const el = ev.target.closest('[data-drop-seat]');
+    const el = ev.target.closest && ev.target.closest('[data-drop-seat]');
     if (!el) return;
     ev.preventDefault();
     const paxId = ev.dataTransfer.getData('text/plain');
     if (paxId && App.actions.busDrop) App.actions.busDrop({ seat: el.dataset.dropSeat, pax: paxId });
   });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && /^au-/.test(ev.target.id || '')) App.actions[document.querySelector('[data-act="doSetup"]') ? 'doSetup' : 'doLogin']();
+    if (ev.key === 'Escape') { App.closeModal(); document.body.classList.remove('menu-open'); }
+  });
 
-  App.actions.go = (d) => { App.ui.page = d.page; App.ui.pickedBed = null; App.ui.pickedSeat = null; App.render(); window.scrollTo(0, 0); };
-  App.actions.resetDemo = () => { if (confirm(App.online ? 'إعادة تحميل البيانات التجريبية ومسح كل التعديلات لكل المستخدمين؟' : 'إعادة تحميل البيانات التجريبية ومسح كل التعديلات؟')) App.reset(); };
+  App.actions.go = (d) => {
+    App.ui.page = d.page; App.ui.pickedBed = null; App.ui.pickedSeat = null;
+    if (d.trip && d.trip !== App.S.activeTripId) Model.mountTrip(App.S, d.trip);
+    if (d.id) App.ui.viewId = d.id;
+    if (d.ptype) App.ui.viewParty = { type: d.ptype, id: d.id };
+    document.body.classList.remove('menu-open');
+    App.closeModal();
+    App.render(); window.scrollTo(0, 0);
+  };
+  App.actions.toggleMenu = () => document.body.classList.toggle('menu-open');
+  App.actions.closeMenu = () => document.body.classList.remove('menu-open');
+  App.actions.switchTrip = (d) => App.switchTrip(d.value);
+  App.actions.switchCompany = async (d) => {
+    App.companyId = Number(d.value);
+    try { localStorage.setItem('umrah-company', String(App.companyId)); } catch (e) { /* ignore */ }
+    App.ui.page = 'home'; App.ui.heatAllot = null;
+    await reloadState(); pollBadges();
+  };
 
-  // ------------------------------------------------------ online: auth
+  // ------------------------------------------------------------ auth
   function renderAuth(needsSetup) {
-    App.me = null;
-    document.getElementById('nav').innerHTML = '';
-    document.getElementById('top').innerHTML = '<div class="trip-title">Smart Umrah ERP</div>';
-    document.getElementById('content').innerHTML = `
-      <div class="card" style="max-width:420px;margin:40px auto">
+    App.me = null; App.S = null;
+    document.getElementById('app').style.display = 'none';
+    const box = document.getElementById('authScreen');
+    box.style.display = 'grid';
+    box.innerHTML = `
+      <div class="card auth-card">
+        <div class="auth-brand">🕋 <b>Smart Umrah ERP</b></div>
         <h3>${needsSetup ? '🔐 إعداد حساب المالك لأول مرة' : '🔐 تسجيل الدخول'}</h3>
-        ${needsSetup ? '<p class="muted small">أول حساب يتعمل هو المالك بكل الصلاحيات، وبعدها يضيف حسابات فريقه من "المستخدمون والصلاحيات".</p>' : ''}
-        <div class="field"><label>اسم المستخدم</label><input class="input" id="au-user" autocomplete="username" style="direction:ltr"></div>
-        ${needsSetup ? '<div class="field" style="margin-top:8px"><label>الاسم الظاهر</label><input class="input" id="au-name" placeholder="مثال: أ. يسري"></div>' : ''}
-        <div class="field" style="margin-top:8px"><label>كلمة السر ${needsSetup ? '(8 حروف أو أرقام على الأقل)' : ''}</label><input class="input" id="au-pass" type="password" autocomplete="${needsSetup ? 'new-password' : 'current-password'}" style="direction:ltr"></div>
-        <button class="btn primary" style="margin-top:14px;width:100%;justify-content:center" data-act="${needsSetup ? 'doSetup' : 'doLogin'}">${needsSetup ? 'إنشاء الحساب والدخول' : 'دخول'}</button>
+        ${needsSetup ? '<p class="muted small">أول حساب هو المالك بكل الصلاحيات، وبعدها يضيف حسابات الفريق والمناديب من "المستخدمون والصلاحيات".</p>' : ''}
+        <div class="field"><label>اسم المستخدم</label><input class="input" id="au-user" autocomplete="username" autocapitalize="none" style="direction:ltr"></div>
+        ${needsSetup ? '<div class="field"><label>الاسم الظاهر</label><input class="input" id="au-name" placeholder="مثال: أ. يسري"></div>' : ''}
+        <div class="field"><label>كلمة السر ${needsSetup ? '(8+ حروف وأرقام)' : ''}</label><input class="input" id="au-pass" type="password" autocomplete="${needsSetup ? 'new-password' : 'current-password'}" style="direction:ltr"></div>
+        <button class="btn primary block" data-act="${needsSetup ? 'doSetup' : 'doLogin'}">${needsSetup ? 'إنشاء الحساب والدخول' : 'دخول'}</button>
       </div>`;
     const u = document.getElementById('au-user'); if (u) u.focus();
   }
+  App.renderAuth = renderAuth;
   async function authCall(url, body) {
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok) { App.toast(d.error || 'تعذر', 'err'); return; }
-    await startSession(d.user);
+    try { const d = await App.api('POST', url, body); await startSession(d.user); }
+    catch (e) { App.toast(e.message, 'err'); }
   }
   App.actions.doLogin = () => authCall('api/auth/login', { username: App.val('au-user'), password: App.val('au-pass') });
   App.actions.doSetup = () => authCall('api/auth/setup', { username: App.val('au-user'), display_name: App.val('au-name'), password: App.val('au-pass') });
-  App.actions.logout = async () => { await fetch('api/auth/logout', { method: 'POST' }); renderAuth(false); };
-  document.addEventListener('keydown', (ev) => {
-    if (ev.key === 'Enter' && /^au-/.test(ev.target.id)) App.actions[document.querySelector('[data-act="doSetup"]') ? 'doSetup' : 'doLogin']();
-  });
+  App.actions.logout = async () => { try { await App.api('POST', 'api/auth/logout', {}); } catch (e) { /* ignore */ } location.reload(); };
+
   async function startSession(user) {
     App.me = user;
-    const d = await (await fetch('api/state')).json();
-    App.S = hydrate(d.state); App.version = d.version; bindMe();
-    App.ui.page = 'builder';
-    App.render();
+    document.getElementById('authScreen').style.display = 'none';
+    if (['AGENT', 'SUPERVISOR', 'HOUSING'].includes(user.role)) { App.companyId = user.company_id; return window.Portal.start(); }
+    App.companies = await App.api('GET', 'api/companies');
+    const saved = Number(localStorage.getItem('umrah-company'));
+    App.companyId = user.role === 'OWNER' ? (App.companies.find((c) => c.id === saved) || App.companies[0]).id : user.company_id;
+    document.getElementById('app').style.display = '';
+    App.ui.page = 'home';
+    await reloadState();
+    pollBadges(); refreshFx();
   }
-  // Pull other users' changes every 4s (skipped while this user is typing or has a dialog open).
+  const portalOn = () => window.Portal && window.Portal.active;
+  async function pollBadges() {
+    if (!App.online || !App.me || !App.S || portalOn()) return;
+    try {
+      App.notifications = await App.api('GET', 'api/notifications');
+      const u = await App.api('GET', 'api/chat/unread');
+      App.chatUnread = u.reduce((s, x) => s + x.c, 0);
+      const top = document.getElementById('top'); if (top && !document.querySelector('.modal-bg')) renderShell();
+    } catch (e) { /* ignore */ }
+  }
+  async function refreshFx(force) {
+    if (!App.online) return;
+    try { App.fxGlobal = await App.api('GET', 'api/fx' + (force ? '?refresh=1' : '')); } catch (e) { /* ignore */ }
+    return App.fxGlobal;
+  }
+  App.refreshFx = refreshFx;
+
+  // Pull other users' changes (skipped while typing / dialog open / unsaved local changes).
   setInterval(async () => {
-    if (!App.online || !App.me || inFlight || dirty) return;
+    if (!App.online || !App.me || !App.S || inFlight || dirty || portalOn()) return;
     const a = document.activeElement;
     if (document.querySelector('.modal-bg') || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName))) return;
     try {
-      const r = await fetch('api/state?since=' + App.version);
-      if (r.status === 401) return renderAuth(false);
-      const d = await r.json();
-      if (d.changed && !dirty && !inFlight) applyRemote(d);
+      const d = await App.api('GET', 'api/state?since=' + App.version);
+      if (d.changed && !dirty && !inFlight) { mountFromDoc(d.state); App.version = d.version; App.render(); }
       if (syncState === 'offline') setSync('saved');
-    } catch (e) { setSync('offline'); }
-  }, 4000);
+    } catch (e) { if (!e.status) setSync('offline'); }
+  }, 5000);
+  setInterval(pollBadges, 12000);
 
-  // ------------------------------------------ TTL ticker (soft-hold engine)
+  // ------------------------------------------------ TTL ticker
   setInterval(() => {
-    if (!App.S || (App.online && !App.me)) return;
+    if (!App.S || !App.S.trip) return;
     const now = Date.now();
     document.querySelectorAll('[data-countdown]').forEach((el) => { el.textContent = fmtLeft(Number(el.dataset.countdown) - now); });
     const released = E.releaseExpiredHolds(App.S, now);
     if (released.length) {
       released.forEach((c) => App.audit(`تحرير آلي للحجز ${c} لانتهاء مهلة التعليق`));
+      for (const b of App.S.bookings.filter((x) => released.includes(x.code))) Acc.syncBooking(App.S, App.S.trip, b, 'النظام');
       App.save();
       App.toast(`⏱️ انتهت مهلة التعليق وتحرر المخزون تلقائياً: ${released.join('، ')}`, 'warn');
       App.render();
     }
   }, 1000);
 
+  // ------------------------------------------------------------ boot
   window.addEventListener('DOMContentLoaded', async () => {
     App.ui.draft = App.newDraft ? App.newDraft() : null;
     let st = null;
     if (location.protocol !== 'file:') {
-      try { const r = await fetch('api/auth/status'); if (r.ok && (r.headers.get('content-type') || '').includes('json')) st = await r.json(); } catch (e) { /* no API → offline demo */ }
+      try { const r = await fetch('api/auth/status'); if (r.ok && (r.headers.get('content-type') || '').includes('json')) st = await r.json(); } catch (e) { /* no API */ }
     }
-    if (!st) { App.S = hydrate(load() || window.MockData.buildSeed()); App.render(); return; }
+    if (!st) { // offline single-user demo
+      let doc = null;
+      try { doc = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch (e) { doc = null; }
+      App.S = Model.load(doc || window.MockData.buildSeed());
+      if (App.S.allotments[0]) App.ui.heatAllot = App.S.allotments[0].id;
+      document.getElementById('app').style.display = '';
+      App.render(); return;
+    }
     App.online = true;
     if (!st.user) return renderAuth(st.needsSetup);
     await startSession(st.user);
